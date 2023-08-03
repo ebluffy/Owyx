@@ -1,9 +1,5 @@
 <template>
-  <Modal
-    ref="onboardingModal"
-    :header="['Getting started', 'Sign into Minecraft', 'Install java'][page - 1]"
-    :closable="false"
-  >
+  <Modal ref="onboardingModal" :closable="false">
     <div class="modal-body">
       <div v-if="page === 1" key="1" class="content">
         <svg
@@ -174,6 +170,10 @@ const props = defineProps({
     type: Object,
     default: () => {},
   },
+  finish: {
+    type: Function,
+    default: () => {},
+  },
 })
 
 async function fetchSettings() {
@@ -210,16 +210,13 @@ watch([settings, settings.value], async () => {
 })
 
 onMounted(() => {
-  if (!settings.value.onboarded) {
-    onboardingModal.value.show()
-  }
+  onboardingModal.value.show()
 })
 
 async function pageTurn() {
   if (page.value === 3) {
-    settings.value.onboarded = true
     onboardingModal.value.hide()
-    mixpanel.track('OnboardingFinish')
+    props.finish()
     return
   }
   page.value++
@@ -267,7 +264,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding: var(--gap-lg);
+  padding: var(--gap-xl);
 
   height: min(70vh, 450px);
 
