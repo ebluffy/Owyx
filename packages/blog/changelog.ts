@@ -11,6 +11,12 @@ export type VersionEntry = {
 
 const VERSIONS: VersionEntry[] = [
 	{
+		date: `2026-05-05T01:34:18+00:00`,
+		product: 'web',
+		body: `## Fixed
+- Fixed unauthorized error when loading a user's own project or organization settings.`,
+	},
+	{
 		date: `2026-05-04T19:57:12+00:00`,
 		product: 'web',
 		body: `## Changed
