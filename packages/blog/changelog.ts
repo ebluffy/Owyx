@@ -11,6 +11,12 @@ export type VersionEntry = {
 
 const VERSIONS: VersionEntry[] = [
 	{
+		date: `2026-05-08T09:58:39+00:00`,
+		product: 'web',
+		body: `## Fixed
+- Fixed some buttons appearing as disabled even when they weren't, such as the project icon settings.`,
+	},
+	{
 		date: `2026-05-08T02:24:09+00:00`,
 		product: 'app',
 		version: '0.13.12',
