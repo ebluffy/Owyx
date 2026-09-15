@@ -5,13 +5,16 @@ import { computed, onMounted, ref } from 'vue'
 
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import {
-	DEFAULT_OWYX_API_BASE,
 	fetchOwyxCatalog,
 	getOwyxClientKey,
 	getOwyxDemoFlag,
+	getOwyxLocalApiFallback,
 	getStoredOwyxApiBase,
+	isSafeExternalHttpsUrl,
+	sanitizeOwyxApiBase,
 	setOwyxClientKey,
 	setOwyxDemoFlag,
+	setOwyxLocalApiFallback,
 	setStoredOwyxApiBase,
 	type OwyxServerEntry,
 } from '@/helpers/owyx-api'
@@ -60,6 +63,10 @@ const messages = defineMessages({
 		id: 'owyx.servers.demo-toggle',
 		defaultMessage: 'Show demo seed when API is unreachable',
 	},
+	localFallbackToggle: {
+		id: 'owyx.servers.local-fallback-toggle',
+		defaultMessage: 'Also try http://127.0.0.1:3001 (dev only)',
+	},
 	saveSettings: {
 		id: 'owyx.servers.save-settings',
 		defaultMessage: 'Save API settings',
@@ -92,6 +99,7 @@ const apiError = ref(false)
 const apiBase = ref(getStoredOwyxApiBase())
 const clientKey = ref(getOwyxClientKey())
 const demoEnabled = ref(getOwyxDemoFlag())
+const localFallback = ref(getOwyxLocalApiFallback())
 const copiedId = ref<string | null>(null)
 
 const hasServers = computed(() => servers.value.length > 0)
@@ -101,9 +109,10 @@ async function loadCatalog() {
 	apiError.value = false
 	try {
 		const result = await fetchOwyxCatalog({
-			baseUrl: apiBase.value || DEFAULT_OWYX_API_BASE,
+			baseUrl: sanitizeOwyxApiBase(apiBase.value),
 			clientKey: clientKey.value,
 			demoFallback: demoEnabled.value,
+			allowLocalFallback: localFallback.value,
 		})
 		servers.value = result.servers
 		apiError.value = result.fromFallback
@@ -117,9 +126,11 @@ async function loadCatalog() {
 }
 
 function saveSettings() {
-	setStoredOwyxApiBase(apiBase.value.trim() || DEFAULT_OWYX_API_BASE)
+	setStoredOwyxApiBase(sanitizeOwyxApiBase(apiBase.value))
+	apiBase.value = getStoredOwyxApiBase()
 	setOwyxClientKey(clientKey.value.trim())
 	setOwyxDemoFlag(demoEnabled.value)
+	setOwyxLocalApiFallback(localFallback.value)
 	void loadCatalog()
 }
 
@@ -135,9 +146,9 @@ async function copyAddress(server: OwyxServerEntry) {
 	}
 }
 
-async function openPack(server: OwyxServerEntry) {
-	if (!server.packUrl) return
-	window.open(server.packUrl, '_blank')
+function openPack(server: OwyxServerEntry) {
+	if (!isSafeExternalHttpsUrl(server.packUrl)) return
+	window.open(server.packUrl!, '_blank', 'noopener,noreferrer')
 }
 
 onMounted(() => {
@@ -175,6 +186,10 @@ onMounted(() => {
 				<input v-model="demoEnabled" type="checkbox" />
 				{{ formatMessage(messages.demoToggle) }}
 			</label>
+			<label class="flex items-center gap-2 text-sm text-secondary">
+				<input v-model="localFallback" type="checkbox" />
+				{{ formatMessage(messages.localFallbackToggle) }}
+			</label>
 			<div class="flex flex-wrap gap-2">
 				<Button type="colored" color="brand" @click="saveSettings">
 					{{ formatMessage(messages.saveSettings) }}
@@ -200,7 +215,7 @@ onMounted(() => {
 			>
 				<div class="flex min-w-0 items-start gap-3">
 					<img
-						v-if="server.iconUrl"
+						v-if="server.iconUrl && isSafeExternalHttpsUrl(server.iconUrl)"
 						:src="server.iconUrl"
 						alt=""
 						class="h-12 w-12 shrink-0 rounded-lg object-cover"
@@ -238,7 +253,11 @@ onMounted(() => {
 								: formatMessage(messages.copyAddress)
 						}}
 					</Button>
-					<Button v-if="server.packUrl" class="!bg-button-bg" @click="openPack(server)">
+					<Button
+						v-if="isSafeExternalHttpsUrl(server.packUrl)"
+						class="!bg-button-bg"
+						@click="openPack(server)"
+					>
 						{{ formatMessage(messages.downloadPack) }}
 					</Button>
 					<Button type="colored" color="brand" @click="copyAddress(server)">

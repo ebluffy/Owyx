@@ -200,11 +200,11 @@ let headRequest = 0
 
 function isOfflineAccount(account?: MinecraftCredential | null) {
 	if (!account) return false
-	return (
-		account.is_offline === true ||
-		account.refresh_token === 'owyx-offline' ||
-		account.refresh_token === ''
-	)
+	// Match Rust Credentials::is_offline: marker refresh_token, or empty refresh + empty/"0" access
+	if (account.is_offline === true || account.refresh_token === 'owyx-offline') return true
+	const refresh = account.refresh_token ?? ''
+	const access = (account as { access_token?: string }).access_token ?? ''
+	return refresh === '' && (access === '' || access === '0')
 }
 
 function accountTypeLabel(account?: MinecraftCredential | null) {

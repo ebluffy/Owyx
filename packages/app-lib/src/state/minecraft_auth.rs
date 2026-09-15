@@ -1707,3 +1707,28 @@ fn generate_oauth_challenge() -> String {
     let bytes: Vec<u8> = (0..64).map(|_| rng.r#gen::<u8>()).collect();
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
+
+#[cfg(test)]
+mod offline_account_tests {
+    use super::{offline_player_uuid, OFFLINE_REFRESH_TOKEN};
+    use uuid::Uuid;
+
+    #[test]
+    fn offline_uuid_matches_java_notch() {
+        assert_eq!(
+            offline_player_uuid("Notch"),
+            Uuid::parse_str("b50ad385-829d-3141-a216-7e7d7539ba7f").unwrap()
+        );
+    }
+
+    #[test]
+    fn offline_uuid_is_version_3() {
+        let id = offline_player_uuid("Player");
+        assert_eq!(id.get_version_num(), 3);
+    }
+
+    #[test]
+    fn offline_marker_constant() {
+        assert_eq!(OFFLINE_REFRESH_TOKEN, "owyx-offline");
+    }
+}
