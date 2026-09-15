@@ -21,6 +21,7 @@ Old private monorepo (site / previous launcher / plugin archive only): **https:/
 | `apps/app-frontend` | Launcher UI (Vue) |
 | `packages/app-lib` | Launcher core / Theseus (Rust) |
 | `brand/` | Logos, hero art, design tokens |
+| `owyxsite/` | Owyx control-plane (site + API + deploy) — our code, not upstream |
 | `docs/ms-oauth.md` | Microsoft OAuth wiring for owners |
 | `apps/frontend`, `apps/labrinth`, … | Upstream packages kept for sync |
 
@@ -45,6 +46,12 @@ Optional env (never commit secrets):
 ```bash
 export OWYX_API_BASE_URL=http://127.0.0.1:3001
 # VITE_OWYX_CLIENT_KEY=…   # frontend build-time placeholder only
+```
+
+Site / API (see `owyxsite/README.md` and `.env.example`):
+
+```bash
+cd owyxsite && docker compose up   # or documented local scripts
 ```
 
 ## Upstream sync
