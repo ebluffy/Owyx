@@ -59,9 +59,13 @@ The key is configured as `LAUNCHER_CLIENT_KEY` on the site and `OWYX_CLIENT_KEY`
 
 ## Auth flow (Owyx account in the launcher)
 
-1. `POST /api/auth/login` with `{ "email", "password" }`.
+1. `POST /api/auth/login` with `{ "email", "password", "remember": true }`.
+   - Browser (Host: `owyx.site`): may require Cloudflare Turnstile (`turnstileToken`).
+   - **Launcher** (Host: `api.owyx.site` + valid `X-Owyx-Client-Key`): Turnstile is
+     **skipped** — the client key is the shared secret.
    - `200` → `{ success: true, token, user }`. `token` is a JWT.
    - `401`/`403` → `{ error }` (wrong credentials / inactive). Show a human message.
+   - `401 unauthorized_client` → missing/invalid client key (configure in Owyx Servers settings).
 2. Store the JWT securely (OS app-data, never plaintext in the UI).
 3. `GET /api/launcher/me` with `Authorization: Bearer <token>` → profile + access.
    Session rows store a SHA-256 of the JWT (legacy base64 hashes are migrated on

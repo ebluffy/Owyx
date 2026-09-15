@@ -147,7 +147,10 @@ fn main() {
             .plugin(
                 "onboarding-checklist",
                 InlinedPlugin::new()
-                    .commands(&["get_onboarding_checklist"])
+                    .commands(&[
+                        "get_onboarding_checklist",
+                        "mark_logged_into_owyx_site",
+                    ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,
                     ),

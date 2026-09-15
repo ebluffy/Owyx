@@ -395,12 +395,20 @@ router.post('/login', [
         const ip = req.clientIp || req.ip || req.connection.remoteAddress;
         const userAgent = req.get('User-Agent') || '';
 
-        // Проверка Cloudflare Turnstile
-        const turnstileResult = await verifyTurnstile(turnstileToken, ip);
-        if (!turnstileResult.success) {
-            return res.status(400).json({
-                error: turnstileResult.message || 'Проверка капчи не пройдена'
-            });
+        // Launcher clients authenticate with X-Owyx-Client-Key (api host gate).
+        // Skip Turnstile for those — no browser captcha in Tauri.
+        const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
+        const gotKey = (req.get('x-owyx-client-key') || '').trim();
+        const launcherClient =
+            Boolean(expectedKey) && gotKey === expectedKey;
+
+        if (!launcherClient) {
+            const turnstileResult = await verifyTurnstile(turnstileToken, ip);
+            if (!turnstileResult.success) {
+                return res.status(400).json({
+                    error: turnstileResult.message || 'Проверка капчи не пройдена'
+                });
+            }
         }
 
         // Проверяем количество неудачных попыток

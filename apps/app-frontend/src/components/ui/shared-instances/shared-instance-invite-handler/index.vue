@@ -10,7 +10,6 @@
 </template>
 
 <script setup lang="ts">
-import { injectAuth } from '@modrinth/ui'
 import { ref } from 'vue'
 
 import ModrinthAccountRequiredModal from '@/components/ui/modal/ModrinthAccountRequiredModal.vue'
@@ -20,7 +19,6 @@ import SharedInstanceAlreadyInstalledModal from '@/components/ui/shared-instance
 import type { SharedInstanceInviteHandler } from './shared-instance-invite-types'
 import { useSharedInstanceInviteHandler } from './use-shared-instance-invite-handler'
 
-const auth = injectAuth()
 const installModal = ref<InstanceType<typeof SharedInstanceInstallModal>>()
 const alreadyInstalledModal = ref<InstanceType<typeof SharedInstanceAlreadyInstalledModal>>()
 const accountRequiredModal = ref<InstanceType<typeof ModrinthAccountRequiredModal>>()

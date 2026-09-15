@@ -152,7 +152,6 @@ import {
 	isSharedInstanceUnavailableError,
 } from '@/helpers/install'
 import { edit } from '@/helpers/instance'
-import type { ModrinthAuthFlow } from '@/helpers/mr_auth.ts'
 import {
 	sharedInstanceErrorMessages,
 	useSharedInstanceErrors,

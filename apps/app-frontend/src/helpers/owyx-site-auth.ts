@@ -84,14 +84,26 @@ function mapUser(raw: Record<string, unknown>): OwyxSiteUser {
 
 export async function loginOwyxSite(email: string, password: string): Promise<OwyxSiteSession> {
 	const base = apiBase()
+	const key = getOwyxClientKey()
+	if (!key.trim()) {
+		throw new Error(
+			'Missing X-Owyx-Client-Key. Open Owyx Servers → paste your client key, Save, then sign in again.',
+		)
+	}
 	const res = await fetch(`${base.replace(/\/$/, '')}/api/auth/login`, {
 		method: 'POST',
 		headers: authHeaders(),
-		body: JSON.stringify({ email: email.trim(), password }),
+		body: JSON.stringify({ email: email.trim(), password, remember: true }),
 		signal: AbortSignal.timeout(12000),
 	})
 	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
 	if (!res.ok || !data.token) {
+		const code = String(data.error ?? '')
+		if (code === 'unauthorized_client' || res.status === 401 && code.includes('unauthorized')) {
+			throw new Error(
+				'Invalid or missing client key (unauthorized_client). Set X-Owyx-Client-Key under Owyx Servers.',
+			)
+		}
 		const err = String(data.error ?? data.message ?? `Login failed (${res.status})`)
 		throw new Error(err)
 	}

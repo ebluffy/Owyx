@@ -1419,6 +1419,14 @@ async function refreshOwyxSiteSession() {
 	owyxSiteSession.value = cached
 	const fresh = await fetchOwyxSiteMe(cached.token)
 	owyxSiteSession.value = fresh
+	if (fresh?.token) {
+		try {
+			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')
+			await markLoggedIntoOwyxSite()
+		} catch {
+			/* checklist mark is best-effort */
+		}
+	}
 }
 
 async function signOutOwyxSiteAccount() {
@@ -2493,7 +2501,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				<OnboardingChecklist
 					@create-instance="installationModal?.show()"
 					@login-minecraft="accounts?.login()"
-					@login-modrinth="signIn"
+					@login-modrinth="requestSignIn"
 				/>
 				<div id="sidebar-teleport-target" class="sidebar-teleport-content"></div>
 				<div class="sidebar-default-content" :class="{ 'sidebar-enabled': sidebarVisible }">

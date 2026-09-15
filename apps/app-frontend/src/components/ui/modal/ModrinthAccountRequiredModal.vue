@@ -15,6 +15,9 @@
 				<p class="m-0 text-base leading-6 text-primary">
 					{{ formatMessage(messages.description) }}
 				</p>
+				<p class="m-0 text-sm leading-5 text-secondary">
+					{{ formatMessage(messages.clientKeyHint) }}
+				</p>
 			</div>
 
 			<form class="flex flex-col gap-4" @submit.prevent="submitLogin">
@@ -210,6 +213,11 @@ const messages = defineMessages({
 		id: 'modal.owyx-account-required.description',
 		defaultMessage:
 			'Use the same email and password as on owyx.site. Minecraft Offline and Microsoft profiles stay separate under Playing as.',
+	},
+	clientKeyHint: {
+		id: 'modal.owyx-account-required.client-key-hint',
+		defaultMessage:
+			'Requires X-Owyx-Client-Key from Owyx Servers settings (same key as the catalog).',
 	},
 	emailLabel: {
 		id: 'modal.owyx-account-required.email',
