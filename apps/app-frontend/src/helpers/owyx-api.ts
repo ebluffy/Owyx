@@ -17,9 +17,13 @@ export type OwyxServerEntry = {
 	name: string
 	description: string
 	mcVersion?: string
+	loader?: string
 	address: string
 	iconUrl?: string
+	/** HTTPS pack download URL (from pack.downloadUrl / packUrl). */
 	packUrl?: string
+	packId?: string
+	requiresAccount?: boolean
 	demo?: boolean
 }
 
@@ -97,13 +101,14 @@ export function setOwyxClientKey(key: string) {
 	localStorage.setItem(STORAGE_KEY, key)
 }
 
+/** Demo seed is opt-in (default off for release-ish builds). */
 export function getOwyxDemoFlag(): boolean {
 	try {
 		const v = localStorage.getItem(STORAGE_DEMO)
-		if (v === null) return true
+		if (v === null) return false
 		return v === '1' || v === 'true'
 	} catch {
-		return true
+		return false
 	}
 }
 
@@ -129,40 +134,83 @@ function sanitizeMediaUrl(url: string | undefined): string | undefined {
 	return isSafeExternalHttpsUrl(url) ? url.trim() : undefined
 }
 
+function formatAddress(raw: Record<string, unknown>): string {
+	const base = String(raw.address ?? raw.playAddress ?? raw.play_address ?? raw.host ?? '').trim()
+	if (!base) return ''
+	// Contract may send address + separate port; avoid double-appending if host:port already.
+	if (raw.port != null && raw.port !== '' && !base.includes(':')) {
+		return `${base}:${raw.port}`
+	}
+	return base
+}
+
+function packDownloadUrl(raw: Record<string, unknown>): string | undefined {
+	const nested = raw.pack && typeof raw.pack === 'object' ? (raw.pack as Record<string, unknown>) : null
+	const candidates = [
+		raw.packUrl,
+		raw.pack_url,
+		raw.downloadUrl,
+		raw.download_url,
+		nested?.downloadUrl,
+		nested?.download_url,
+		nested?.url,
+		typeof raw.pack === 'string' ? raw.pack : undefined,
+	]
+	for (const c of candidates) {
+		if (c) return String(c)
+	}
+	return undefined
+}
+
 function normalizeEntry(raw: Record<string, unknown>, index: number): OwyxServerEntry | null {
 	const name = String(raw.name ?? raw.title ?? '').trim()
-	const address = String(
-		raw.address ?? raw.playAddress ?? raw.play_address ?? raw.host ?? '',
-	).trim()
+	const address = formatAddress(raw)
 	if (!name || !address) return null
-	const packRaw = raw.packUrl
-		? String(raw.packUrl)
-		: raw.pack_url
-			? String(raw.pack_url)
-			: raw.pack
-				? String(raw.pack)
-				: undefined
+	const nested = raw.pack && typeof raw.pack === 'object' ? (raw.pack as Record<string, unknown>) : null
+	const packRaw = packDownloadUrl(raw)
 	const iconRaw = raw.iconUrl
 		? String(raw.iconUrl)
 		: raw.icon_url
 			? String(raw.icon_url)
 			: raw.icon
 				? String(raw.icon)
-				: undefined
+				: nested?.iconUrl
+					? String(nested.iconUrl)
+					: undefined
+	const description = String(
+		raw.description ?? raw.desc ?? nested?.description ?? '',
+	)
 	return {
 		id: String(raw.id ?? raw.slug ?? `server-${index}`),
 		name,
-		description: String(raw.description ?? raw.desc ?? ''),
-		mcVersion: raw.mcVersion
-			? String(raw.mcVersion)
-			: raw.mc_version
-				? String(raw.mc_version)
-				: raw.version
-					? String(raw.version)
-					: undefined,
+		description,
+		mcVersion: raw.minecraft
+			? String(raw.minecraft)
+			: raw.mcVersion
+				? String(raw.mcVersion)
+				: raw.mc_version
+					? String(raw.mc_version)
+					: raw.version
+						? String(raw.version)
+						: nested?.minecraft
+							? String(nested.minecraft)
+							: undefined,
+		loader: raw.loader
+			? String(raw.loader)
+			: nested?.loader
+				? String(nested.loader)
+				: undefined,
 		address,
 		iconUrl: sanitizeMediaUrl(iconRaw),
 		packUrl: sanitizeMediaUrl(packRaw),
+		packId: raw.packId
+			? String(raw.packId)
+			: raw.pack_id
+				? String(raw.pack_id)
+				: nested?.id
+					? String(nested.id)
+					: undefined,
+		requiresAccount: Boolean(raw.requiresAccount ?? raw.requires_account),
 	}
 }
 
@@ -222,39 +270,38 @@ export async function fetchOwyxCatalog(opts: {
 		bases.push(LOCAL_OWYX_API_FALLBACK)
 	}
 
+	// Paths match owyxsite/LAUNCHER_SITE_CONTRACT.md (primary first).
+	const paths = ['/api/launcher/v1/servers', '/api/launcher/servers', '/v1/launcher/catalog']
+
 	for (const base of bases) {
-		try {
-			const url = `${base.replace(/\/$/, '')}/v1/launcher/catalog`
-			const headers: Record<string, string> = {
-				Accept: 'application/json',
-			}
-			// Attach client key only for the configured primary base (not localhost fallback)
-			if (opts.clientKey && base === primary) {
-				headers['X-Owyx-Client-Key'] = opts.clientKey
-			}
-			const res = await fetch(url, {
-				method: 'GET',
-				headers,
-				signal: AbortSignal.timeout(8000),
-			})
-			if (!res.ok) {
-				const alt = await fetch(`${base.replace(/\/$/, '')}/api/launcher/servers`, {
+		const headers: Record<string, string> = {
+			Accept: 'application/json',
+		}
+		// Attach client key only for the configured primary base (not localhost fallback)
+		if (opts.clientKey && base === primary) {
+			headers['X-Owyx-Client-Key'] = opts.clientKey
+		}
+
+		for (const path of paths) {
+			try {
+				const res = await fetch(`${base.replace(/\/$/, '')}${path}`, {
 					method: 'GET',
 					headers,
 					signal: AbortSignal.timeout(8000),
 				})
-				if (!alt.ok) continue
-				const altData = await alt.json()
-				return { servers: parseCatalog(altData), fromFallback: false }
+				if (!res.ok) continue
+				const data = await res.json()
+				const servers = parseCatalog(data)
+				if (servers.length > 0 || path === '/api/launcher/v1/servers') {
+					return { servers, fromFallback: false }
+				}
+			} catch {
+				// try next path / base
 			}
-			const data = await res.json()
-			return { servers: parseCatalog(data), fromFallback: false }
-		} catch {
-			// try next base
 		}
 	}
 
-	if (opts.demoFallback !== false) {
+	if (opts.demoFallback === true) {
 		return { servers: [DEMO_SERVER], fromFallback: true }
 	}
 	return { servers: [], fromFallback: true }

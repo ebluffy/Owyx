@@ -331,3 +331,14 @@ migration `004_nickname_cooldown.sql`).
 - Stable surface under `/api/launcher/v1/*`. `GET /v1/status.version` is the
   contract version (`1.1.0`). Additive changes bump the minor; breaking changes
   add `/v2/`.
+
+## Launcher client (apps/app-frontend)
+
+- Catalog fetch: `GET /api/launcher/v1/servers` (primary), with legacy fallbacks
+  `/api/launcher/servers` and `/v1/launcher/catalog`.
+- Maps contract fields: `name`, `address` (+ `port`), `minecraft`, `loader`,
+  `iconUrl`, nested `pack.downloadUrl` → `packUrl`, `requiresAccount`.
+- Site account: `POST /api/auth/login` + `GET /api/launcher/me` (JWT in app storage).
+- Demo seed is **opt-in** (`owyx.demoServers`); default off.
+- Security gates: CSP `api.owyx.site`, https-only pack/icon (reject `//`),
+  http API base loopback-only, client key not sent to localhost fallback.

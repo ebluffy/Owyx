@@ -9,7 +9,6 @@ import {
 	VerboseLoggingFeature,
 } from '@modrinth/api-client'
 import {
-	ArrowBigUpDashIcon,
 	ArrowLeftRightIcon,
 	ChevronLeftIcon,
 	ChevronRightIcon,
@@ -94,7 +93,6 @@ import UpdateToPlayModal from '@/components/ui/modal/UpdateToPlayModal.vue'
 import NavButton from '@/components/ui/NavButton.vue'
 import OnboardingChecklist from '@/components/ui/onboarding-checklist/index.vue'
 import PrideFundraiserBanner from '@/components/ui/PrideFundraiserBanner.vue'
-import PromotionWrapper from '@/components/ui/PromotionWrapper.vue'
 import QuickInstanceSwitcher from '@/components/ui/QuickInstanceSwitcher.vue'
 import SharedInstanceInviteHandler from '@/components/ui/shared-instances/shared-instance-invite-handler/index.vue'
 import SplashScreen from '@/components/ui/SplashScreen.vue'
@@ -142,6 +140,12 @@ import {
 	removeUser,
 	setActive,
 } from '@/helpers/mr_auth.ts'
+import {
+	fetchOwyxSiteMe,
+	getStoredOwyxSiteSession,
+	logoutOwyxSite,
+	OWYX_SITE_PROFILE_URL,
+} from '@/helpers/owyx-site-auth'
 import { mergeUrlQuery, parseModrinthLink } from '@/helpers/project-links.ts'
 import {
 	appSettingsKeys,
@@ -255,6 +259,8 @@ const INTERCOM_BUBBLE_DEFAULT_PADDING = 20
 const PRIDE_FUNDRAISER_END_DATE = new Date('2026-07-01T00:00:00Z').getTime()
 const credentials = ref()
 const storedModrinthAccounts = ref([])
+/** Bottom-left = Owyx site account (email), not Modrinth. */
+const owyxSiteSession = ref(/** @type {import('@/helpers/owyx-site-auth').OwyxSiteSession | null | undefined} */ (undefined))
 let credentialsRefreshId = 0
 const sidebarToggled = ref(true)
 watch(
@@ -657,8 +663,8 @@ const messages = defineMessages({
 		defaultMessage: 'Create new instance',
 	},
 	modrinthAccount: {
-		id: 'app.nav.modrinth-account',
-		defaultMessage: 'Modrinth account',
+		id: 'app.nav.owyx-account',
+		defaultMessage: 'Owyx account',
 	},
 	viewProfile: {
 		id: 'app.nav.view-profile',
@@ -669,8 +675,8 @@ const messages = defineMessages({
 		defaultMessage: 'Add a friend',
 	},
 	signInToModrinthAccount: {
-		id: 'app.nav.sign-in-to-modrinth-account',
-		defaultMessage: 'Sign into Modrinth',
+		id: 'app.nav.sign-in-to-owyx-account',
+		defaultMessage: 'Sign into Owyx',
 	},
 	loadingProfile: {
 		id: 'app.nav.loading-profile',
@@ -688,13 +694,13 @@ const messages = defineMessages({
 		id: 'app.nav.remove-account',
 		defaultMessage: 'Remove account',
 	},
+	signOutOwyx: {
+		id: 'app.nav.sign-out-owyx',
+		defaultMessage: 'Sign out of Owyx',
+	},
 	restarting: {
 		id: 'app.restarting',
 		defaultMessage: 'Restarting...',
-	},
-	upgradeToModrinthPlus: {
-		id: 'app.nav.upgrade-to-modrinth-plus',
-		defaultMessage: 'Upgrade to Modrinth+',
 	},
 	news: {
 		id: 'app.news.title',
@@ -889,6 +895,7 @@ async function setupApp() {
 
 	traceStartupStep('Read opening command', get_opening_command).then(handleCommand)
 	traceStartupStep('Refresh startup credentials', fetchCredentials)
+	traceStartupStep('Refresh Owyx site session', refreshOwyxSiteSession)
 
 	if (pending_update_toast_for_version !== null) {
 		const settings = await traceStartupStep(
@@ -1393,12 +1400,30 @@ async function signIn(flow = 'sign-in', addAccount = false) {
 }
 
 async function requestSignIn(flow = 'sign-in', addAccount = false) {
-	await modrinthLoginModal.value?.showSigningIn(flow, addAccount)
+	const signedIn = await modrinthLoginModal.value?.showSigningIn(flow, addAccount)
+	if (signedIn) await refreshOwyxSiteSession()
 }
 
 async function requestModrinthAuth(flow = 'sign-in', addAccount = false) {
-	await signIn(flow, addAccount)
-	return !!credentials.value?.session
+	const signedIn = await modrinthLoginModal.value?.showSigningIn(flow, addAccount)
+	if (signedIn) await refreshOwyxSiteSession()
+	return !!owyxSiteSession.value?.token
+}
+
+async function refreshOwyxSiteSession() {
+	const cached = getStoredOwyxSiteSession()
+	if (!cached) {
+		owyxSiteSession.value = null
+		return
+	}
+	owyxSiteSession.value = cached
+	const fresh = await fetchOwyxSiteMe(cached.token)
+	owyxSiteSession.value = fresh
+}
+
+async function signOutOwyxSiteAccount() {
+	await logoutOwyxSite()
+	owyxSiteSession.value = null
 }
 
 async function logOut() {
@@ -1434,10 +1459,28 @@ const accountSwitcherAccounts = computed(() => {
 })
 
 const profileButtonTooltip = computed(() => {
-	if (credentials.value === undefined) return formatMessage(messages.loadingProfile)
-	if (credentials.value?.user) return formatMessage(messages.modrinthAccount)
+	if (owyxSiteSession.value === undefined) return formatMessage(messages.loadingProfile)
+	if (owyxSiteSession.value?.user) return formatMessage(messages.modrinthAccount)
 	return formatMessage(messages.signInToModrinthAccount)
 })
+
+const owyxAccountMenuOptions = computed(() => [
+	{
+		id: 'view-profile',
+		label: formatMessage(messages.viewProfile),
+		icon: UserIcon,
+		type: 'link',
+		href: OWYX_SITE_PROFILE_URL,
+		target: '_blank',
+	},
+	{
+		id: 'sign-out',
+		label: formatMessage(messages.signOutOwyx),
+		icon: LogOutIcon,
+		color: 'red',
+		action: () => signOutOwyxSiteAccount(),
+	},
+])
 
 const accountSwitcherOptions = computed(() => [
 	...accountSwitcherAccounts.value.map((account) => ({
@@ -1526,16 +1569,6 @@ const modrinthAccountMenuOptions = computed(() => [
 		label: formatMessage(messages.viewProfile),
 		icon: UserIcon,
 		action: () => router.push(`/user/${encodeURIComponent(credentials.value.user.username)}`),
-	},
-	{
-		id: 'plus',
-		label: formatMessage(messages.upgradeToModrinthPlus),
-		icon: ArrowBigUpDashIcon,
-		type: 'link',
-		href: 'https://owyx.site',
-		target: '_blank',
-		tone: 'brand',
-		shown: false,
 	},
 	{
 		id: 'add-friend',
@@ -2215,7 +2248,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		<AppSettingsModal ref="appSettingsModal" />
 		<SyncInstancesUpdateModal ref="syncInstancesUpdateModal" />
 		<Suspense>
-			<ModrinthAccountRequiredModal ref="modrinthLoginModal" :request-auth="requestModrinthAuth" />
+			<ModrinthAccountRequiredModal ref="modrinthLoginModal" @signed-in="refreshOwyxSiteSession" />
 		</Suspense>
 		<CreationFlowModal
 			ref="installationModal"
@@ -2301,7 +2334,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				<SettingsIcon />
 			</NavButton>
 			<IconButton
-				v-if="credentials === undefined"
+				v-if="owyxSiteSession === undefined"
 				v-tooltip.right="profileButtonTooltip"
 				type="quiet"
 				size="xl"
@@ -2312,54 +2345,24 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				<SpinnerIcon class="animate-spin" />
 			</IconButton>
 			<TeleportOverflowMenu
-				v-else-if="credentials?.user"
+				v-else-if="owyxSiteSession?.user"
 				v-tooltip.right="profileButtonTooltip"
 				type="quiet"
 				size="xl"
 				:label="formatMessage(messages.modrinthAccount)"
-				:options="modrinthAccountMenuOptions"
+				:options="owyxAccountMenuOptions"
 				placement="right-end"
 				:distance="4"
 				class="brightness-100 hover:!brightness-100 focus-visible:!brightness-100"
 			>
 				<Avatar
-					:src="credentials?.user?.avatar_url"
-					alt=""
+					:src="owyxSiteSession?.user?.avatarUrl"
+					:alt="owyxSiteSession?.user?.nickname"
 					size="32px"
 					circle
 					no-shadow
 					class="pointer-events-none !size-8"
 				/>
-				<template
-					v-for="account in accountSwitcherAccounts"
-					:key="account.user_id"
-					#[account.optionId]
-				>
-					<Avatar :src="account.user.avatar_url" size="1.25rem" aria-hidden="true" circle />
-					{{ account.user.username }}
-					<UserRoleIcon :role="account.user.role" />
-				</template>
-			</TeleportOverflowMenu>
-			<TeleportOverflowMenu
-				v-else-if="accountSwitcherAccounts.length > 0"
-				v-tooltip.right="profileButtonTooltip"
-				type="quiet"
-				size="xl"
-				:label="formatMessage(messages.signInToModrinthAccount)"
-				:options="accountSwitcherOptions"
-				placement="right-end"
-				:distance="4"
-			>
-				<LogInIcon class="!text-brand" />
-				<template
-					v-for="account in accountSwitcherAccounts"
-					:key="account.user_id"
-					#[account.optionId]
-				>
-					<Avatar :src="account.user.avatar_url" size="1.25rem" aria-hidden="true" circle />
-					{{ account.user.username }}
-					<UserRoleIcon :role="account.user.role" />
-				</template>
 			</TeleportOverflowMenu>
 			<NavButton v-else v-tooltip.right="profileButtonTooltip" :to="() => requestSignIn()">
 				<LogInIcon class="text-brand" />
@@ -2535,7 +2538,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 								type="colored"
 								color="brand"
 								size="xl"
-								href="https://modrinth.com/news"
+								href="https://owyx.site"
 								target="_blank"
 								class="my-4"
 							>
@@ -2546,16 +2549,8 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 					</div>
 				</div>
 			</div>
-			<template v-if="showAd">
-				<a
-					href="https://modrinth.plus?app"
-					class="absolute bottom-[250px] w-full flex justify-center items-center gap-1 px-4 py-3 text-purple font-medium hover:underline z-10"
-					target="_blank"
-				>
-					<ArrowBigUpDashIcon class="text-2xl" />
-					{{ formatMessage(messages.upgradeToModrinthPlus) }}
-				</a>
-				<PromotionWrapper />
+			<template v-if="false">
+				<!-- Modrinth+ / Hosting ads removed for Owyx -->
 			</template>
 		</div>
 	</div>

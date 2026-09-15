@@ -213,7 +213,7 @@
 		"message": "Use these behavior settings everywhere you're signed in. Turn this off to keep separate settings on this device."
 	},
 	"app.behavior-settings.sync-across-devices.signed-out-tooltip": {
-		"message": "Sign into a Modrinth account to sync settings."
+		"message": "Sign into an Owyx account to sync settings."
 	},
 	"app.behavior-settings.sync-across-devices.title": {
 		"message": "Sync behavior across devices"
@@ -453,7 +453,7 @@
 		"message": "Use these feature settings everywhere you're signed in. Turn this off to keep separate settings on this device."
 	},
 	"app.features-settings.sync-across-devices.signed-out-tooltip": {
-		"message": "Sign into a Modrinth account to sync settings."
+		"message": "Sign into an Owyx account to sync settings."
 	},
 	"app.features-settings.sync-across-devices.title": {
 		"message": "Sync features across devices"
@@ -1362,7 +1362,7 @@
 		"message": "Loading profile..."
 	},
 	"app.nav.modrinth-account": {
-		"message": "Modrinth account"
+		"message": "Owyx account"
 	},
 	"app.nav.modrinth-hosting": {
 		"message": "Modrinth Hosting"
@@ -1380,7 +1380,7 @@
 		"message": "Switch account"
 	},
 	"app.nav.upgrade-to-modrinth-plus": {
-		"message": "Upgrade to Modrinth+"
+		"message": "Owyx site"
 	},
 	"app.nav.view-profile": {
 		"message": "View profile"
@@ -3603,7 +3603,7 @@
 		"message": "{title} - {count}"
 	},
 	"friends.sign-in-to-add-friends": {
-		"message": "<link>Sign in to a Modrinth account</link> to add friends and see what they're playing!"
+		"message": "<link>Sign in to an Owyx account</link> to add friends and see what they're playing!"
 	},
 	"installation-settings.shared-instance.linked-title": {
 		"message": "Linked shared instance"
@@ -4491,7 +4491,7 @@
 		"message": "Create an account"
 	},
 	"modal.modrinth-account-required.description": {
-		"message": "You'll need to sign into your Modrinth account before you can use this feature."
+		"message": "You'll need to sign into your Owyx account before you can use this feature."
 	},
 	"modal.modrinth-account-required.header": {
 		"message": "Account required"
@@ -4500,10 +4500,10 @@
 		"message": "Open browser again"
 	},
 	"modal.modrinth-account-required.sign-in-button": {
-		"message": "Sign in to Modrinth"
+		"message": "Sign in to Owyx"
 	},
 	"modal.modrinth-account-required.sign-in-heading": {
-		"message": "Sign in to a Modrinth account"
+		"message": "Sign in to an Owyx account"
 	},
 	"modal.modrinth-account-required.signing-in-header": {
 		"message": "Signing in"
@@ -4521,7 +4521,7 @@
 		"message": "Sign in to Minecraft"
 	},
 	"onboarding-checklist.login-modrinth": {
-		"message": "Sign in to Modrinth"
+		"message": "Sign in to Owyx"
 	},
 	"onboarding-checklist.title": {
 		"message": "Getting started"
