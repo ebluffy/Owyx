@@ -264,13 +264,75 @@ impl OnlineProfileCacheIntent {
     }
 }
 
+/// Offline-mode marker stored as refresh_token. Microsoft accounts never use this value.
+pub const OFFLINE_REFRESH_TOKEN: &str = "owyx-offline";
+
+/// Java-compatible offline UUID: `UUID.nameUUIDFromBytes("OfflinePlayer:{name}")`.
+pub fn offline_player_uuid(username: &str) -> Uuid {
+    let digest = md5::compute(format!("OfflinePlayer:{username}"));
+    let mut bytes = digest.0;
+    bytes[6] = (bytes[6] & 0x0f) | 0x30; // version 3
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // IETF variant
+    Uuid::from_bytes(bytes)
+}
+
 impl Credentials {
+    /// True when this account is a local offline nickname (no Microsoft token).
+    pub fn is_offline(&self) -> bool {
+        self.refresh_token == OFFLINE_REFRESH_TOKEN
+            || self.refresh_token.is_empty()
+                && (self.access_token.is_empty() || self.access_token == "0")
+    }
+
+    /// Creates or replaces an offline nickname account and selects it.
+    pub async fn create_offline(
+        username: &str,
+        exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
+    ) -> crate::Result<Self> {
+        let username = username.trim();
+        if username.is_empty() || username.len() > 16 {
+            return Err(crate::ErrorKind::OtherError(
+                "Offline nickname must be 1–16 characters".to_string(),
+            )
+            .into());
+        }
+        if !username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return Err(crate::ErrorKind::OtherError(
+                "Offline nickname may only contain letters, numbers, and underscores"
+                    .to_string(),
+            )
+            .into());
+        }
+
+        let id = offline_player_uuid(username);
+        let credentials = Self {
+            offline_profile: MinecraftProfile {
+                id,
+                name: username.to_string(),
+                ..MinecraftProfile::default()
+            },
+            access_token: "0".to_string(),
+            refresh_token: OFFLINE_REFRESH_TOKEN.to_string(),
+            expires: Utc::now() + Duration::days(3650),
+            active: true,
+        };
+        credentials.upsert(exec).await?;
+        Ok(credentials)
+    }
+
     /// Refreshes the authentication tokens for this user if they are expired, or
     /// very close to expiration.
     async fn refresh(
         &mut self,
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<()> {
+        if self.is_offline() {
+            return Ok(());
+        }
+
         // Use a margin of 5 minutes to give e.g. Minecraft and potentially
         // other operations that depend on a fresh token 5 minutes to complete
         // from now, and deal with some classes of clock skew
@@ -351,6 +413,10 @@ impl Credentials {
         &self,
         cache_intent: OnlineProfileCacheIntent,
     ) -> Option<Arc<MinecraftProfile>> {
+        if self.is_offline() {
+            return None;
+        }
+
         let max_age = cache_intent.max_age();
         let stale_profile = {
             let mut profile_cache = PROFILE_CACHE.lock().await;
@@ -682,12 +748,13 @@ impl Serialize for Credentials {
                 ),
         };
 
-        let mut ser = serializer.serialize_struct("Credentials", 5)?;
+        let mut ser = serializer.serialize_struct("Credentials", 6)?;
         ser.serialize_field("profile", &*profile)?;
         ser.serialize_field("access_token", &self.access_token)?;
         ser.serialize_field("refresh_token", &self.refresh_token)?;
         ser.serialize_field("expires", &self.expires)?;
         ser.serialize_field("active", &self.active)?;
+        ser.serialize_field("is_offline", &self.is_offline())?;
         ser.end()
     }
 }

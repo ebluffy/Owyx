@@ -366,10 +366,8 @@ const hasPlus = computed(
 		(hasMidasBadge(credentials.value.user) ||
 			hasActivePride26Midas(authenticatedModrinthUser.value?.campaigns?.pride_26)),
 )
-const showAd = computed(
-	() => sidebarVisible.value && !hasPlus.value && credentials.value !== undefined,
-)
-const adConsentAvailable = computed(() => credentials.value !== undefined && !hasPlus.value)
+const showAd = computed(() => false)
+const adConsentAvailable = computed(() => false)
 providePageContext({
 	hierarchicalSidebarAvailable: ref(true),
 	showAds: showAd,
@@ -647,8 +645,8 @@ const messages = defineMessages({
 		defaultMessage: 'Home',
 	},
 	modrinthHosting: {
-		id: 'app.nav.modrinth-hosting',
-		defaultMessage: 'Modrinth Hosting',
+		id: 'app.nav.owyx-servers',
+		defaultMessage: 'Owyx Servers',
 	},
 	screenshots: {
 		id: 'app.nav.screenshots',
@@ -1534,10 +1532,10 @@ const modrinthAccountMenuOptions = computed(() => [
 		label: formatMessage(messages.upgradeToModrinthPlus),
 		icon: ArrowBigUpDashIcon,
 		type: 'link',
-		href: 'https://modrinth.plus?app',
+		href: 'https://owyx.site',
 		target: '_blank',
-		tone: 'purple',
-		shown: !hasPlus.value,
+		tone: 'brand',
+		shown: false,
 	},
 	{
 		id: 'add-friend',
@@ -2279,13 +2277,9 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			</NavButton>
 			<NavButton
 				v-tooltip.right="formatMessage(messages.modrinthHosting)"
-				to="/hosting/manage"
-				:is-primary="(r) => r.path === '/hosting/manage' || r.path === '/hosting/manage/'"
-				:is-subpage="
-					(r) =>
-						(r.path.startsWith('/hosting/manage/') && r.path !== '/hosting/manage/') ||
-						((r.path.startsWith('/browse') || r.path.startsWith('/project')) && r.query.sid)
-				"
+				to="/owyx-servers"
+				:is-primary="(r) => r.path === '/owyx-servers'"
+				:is-subpage="(r) => r.path.startsWith('/owyx-servers/')"
 			>
 				<ServerStackIcon />
 			</NavButton>
