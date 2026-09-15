@@ -38,25 +38,32 @@ const DEMO_SERVER: OwyxServerEntry = {
 	demo: true,
 }
 
-/** Only http(s) API bases — never file:/javascript:/etc. */
+/** Only http(s) API bases — never file:/javascript:/etc. http: only for loopback. */
 export function sanitizeOwyxApiBase(url: string | null | undefined): string {
 	const raw = (url ?? '').trim()
 	if (!raw) return DEFAULT_OWYX_API_BASE
 	try {
 		const parsed = new URL(raw)
-		if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-			return DEFAULT_OWYX_API_BASE
+		if (parsed.protocol === 'https:') {
+			return parsed.origin + (parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, ''))
 		}
-		return parsed.origin + (parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, ''))
+		if (
+			parsed.protocol === 'http:' &&
+			(parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')
+		) {
+			return parsed.origin + (parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, ''))
+		}
+		return DEFAULT_OWYX_API_BASE
 	} catch {
 		return DEFAULT_OWYX_API_BASE
 	}
 }
 
-/** Safe https (or relative) URLs for pack download / icons. */
+/** Safe https URLs for pack download / icons. Relative paths OK; protocol-relative `//` is not. */
 export function isSafeExternalHttpsUrl(url: string | null | undefined): boolean {
 	if (!url) return false
 	const trimmed = url.trim()
+	if (trimmed.startsWith('//')) return false
 	if (trimmed.startsWith('/')) return true
 	try {
 		const parsed = new URL(trimmed)
