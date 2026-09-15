@@ -61,8 +61,9 @@ The key is configured as `LAUNCHER_CLIENT_KEY` on the site and `OWYX_CLIENT_KEY`
 
 1. `POST /api/auth/login` with `{ "email", "password", "remember": true }`.
    - Browser (Host: `owyx.site`): may require Cloudflare Turnstile (`turnstileToken`).
-   - **Launcher** (Host: `api.owyx.site` + valid `X-Owyx-Client-Key`): Turnstile is
-     **skipped** — the client key is the shared secret.
+   - **Launcher** (Host: `api.owyx.site` **and** valid `X-Owyx-Client-Key`):
+     Turnstile is **skipped**. Browser Host (`owyx.site`) always requires captcha
+     even if the client key header is present.
    - `200` → `{ success: true, token, user }`. `token` is a JWT.
    - `401`/`403` → `{ error }` (wrong credentials / inactive). Show a human message.
    - `401 unauthorized_client` → missing/invalid client key (configure in Owyx Servers settings).

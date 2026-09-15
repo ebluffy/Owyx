@@ -395,12 +395,15 @@ router.post('/login', [
         const ip = req.clientIp || req.ip || req.connection.remoteAddress;
         const userAgent = req.get('User-Agent') || '';
 
-        // Launcher clients authenticate with X-Owyx-Client-Key (api host gate).
-        // Skip Turnstile for those — no browser captcha in Tauri.
+        // Launcher clients: Host api.* + valid X-Owyx-Client-Key → skip Turnstile.
+        // Browser Host (owyx.site) must still pass captcha even if someone replays the key.
+        const { requestHost, parseList } = require('../middleware/clientKey');
         const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
         const gotKey = (req.get('x-owyx-client-key') || '').trim();
+        const apiHosts = parseList(process.env.API_HOSTS, 'api.owyx.site');
+        const onApiHost = apiHosts.includes(requestHost(req));
         const launcherClient =
-            Boolean(expectedKey) && gotKey === expectedKey;
+            onApiHost && Boolean(expectedKey) && gotKey === expectedKey;
 
         if (!launcherClient) {
             const turnstileResult = await verifyTurnstile(turnstileToken, ip);
