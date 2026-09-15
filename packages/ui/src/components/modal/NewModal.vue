@@ -1,0 +1,655 @@
+<template>
+	<Teleport to="body">
+		<div
+			v-if="open"
+			class="modal-root"
+			data-modal-root
+			:data-modal-id="modalId"
+			:data-modal-depth="stackDepth"
+		>
+			<div
+				:class="{ shown: visible }"
+				:style="{ zIndex: stackTauriZ }"
+				class="tauri-overlay"
+				data-tauri-drag-region
+				@pointerdown="onTauriOverlayPointerDown"
+				@click="onTauriOverlayClick"
+			/>
+			<div
+				:class="[
+					'modal-overlay',
+					{
+						shown: visible,
+						noblur: effectiveNoblur,
+					},
+					computedFade,
+				]"
+				:style="{ zIndex: stackOverlayZ }"
+				@click="() => (closeOnClickOutside && closable ? hide() : {})"
+			/>
+			<div class="modal-container" :class="{ shown: visible }" :style="{ zIndex: stackContainerZ }">
+				<div
+					ref="modalBodyRef"
+					role="dialog"
+					aria-modal="true"
+					tabindex="-1"
+					:aria-labelledby="headerId"
+					class="modal-body flex flex-col bg-bg-raised rounded-2xl border border-solid border-surface-5 outline-none"
+					v-bind="$attrs"
+				>
+					<div
+						v-if="!hideHeader"
+						data-tauri-drag-region
+						class="grid grid-cols-[1fr_auto] items-center gap-4 p-6 border-solid border-0 border-b-[1px] border-surface-5 max-w-full"
+					>
+						<div :id="headerId" class="flex text-wrap break-words items-center gap-3 min-w-0">
+							<slot name="title">
+								<span v-if="header" class="text-2xl font-semibold text-contrast">
+									{{ header }}
+								</span>
+							</slot>
+						</div>
+						<div class="flex items-center gap-2">
+							<slot name="header-actions" />
+							<IconButton
+								v-if="closable"
+								v-tooltip="closeLabel"
+								:label="closeLabel"
+								:disabled="disableClose"
+								@click="hide"
+							>
+								<XIcon aria-hidden="true" />
+							</IconButton>
+						</div>
+					</div>
+
+					<IconButton
+						v-if="props.mergeHeader && closable"
+						v-tooltip="closeLabel"
+						:label="closeLabel"
+						class="absolute top-4 right-4 z-10"
+						:disabled="disableClose"
+						@click="hide"
+					>
+						<XIcon aria-hidden="true" />
+					</IconButton>
+
+					<div v-if="scrollable" class="relative flex-1 min-h-0 flex flex-col">
+						<Transition
+							enter-active-class="transition-all duration-200 ease-out"
+							enter-from-class="opacity-0 max-h-0"
+							enter-to-class="opacity-100 max-h-6"
+							leave-active-class="transition-all duration-200 ease-in"
+							leave-from-class="opacity-100 max-h-6"
+							leave-to-class="opacity-0 max-h-0"
+						>
+							<div
+								v-if="showTopFade"
+								class="pointer-events-none absolute left-0 right-0 top-0 z-10 h-6 bg-gradient-to-b from-bg-raised to-transparent"
+							/>
+						</Transition>
+
+						<div
+							ref="scrollContainer"
+							data-modal-content
+							:class="[
+								'flex-1 min-h-0 overflow-y-auto',
+								props.noPadding ? '' : 'p-6 !pb-1 sm:pb-6',
+								{ 'pt-12': props.mergeHeader && closable && !props.noPadding },
+							]"
+							:style="{ maxHeight: maxContentHeight }"
+							@scroll="checkScrollState"
+						>
+							<slot> You just lost the game.</slot>
+						</div>
+
+						<Transition
+							enter-active-class="transition-all duration-200 ease-out"
+							enter-from-class="opacity-0 max-h-0"
+							enter-to-class="opacity-100 max-h-6"
+							leave-active-class="transition-all duration-200 ease-in"
+							leave-from-class="opacity-100 max-h-6"
+							leave-to-class="opacity-0 max-h-0"
+						>
+							<div
+								v-if="showBottomFade"
+								class="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-6 bg-gradient-to-t from-bg-raised to-transparent"
+							/>
+						</Transition>
+					</div>
+
+					<div
+						v-else
+						data-modal-content
+						:class="[
+							'min-h-0',
+							props.noPadding ? '' : 'overflow-y-auto p-6',
+							{ 'pt-12': props.mergeHeader && closable && !props.noPadding },
+						]"
+					>
+						<slot> You just lost the game.</slot>
+					</div>
+
+					<div
+						v-if="$slots.actions"
+						:class="{ 'pt-4 border-0 border-t border-solid border-surface-5': actionsDivider }"
+						class="p-4"
+					>
+						<slot name="actions" />
+					</div>
+				</div>
+			</div>
+		</div>
+	</Teleport>
+</template>
+
+<script setup lang="ts">
+import { XIcon } from '@modrinth/assets'
+import { computed, nextTick, onUnmounted, ref } from 'vue'
+
+import { IconButton } from '#ui/components/base/buttons'
+
+import { useVIntl } from '../../composables/i18n'
+import {
+	getModalStackZBase,
+	MODAL_CONTAINER_Z_OFFSET,
+	MODAL_OVERLAY_Z_OFFSET,
+	MODAL_TAURI_Z_OFFSET,
+	useModalStack,
+} from '../../composables/modal-stack'
+import { useScrollIndicator } from '../../composables/scroll-indicator'
+import { injectModalBehavior } from '../../providers'
+import { commonMessages } from '../../utils/common-messages'
+
+const { formatMessage } = useVIntl()
+
+const modalBehavior = injectModalBehavior(null)
+const {
+	push: pushModal,
+	pop: popModal,
+	isTopmost: isTopmostModal,
+	stackSize: modalStackSize,
+} = useModalStack()
+
+const props = withDefaults(
+	defineProps<{
+		noblur?: boolean
+		closable?: boolean
+		/** @deprecated Use `fade="danger"` instead */
+		danger?: boolean
+		fade?: 'standard' | 'warning' | 'danger'
+		closeOnEsc?: boolean
+		closeOnClickOutside?: boolean
+		warnOnClose?: boolean
+		header?: string
+		hideHeader?: boolean
+		onHide?: () => void
+		onAfterHide?: () => void
+		onShow?: () => void
+		beforeHide?: () => boolean
+		mergeHeader?: boolean
+		scrollable?: boolean
+		maxContentHeight?: string
+		/** Removes padding from the content area. Useful for edge-to-edge layouts. */
+		noPadding?: boolean
+		/** Max width for the modal (e.g., '460px', '600px'). Defaults to '60rem'. */
+		maxWidth?: string
+		/** Width for the modal body (e.g., '460px', '600px'). */
+		width?: string
+		/** Disables all close actions (close button, ESC key, click outside). */
+		disableClose?: boolean
+		actionsDivider?: boolean
+	}>(),
+	{
+		type: true,
+		noblur: undefined,
+		closable: true,
+		danger: false,
+		fade: undefined,
+		closeOnClickOutside: true,
+		closeOnEsc: true,
+		warnOnClose: false,
+		header: undefined,
+		hideHeader: false,
+		onHide: () => {},
+		onAfterHide: () => {},
+		onShow: () => {},
+		beforeHide: undefined,
+		mergeHeader: false,
+		// TODO: migrate all modals to use scrollable and remove this prop
+		scrollable: false,
+		maxContentHeight: '70vh',
+		noPadding: false,
+		maxWidth: undefined,
+		width: undefined,
+		disableClose: false,
+		actionsDivider: false,
+	},
+)
+
+const effectiveNoblur = computed(() => props.noblur ?? modalBehavior?.noblur.value ?? false)
+
+const TAURI_DRAG_THRESHOLD_PX = 4
+let tauriPointerScreen: { x: number; y: number } | null = null
+
+function onTauriOverlayPointerDown(event: PointerEvent) {
+	if (event.button !== 0) {
+		return
+	}
+	tauriPointerScreen = { x: event.screenX, y: event.screenY }
+}
+
+function onTauriOverlayClick(event: MouseEvent) {
+	const start = tauriPointerScreen
+	tauriPointerScreen = null
+	if (
+		start &&
+		Math.hypot(event.screenX - start.x, event.screenY - start.y) >= TAURI_DRAG_THRESHOLD_PX
+	) {
+		return
+	}
+	if (props.closeOnClickOutside && props.closable && !props.disableClose) {
+		hide()
+	}
+}
+
+const computedFade = computed(() => {
+	if (props.fade) {
+		return props.fade
+	}
+	if (props.danger) {
+		return 'danger'
+	}
+	return 'standard'
+})
+
+const modalId = `modal-${Math.random().toString(36).slice(2, 9)}`
+const headerId = `${modalId}-header`
+const closeLabel = computed(() => formatMessage(commonMessages.closeButton))
+
+const open = ref(false)
+const visible = ref(false)
+const stackDepth = ref(0)
+const modalBodyRef = ref<HTMLElement | null>(null)
+let previousFocusEl: Element | null = null
+let hideTimeout: ReturnType<typeof setTimeout> | null = null
+
+const scrollContainer = ref<HTMLElement | null>(null)
+const { showTopFade, showBottomFade, checkScrollState } = useScrollIndicator(scrollContainer)
+
+const FOCUSABLE_SELECTOR =
+	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+const inputModality = { keyboard: false }
+if (typeof window !== 'undefined') {
+	window.addEventListener(
+		'keydown',
+		(event) => {
+			if (event.metaKey || event.altKey || event.ctrlKey) {
+				return
+			}
+			inputModality.keyboard = true
+		},
+		true,
+	)
+	window.addEventListener(
+		'pointerdown',
+		() => {
+			inputModality.keyboard = false
+		},
+		true,
+	)
+}
+
+function getFocusableElements(): HTMLElement[] {
+	if (!modalBodyRef.value) {
+		return []
+	}
+	return Array.from(modalBodyRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+		(el) => el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0,
+	)
+}
+
+function isFocusInsideModal() {
+	return !!modalBodyRef.value?.contains(document.activeElement)
+}
+
+function focusElement(el: HTMLElement) {
+	el.focus({ preventScroll: true, focusVisible: inputModality.keyboard })
+}
+
+function focusModal() {
+	const dialog = modalBodyRef.value
+	if (!dialog) {
+		return false
+	}
+
+	if (inputModality.keyboard) {
+		for (const el of getFocusableElements()) {
+			focusElement(el)
+			if (isFocusInsideModal()) {
+				return true
+			}
+		}
+	}
+
+	focusElement(dialog)
+	if (isFocusInsideModal()) {
+		return true
+	}
+
+	for (const el of getFocusableElements()) {
+		focusElement(el)
+		if (isFocusInsideModal()) {
+			return true
+		}
+	}
+
+	return false
+}
+
+function scheduleFocus(attempt = 0) {
+	if (focusModal() || attempt >= 10) {
+		return
+	}
+	requestAnimationFrame(() => scheduleFocus(attempt + 1))
+}
+
+function nextRenderedModalDepth(): number {
+	return Array.from(document.querySelectorAll<HTMLElement>('[data-modal-root]'))
+		.filter((root) => root.dataset.modalId !== modalId)
+		.reduce((nextDepth, root) => {
+			const depth = Number(root.dataset.modalDepth)
+			return Number.isFinite(depth) ? Math.max(nextDepth, depth + 1) : nextDepth + 1
+		}, 0)
+}
+
+function show(event?: MouseEvent) {
+	if (hideTimeout) {
+		clearTimeout(hideTimeout)
+		hideTimeout = null
+	}
+	props.onShow?.()
+	const wasEmpty = modalStackSize() === 0
+	stackDepth.value = Math.max(modalStackSize(), nextRenderedModalDepth())
+	open.value = true
+	previousFocusEl = document.activeElement
+	pushModal()
+	if (wasEmpty) {
+		modalBehavior?.onShow?.()
+	}
+
+	document.body.style.overflow = 'hidden'
+	window.addEventListener('keydown', handleWindowKeyDown)
+	window.addEventListener('mousedown', updateMousePosition)
+	if (event) {
+		updateMousePosition(event)
+	} else {
+		mouseX.value = Math.round(window.innerWidth / 2)
+		mouseY.value = Math.round(window.innerHeight / 2)
+	}
+	setTimeout(() => {
+		visible.value = true
+		nextTick(() => {
+			scheduleFocus()
+		})
+	}, 50)
+}
+
+function hide(): boolean {
+	if (props.disableClose) {
+		return false
+	}
+	if (props.beforeHide?.() === false) {
+		return false
+	}
+	props.onHide?.()
+	resetMousePosition()
+	visible.value = false
+	popModal()
+	if (modalStackSize() === 0) {
+		modalBehavior?.onHide?.()
+		document.body.style.overflow = ''
+	}
+	window.removeEventListener('keydown', handleWindowKeyDown)
+	window.removeEventListener('mousedown', updateMousePosition)
+	if (previousFocusEl instanceof HTMLElement) {
+		previousFocusEl.focus()
+	}
+	previousFocusEl = null
+	hideTimeout = setTimeout(() => {
+		open.value = false
+		hideTimeout = null
+		nextTick(() => props.onAfterHide?.())
+	}, 300)
+	return true
+}
+
+async function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
+	await nextTick()
+	if (!scrollContainer.value) {
+		return
+	}
+
+	scrollContainer.value.scrollTo({
+		top: scrollContainer.value.scrollHeight,
+		behavior,
+	})
+	requestAnimationFrame(checkScrollState)
+}
+
+defineExpose({
+	show,
+	hide,
+	checkScrollState,
+	scrollToBottom,
+})
+
+const mouseX = ref(0)
+const mouseY = ref(0)
+
+const stackZBase = computed(() => getModalStackZBase(stackDepth.value))
+const stackOverlayZ = computed(() => stackZBase.value + MODAL_OVERLAY_Z_OFFSET)
+const stackTauriZ = computed(() => stackZBase.value + MODAL_TAURI_Z_OFFSET)
+const stackContainerZ = computed(() => stackZBase.value + MODAL_CONTAINER_Z_OFFSET)
+const resolvedMaxWidth = computed(() => props.maxWidth ?? '60rem')
+const resolvedWidth = computed(() => props.width ?? 'fit-content')
+const mouseXOffset = computed(() => `calc((-50vw + ${mouseX.value}px) / 16)`)
+const mouseYOffset = computed(() => `calc((-50vh + ${mouseY.value}px) / 16)`)
+
+function updateMousePosition(event: { clientX: number; clientY: number }) {
+	mouseX.value = event.clientX
+	mouseY.value = event.clientY
+}
+
+function resetMousePosition() {
+	mouseX.value = Math.round(window.innerWidth / 2)
+	mouseY.value = Math.round(window.innerHeight / 2)
+}
+
+onUnmounted(() => {
+	if (hideTimeout) {
+		clearTimeout(hideTimeout)
+		hideTimeout = null
+	}
+	if (open.value) {
+		popModal()
+		window.removeEventListener('keydown', handleWindowKeyDown)
+		window.removeEventListener('mousedown', updateMousePosition)
+		if (modalStackSize() === 0) {
+			document.body.style.overflow = ''
+			modalBehavior?.onHide?.()
+		}
+	}
+})
+
+function handleWindowKeyDown(event: KeyboardEvent) {
+	if (!isTopmostModal()) {
+		return
+	}
+
+	if (event.key === 'Tab') {
+		trapFocus(event)
+		return
+	}
+
+	if (props.closeOnEsc && event.key === 'Escape' && props.closable) {
+		hide()
+	}
+}
+
+function trapFocus(event: KeyboardEvent) {
+	const dialog = modalBodyRef.value
+	if (!dialog) {
+		return
+	}
+
+	const focusable = getFocusableElements()
+	if (focusable.length === 0) {
+		event.preventDefault()
+		focusElement(dialog)
+		return
+	}
+
+	const first = focusable[0]
+	const last = focusable[focusable.length - 1]
+	const active = document.activeElement
+	const inside = dialog.contains(active)
+
+	if (!inside) {
+		event.preventDefault()
+		focusElement(event.shiftKey ? last : first)
+		return
+	}
+
+	if (event.shiftKey && (active === first || active === dialog)) {
+		event.preventDefault()
+		focusElement(last)
+	} else if (!event.shiftKey && active === last) {
+		event.preventDefault()
+		focusElement(first)
+	}
+}
+
+defineOptions({
+	inheritAttrs: false,
+})
+</script>
+
+<style lang="scss" scoped>
+.tauri-overlay {
+	position: fixed;
+	visibility: hidden;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100px;
+
+	&.shown {
+		opacity: 1;
+		visibility: visible;
+	}
+}
+
+.modal-overlay {
+	position: fixed;
+	inset: -5rem;
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: all 0.2s ease-out;
+	//transform: translate(
+	//    calc((-50vw + var(--_mouse-x, 50vw) * 1px) / 2),
+	//    calc((-50vh + var(--_mouse-y, 50vh) * 1px) / 2)
+	//  )
+	//  scaleX(0.8) scaleY(0.5);
+	border-radius: 180px;
+	//filter: blur(5px);
+
+	// Fade variants
+	&.standard {
+		background: linear-gradient(to bottom, rgba(29, 48, 43, 0.52) 0%, rgba(14, 21, 26, 0.95) 100%);
+	}
+
+	&.warning {
+		background: linear-gradient(to bottom, rgba(48, 38, 29, 0.52) 0%, rgba(26, 20, 14, 0.95) 100%);
+	}
+
+	&.danger {
+		background: linear-gradient(to bottom, rgba(43, 18, 26, 0.52) 0%, rgba(49, 10, 15, 0.95) 100%);
+	}
+
+	@media (prefers-reduced-motion) {
+		transition: none !important;
+	}
+
+	&.shown {
+		opacity: 1;
+		visibility: visible;
+		pointer-events: auto;
+		backdrop-filter: blur(5px);
+	}
+
+	&.noblur {
+		backdrop-filter: none;
+		filter: none;
+	}
+}
+
+.modrinth-parent__no-modal-blurs {
+	.modal-overlay {
+		backdrop-filter: none;
+	}
+}
+
+.modal-container {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	visibility: hidden;
+	pointer-events: none;
+	transform: translate(v-bind(mouseXOffset), v-bind(mouseYOffset));
+	transition: none;
+
+	&.shown {
+		visibility: visible;
+		transform: translate(0, 0);
+		transition: all 0.2s ease-out;
+
+		> .modal-body {
+			opacity: 1;
+			visibility: visible;
+			scale: 1;
+		}
+	}
+
+	> .modal-body {
+		position: fixed;
+		box-shadow: 4px 4px 26px 10px rgba(0, 0, 0, 0.08);
+		max-height: calc(100% - 2 * var(--gap-lg));
+		max-width: min(v-bind(resolvedMaxWidth), calc(100% - 2 * var(--gap-lg)));
+		overflow-y: hidden;
+		overflow-x: hidden;
+		width: v-bind(resolvedWidth);
+		pointer-events: auto;
+		scale: 0.97;
+
+		visibility: hidden;
+		opacity: 0;
+		transition: all 0.2s ease-in-out;
+
+		@media (prefers-reduced-motion) {
+			transition: none !important;
+		}
+
+		@media screen and (max-width: 640px) {
+			width: calc(100% - 2 * var(--gap-lg));
+		}
+	}
+}
+</style>
