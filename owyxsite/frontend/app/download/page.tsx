@@ -76,7 +76,7 @@ export default function DownloadPage() {
               <LinuxIcon className="w-4 h-4" />
               Linux
             </a>
-            <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer" className="btn btn-ghost">
+            <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               {d.allReleases}
             </a>
           </div>

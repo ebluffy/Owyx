@@ -82,9 +82,9 @@ export default function NewsSection() {
       </div>
 
       {news === null ? (
-        <div className="divide-y divide-line border-y border-line" aria-busy="true" aria-label={dict.home.loading}>
+        <div className="space-y-3" aria-busy="true" aria-label={dict.home.loading}>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="py-5 flex flex-col gap-3 sm:flex-row sm:gap-6">
+            <div key={i} className="rounded-xl border border-line/60 bg-panel/30 p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:gap-6">
               <span className="skeleton-line w-20 h-5 sm:w-28" />
               <div className="flex-1 space-y-2.5 min-w-0">
                 <span className="skeleton-line w-3/5 max-w-xs h-4" />
@@ -105,22 +105,25 @@ export default function NewsSection() {
           </div>
         </div>
       ) : (
-        <div className="divide-y divide-line border-y border-line">
+        <div className="space-y-3">
           {news.map((n, i) => (
-            <article key={n.id ?? i} className="py-5 flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-6">
+            <article
+              key={n.id ?? i}
+              className="group rounded-xl border border-line/70 bg-panel/40 p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6 hover:border-line hover:bg-panel/75 transition-all backdrop-blur-sm"
+            >
               <div className="sm:w-36 shrink-0 flex items-center gap-2 pt-0.5">
                 <span className={`badge ${tagClass[n.tag] ?? ""}`}>{n.tag}</span>
                 {n.created_at && (
-                  <span className="text-xs text-muted sm:hidden">{fmtDate(n.created_at)}</span>
+                  <span className="text-xs text-muted sm:hidden font-mono">{fmtDate(n.created_at)}</span>
                 )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="font-display text-base font-semibold tracking-tight text-text leading-snug">
+                  <h3 className="font-display text-base font-semibold tracking-tight text-text leading-snug group-hover:text-accent transition-colors">
                     {n.title}
                   </h3>
                   {n.created_at && (
-                    <span className="hidden sm:inline text-xs text-muted whitespace-nowrap">
+                    <span className="hidden sm:inline text-xs text-muted font-mono whitespace-nowrap">
                       {fmtDate(n.created_at)}
                     </span>
                   )}
