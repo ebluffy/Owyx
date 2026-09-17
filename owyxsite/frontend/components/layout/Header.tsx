@@ -64,7 +64,7 @@ export default function Header() {
         <div className="flex items-center gap-2 sm:gap-3">
           {user ? (
             <>
-              <Link href="/download" className="hidden sm:inline-flex btn btn-ghost btn-sm">
+              <Link href="/download" className="hidden sm:inline-flex btn btn-secondary btn-sm">
                 {dict.header.download}
               </Link>
               <div className="relative" ref={dropdownRef}>

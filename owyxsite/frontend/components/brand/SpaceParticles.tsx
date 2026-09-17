@@ -8,12 +8,17 @@ type Particle = {
   vx: number;
   vy: number;
   r: number;
-  a: number;
+  baseAlpha: number;
+  twinkleSpeed: number;
+  phase: number;
+  depth: 1 | 2 | 3; // 1 = distant star, 2 = mid dust, 3 = foreground glowing crystal
 };
 
 /**
- * Soft cyan particle field for Owyx space backdrop.
- * SSR-safe (canvas only after mount). Respects prefers-reduced-motion + Page Visibility.
+ * Cinematic deep-space particle atmosphere for Owyx.
+ * Ambient starfield with multi-depth cosmic dust and gentle organic twinkling.
+ * Zero tacky spiderweb connecting lines. O(N) performance, silky 60fps.
+ * Respects prefers-reduced-motion + Page Visibility.
  */
 export default function SpaceParticles() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -40,20 +45,47 @@ export default function SpaceParticles() {
 
     function countForViewport() {
       const area = w * h;
-      if (area < 500_000) return 28;
-      if (area < 1_200_000) return 42;
-      return 58;
+      if (area < 500_000) return 40;
+      if (area < 1_200_000) return 70;
+      return 100;
     }
 
     function spawn(n: number) {
-      particles = Array.from({ length: n }, () => ({
-        x: Math.random() * w,
-        y: Math.random() * h,
-        vx: (Math.random() - 0.5) * 0.22,
-        vy: (Math.random() - 0.5) * 0.18 - 0.05,
-        r: Math.random() * 1.6 + 0.5,
-        a: Math.random() * 0.45 + 0.2,
-      }));
+      particles = Array.from({ length: n }, () => {
+        const roll = Math.random();
+        // 60% distant micro-stars, 30% mid dust, 10% foreground crystal motes
+        const depth: 1 | 2 | 3 = roll < 0.6 ? 1 : roll < 0.9 ? 2 : 3;
+
+        let r = 0.6;
+        let baseAlpha = 0.25;
+        let speed = 0.1;
+
+        if (depth === 1) {
+          r = Math.random() * 0.7 + 0.4;
+          baseAlpha = Math.random() * 0.25 + 0.15;
+          speed = 0.08;
+        } else if (depth === 2) {
+          r = Math.random() * 0.9 + 0.9;
+          baseAlpha = Math.random() * 0.35 + 0.3;
+          speed = 0.16;
+        } else {
+          r = Math.random() * 1.2 + 1.5;
+          baseAlpha = Math.random() * 0.35 + 0.5;
+          speed = 0.24;
+        }
+
+        return {
+          x: Math.random() * w,
+          y: Math.random() * h,
+          vx: (Math.random() - 0.5) * speed * 0.6,
+          vy: -(Math.random() * speed + 0.03), // gentle upward float
+          r,
+          baseAlpha,
+          twinkleSpeed: Math.random() * 0.025 + 0.008,
+          phase: Math.random() * Math.PI * 2,
+          depth,
+        };
+      });
     }
 
     function resize() {
@@ -72,43 +104,49 @@ export default function SpaceParticles() {
       if (!running || !ctx) return;
       ctx.clearRect(0, 0, w, h);
 
-      const linkDist = Math.min(140, w * 0.12);
-      const linkDist2 = linkDist * linkDist;
-
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         p.x += p.vx;
         p.y += p.vy;
-        if (p.x < -20) p.x = w + 20;
-        if (p.x > w + 20) p.x = -20;
-        if (p.y < -20) p.y = h + 20;
-        if (p.y > h + 20) p.y = -20;
+        p.phase += p.twinkleSpeed;
 
-        for (let j = i + 1; j < particles.length; j++) {
-          const q = particles[j];
-          const dx = p.x - q.x;
-          const dy = p.y - q.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < linkDist2) {
-            const t = 1 - Math.sqrt(d2) / linkDist;
-            ctx.strokeStyle = `rgba(0, 229, 255, ${0.08 * t})`;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-          }
-        }
+        // Wrap around screen edges
+        if (p.x < -10) p.x = w + 10;
+        if (p.x > w + 10) p.x = -10;
+        if (p.y < -10) p.y = h + 10;
+        if (p.y > h + 10) p.y = -10;
 
-        ctx.beginPath();
-        ctx.fillStyle = `rgba(0, 229, 255, ${p.a})`;
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fill();
+        // Organic cosine twinkle
+        const alpha = Math.max(0.08, p.baseAlpha * (0.65 + 0.35 * Math.sin(p.phase)));
 
-        if (p.r > 1.4) {
+        if (p.depth === 3) {
+          // Foreground glowing cyan crystal mote with radial aura
+          const glowGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3.5);
+          glowGrad.addColorStop(0, `rgba(0, 229, 255, ${alpha * 0.8})`);
+          glowGrad.addColorStop(0.4, `rgba(0, 229, 255, ${alpha * 0.3})`);
+          glowGrad.addColorStop(1, "rgba(0, 229, 255, 0)");
+
+          ctx.fillStyle = glowGrad;
           ctx.beginPath();
-          ctx.fillStyle = `rgba(191, 248, 255, ${p.a * 0.35})`;
-          ctx.arc(p.x, p.y, p.r * 0.35, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, p.r * 3.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bright center
+          ctx.fillStyle = `rgba(220, 250, 255, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r * 0.85, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.depth === 2) {
+          // Midground cyan dust
+          ctx.fillStyle = `rgba(0, 229, 255, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Distant star point
+          ctx.fillStyle = `rgba(215, 240, 255, ${alpha * 0.85})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
           ctx.fill();
         }
       }

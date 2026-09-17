@@ -1,33 +1,37 @@
 import type { Metadata } from "next";
-import { DM_Sans, Geist_Mono, Outfit, Sora } from "next/font/google";
+import { JetBrains_Mono, Onest, Sora, Unbounded } from "next/font/google";
 import { AuthProvider } from "@/hooks/useAuth";
 import { LocaleProvider } from "@/hooks/useLocale";
 import SkipLink from "@/components/layout/SkipLink";
 import SpaceParticles from "@/components/brand/SpaceParticles";
 import "./globals.css";
 
-/* Display/brand = Sora (DESIGN.md). Body = DM Sans. Outfit kept as secondary. */
+/* High-craft typography stack with native Cyrillic + Latin support.
+ * Display/Headings = Unbounded (techno/gaming geometric) + Sora for latin wordmark.
+ * Body/UI = Onest (modern screen-engineered grotesk with full cyrillic support).
+ * Mono = JetBrains Mono (technical monospace for IPs, versions, and logs).
+ */
+const onest = Onest({
+  variable: "--font-onest",
+  subsets: ["cyrillic", "latin", "latin-ext"],
+  display: "swap",
+});
+
+const unbounded = Unbounded({
+  variable: "--font-unbounded",
+  subsets: ["cyrillic", "latin", "latin-ext"],
+  display: "swap",
+});
+
 const sora = Sora({
   variable: "--font-sora",
   subsets: ["latin", "latin-ext"],
   display: "swap",
 });
 
-const outfit = Outfit({
-  variable: "--font-outfit",
-  subsets: ["latin", "latin-ext"],
-  display: "swap",
-});
-
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
-  subsets: ["latin", "latin-ext"],
-  display: "swap",
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["cyrillic", "latin"],
   display: "swap",
 });
 
@@ -55,7 +59,7 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className={`${sora.variable} ${outfit.variable} ${dmSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${onest.variable} ${unbounded.variable} ${sora.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-screen overflow-x-clip flex flex-col">
         <div className="owyx-space" aria-hidden="true" />
