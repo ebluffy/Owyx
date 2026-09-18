@@ -50,6 +50,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      # Cache Gradle deps so clean Windows runners do not hammer Maven Central (429).
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: packages/app-lib/java
+          cache-read-only: false
 
       - name: Install dependencies
         shell: bash
@@ -127,6 +132,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          build-root-directory: packages/app-lib/java
+          cache-read-only: false
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
