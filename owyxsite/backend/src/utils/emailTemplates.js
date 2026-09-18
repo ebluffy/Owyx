@@ -13,6 +13,8 @@ const BRAND = {
   muted: "#9aa0a8",
   site: "https://owyx.site",
   discord: "https://discord.gg/owyx",
+  /** Absolute PNG/SVG for inbox — many clients block relative URLs. */
+  logo: "https://owyx.site/favicon-owyx.svg",
 };
 
 function esc(v) {
@@ -48,8 +50,16 @@ function layout({ title, intro, bodyHtml, button, footerNote }) {
              style="max-width:560px;width:100%;background:${BRAND.panel};
                     border:1px solid ${BRAND.line};border-radius:16px;overflow:hidden;">
         <tr><td style="padding:24px 28px 8px;">
-          <span style="font-size:22px;font-weight:800;color:${BRAND.accent};
-                       letter-spacing:-0.01em;">Owyx</span>
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="vertical-align:middle;padding-right:10px;">
+              <img src="${BRAND.logo}" width="32" height="32" alt="Owyx"
+                   style="display:block;border:0;border-radius:8px;"/>
+            </td>
+            <td style="vertical-align:middle;">
+              <span style="font-size:22px;font-weight:800;color:${BRAND.accent};
+                           letter-spacing:-0.01em;">Owyx</span>
+            </td>
+          </tr></table>
         </td></tr>
         <tr><td style="padding:4px 28px 0;">
           <h1 style="margin:0 0 6px;color:${BRAND.text};font-size:20px;

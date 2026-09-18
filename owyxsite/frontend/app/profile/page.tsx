@@ -10,7 +10,7 @@ import CabinetShell, {
   Toast,
 } from "@/components/layout/CabinetShell";
 import AvatarCropModal from "@/components/profile/AvatarCropModal";
-import { SupportContactButton } from "@/components/support/SupportContact";
+import Modal from "@/components/ui/Modal";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/hooks/useLocale";
 import type { Locale } from "@/lib/i18n";
@@ -76,9 +76,6 @@ export default function ProfilePage() {
         subtitle={p.subtitle}
         actions={
           <>
-            <SupportContactButton className="btn btn-ghost">
-              {p.contactSupport}
-            </SupportContactButton>
             <Link href="/download" className="btn btn-primary">
               {p.downloadLauncher}
             </Link>
@@ -423,85 +420,74 @@ function EmailChangeModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/65"
-      onClick={onClose}
-      role="presentation"
+    <Modal
+      onClose={onClose}
+      title={p.emailChangeTitle}
+      description={
+        step === "email" ? p.emailChangeStep1 : p.emailChangeStep2.replace("{email}", newEmail)
+      }
+      size="sm"
     >
-      <div
-        className="w-full max-w-sm rounded-2xl border border-line bg-panel p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="email-change-title"
-      >
-        <h3 id="email-change-title" className="font-display text-lg font-bold tracking-tight">
-          {p.emailChangeTitle}
-        </h3>
-        <p className="mt-1 text-sm text-muted">
-          {step === "email" ? p.emailChangeStep1 : p.emailChangeStep2.replace("{email}", newEmail)}
-        </p>
-        {msg && (
-          <div className={`form-msg mt-4 ${msg.type === "success" ? "form-msg-ok" : "form-msg-err"}`}>
-            {msg.text}
+      {msg && (
+        <div className={`form-msg mb-4 ${msg.type === "success" ? "form-msg-ok" : "form-msg-err"}`}>
+          {msg.text}
+        </div>
+      )}
+      {step === "email" ? (
+        <form onSubmit={requestCode} className="space-y-4">
+          <div className="field">
+            <label className="field-label" htmlFor="new-email">
+              {p.emailNew}
+            </label>
+            <input
+              id="new-email"
+              type="email"
+              required
+              className="input"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder={p.emailPlaceholder}
+              autoComplete="email"
+            />
           </div>
-        )}
-        {step === "email" ? (
-          <form onSubmit={requestCode} className="mt-5 space-y-4">
-            <div className="field">
-              <label className="field-label" htmlFor="new-email">
-                {p.emailNew}
-              </label>
-              <input
-                id="new-email"
-                type="email"
-                required
-                className="input"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                placeholder={p.emailPlaceholder}
-                autoComplete="email"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="submit" disabled={busy} className="btn btn-primary">
-                {busy ? p.sending : p.sendCode}
-              </button>
-              <button type="button" onClick={onClose} className="btn btn-ghost">
-                {c.cancel}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={confirmCode} className="mt-5 space-y-4">
-            <div className="field">
-              <label className="field-label" htmlFor="email-code">
-                {p.codeFromMail}
-              </label>
-              <input
-                id="email-code"
-                inputMode="numeric"
-                maxLength={6}
-                required
-                className="input tracking-[0.35em]"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-                placeholder={p.codePlaceholder}
-                autoComplete="one-time-code"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button type="submit" disabled={busy} className="btn btn-primary">
-                {busy ? c.checking : c.confirm}
-              </button>
-              <button type="button" onClick={() => setStep("email")} className="btn btn-ghost">
-                {c.back}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" disabled={busy} className="btn btn-primary">
+              {busy ? p.sending : p.sendCode}
+            </button>
+            <button type="button" onClick={onClose} className="btn btn-ghost">
+              {c.cancel}
+            </button>
+          </div>
+        </form>
+      ) : (
+        <form onSubmit={confirmCode} className="space-y-4">
+          <div className="field">
+            <label className="field-label" htmlFor="email-code">
+              {p.codeFromMail}
+            </label>
+            <input
+              id="email-code"
+              inputMode="numeric"
+              maxLength={6}
+              required
+              className="input tracking-[0.35em]"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+              placeholder={p.codePlaceholder}
+              autoComplete="one-time-code"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" disabled={busy} className="btn btn-primary">
+              {busy ? c.checking : c.confirm}
+            </button>
+            <button type="button" onClick={() => setStep("email")} className="btn btn-ghost">
+              {c.back}
+            </button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 
