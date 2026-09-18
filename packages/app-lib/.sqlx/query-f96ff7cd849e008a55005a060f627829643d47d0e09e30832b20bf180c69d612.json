@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        UPDATE onboarding_checklist\n        SET show_checklist = FALSE\n        WHERE id = 0\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "f96ff7cd849e008a55005a060f627829643d47d0e09e30832b20bf180c69d612"
+}

@@ -115,6 +115,7 @@ async function hideChecklist() {
 			@on-close="handleAccordionClose"
 		>
 			<template #title>
+				<div class="flex w-full min-w-0 items-center gap-1">
 				<span class="font-semibold leading-6">{{ formatMessage(messages.title) }}</span>
 				<IconButton
 					v-tooltip="formatMessage(messages.hide)"
@@ -126,6 +127,7 @@ async function hideChecklist() {
 				>
 					<XIcon />
 				</IconButton>
+				</div>
 			</template>
 			<button
 				v-for="step in steps"
