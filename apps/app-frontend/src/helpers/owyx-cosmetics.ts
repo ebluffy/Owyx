@@ -7,10 +7,25 @@ import { homeDir, join } from '@tauri-apps/api/path'
 import { mkdir, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
-import { isAllowedOwyxAssetUrl } from '@/helpers/owyx-api'
+import {
+	DEFAULT_OWYX_API_BASE,
+	getStoredOwyxApiBase,
+	isAllowedOwyxAssetUrl,
+	sanitizeOwyxApiBase,
+} from '@/helpers/owyx-api'
 
 function sanitizeNick(nick: string): string {
 	return nick.replace(/[^A-Za-z0-9_\-.]/g, '_').slice(0, 32) || 'player'
+}
+
+function resolveSkinDownloadUrl(skinUrl: string): string | null {
+	const trimmed = skinUrl.trim()
+	if (!isAllowedOwyxAssetUrl(trimmed)) return null
+	if (trimmed.startsWith('/')) {
+		const base = sanitizeOwyxApiBase(getStoredOwyxApiBase() || DEFAULT_OWYX_API_BASE)
+		return `${base.replace(/\/$/, '')}${trimmed}`
+	}
+	return trimmed
 }
 
 export async function syncOwyxCosmeticsToDisk(
@@ -24,13 +39,14 @@ export async function syncOwyxCosmeticsToDisk(
 			? String(cosmetics.skin_url)
 			: null
 	if (!skinUrl) return
-	if (!isAllowedOwyxAssetUrl(skinUrl)) return
+	const absolute = resolveSkinDownloadUrl(skinUrl)
+	if (!absolute) return
 
 	let res: Response
 	try {
-		res = await tauriFetch(skinUrl, { method: 'GET', signal: AbortSignal.timeout(15000) })
+		res = await tauriFetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
 	} catch {
-		res = await fetch(skinUrl, { method: 'GET', signal: AbortSignal.timeout(15000) })
+		res = await fetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
 	}
 	if (!res.ok) return
 	const buf = new Uint8Array(await res.arrayBuffer())

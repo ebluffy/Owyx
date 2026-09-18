@@ -178,13 +178,19 @@ export async function reportOwyxLauncherSession(opts?: {
 		const last = Number(localStorage.getItem(LAST_HEARTBEAT_KEY) || 0)
 		if (!last || Date.now() - last > 20 * 60 * 60 * 1000) {
 			events.push({ kind: 'heartbeat', message: 'daily heartbeat' })
-			localStorage.setItem(LAST_HEARTBEAT_KEY, String(Date.now()))
 		}
 	} catch {
 		/* ignore */
 	}
 
 	await postTelemetry(events, { authToken: opts?.authToken })
+	if (events.some((e) => e.kind === 'heartbeat')) {
+		try {
+			localStorage.setItem(LAST_HEARTBEAT_KEY, String(Date.now()))
+		} catch {
+			/* ignore */
+		}
+	}
 }
 
 /** Report a sanitized launcher/runtime error (opt-in). */

@@ -62,6 +62,20 @@ function ensureHeartbeatTimer() {
 	}, 30_000)
 }
 
+async function detectPlayingInstanceName(): Promise<string | null> {
+	try {
+		const { get_all } = await import('@/helpers/process.js')
+		const processes = (await get_all()) as { instance_id?: string }[]
+		const instanceId = processes.find((p) => p?.instance_id)?.instance_id
+		if (!instanceId) return null
+		const { get } = await import('@/helpers/instance')
+		const inst = await get(instanceId)
+		return inst?.name?.slice(0, 120) || 'Minecraft'
+	} catch {
+		return null
+	}
+}
+
 /**
  * Apply sharePresence from social settings.
  * OFF → stop heartbeats and force offline to friends.
@@ -93,9 +107,21 @@ export function startOwyxPresenceHeartbeat() {
 		return
 	}
 	clearHeartbeatTimer()
-	setCurrent({ status: 'online', instanceName: null })
-	void push()
-	ensureHeartbeatTimer()
+	// If Minecraft is already running when sharing is turned on, report playing.
+	void detectPlayingInstanceName().then((name) => {
+		if (!sharePresenceEnabled) return
+		if (current.status === 'playing') {
+			ensureHeartbeatTimer()
+			return
+		}
+		if (name) {
+			setCurrent({ status: 'playing', instanceName: name })
+		} else {
+			setCurrent({ status: 'online', instanceName: null })
+		}
+		void push()
+		ensureHeartbeatTimer()
+	})
 }
 
 export function stopOwyxPresenceHeartbeat(opts?: { forceOfflinePush?: boolean }) {

@@ -2,19 +2,20 @@
  * Link curated Owyx catalog servers to local pack instances under profiles/servers/.
  */
 
-import { join, tempDir } from '@tauri-apps/api/path'
+import { appDataDir, join } from '@tauri-apps/api/path'
 import { mkdir, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
 	install_create_modpack_instance,
+	install_pack_to_existing_instance,
 	installJobInstanceId,
 	wait_for_install_job,
 	type InstallJobSnapshot,
 } from '@/helpers/install'
 import { list } from '@/helpers/instance'
 import type { OwyxServerEntry } from '@/helpers/owyx-api'
-import { resolveOwyxPackUrl } from '@/helpers/owyx-api'
+import { getOwyxClientKey, resolveOwyxPackUrl } from '@/helpers/owyx-api'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
 
@@ -23,6 +24,12 @@ export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 const STORAGE_KEY = 'owyx.serverInstanceMap'
 
 type ServerInstanceMap = Record<string, string>
+
+/** In-flight installs keyed by catalog server id — collapses double-click races. */
+const inflightInstalls = new Map<
+	string,
+	Promise<{ instanceId: string; job: InstallJobSnapshot | null }>
+>()
 
 function readMap(): ServerInstanceMap {
 	try {
@@ -44,15 +51,16 @@ export function owyxServerLinkId(serverId: string): string {
 	return `${OWYX_SERVER_LINK_PREFIX}${serverId}`
 }
 
+function sanitizePackFileId(serverId: string): string {
+	return serverId.replace(/[^A-Za-z0-9_\-.]/g, '_').slice(0, 64) || 'server'
+}
+
 export function isOwyxServerInstance(instance: GameInstance): boolean {
 	const link = instance.link
-	if (link?.type === 'imported_modpack' && link.project_id?.startsWith(OWYX_SERVER_LINK_PREFIX)) {
-		return true
-	}
-	if (instance.path === 'servers' || instance.path.startsWith('servers/')) {
-		return true
-	}
-	return false
+	return (
+		link?.type === 'imported_modpack' &&
+		Boolean(link.project_id?.startsWith(OWYX_SERVER_LINK_PREFIX))
+	)
 }
 
 export function rememberOwyxServerInstance(serverId: string, instanceId: string) {
@@ -73,35 +81,36 @@ export async function findLinkedOwyxServerInstance(
 	const map = readMap()
 	const mappedId = map[server.id]
 	const instances = await list()
-	if (mappedId) {
-		const hit = instances.find((i) => i.id === mappedId)
-		if (hit) return hit
-		forgetOwyxServerInstance(server.id)
-	}
 	const linkId = owyxServerLinkId(server.id)
-	const byLink = instances.find(
+
+	const candidates = instances.filter(
 		(i) =>
-			i.link?.type === 'imported_modpack' &&
-			i.link.project_id === linkId &&
-			!isInstallingOnly(i),
+			i.id === mappedId ||
+			(i.link?.type === 'imported_modpack' && i.link.project_id === linkId),
 	)
-	if (byLink) {
-		rememberOwyxServerInstance(server.id, byLink.id)
-		return byLink
+	if (!candidates.length) {
+		if (mappedId) forgetOwyxServerInstance(server.id)
+		return null
 	}
-	const byName = instances.find(
-		(i) =>
-			i.name === server.name &&
-			isOwyxServerInstance(i) &&
-			i.link?.type === 'imported_modpack' &&
-			i.link.project_id === linkId,
-	)
-	return byName ?? null
+
+	const installed = candidates.find((i) => i.install_stage === 'installed')
+	const preferred =
+		installed ??
+		candidates.find((i) => isInstallingStage(i.install_stage)) ??
+		candidates[0]
+
+	if (preferred.install_stage === 'installed') {
+		rememberOwyxServerInstance(server.id, preferred.id)
+	}
+	return preferred
 }
 
-function isInstallingOnly(instance: GameInstance): boolean {
-	const stage = instance.install_stage
-	return stage === 'not_installed' || stage === 'minecraft_installing' || stage === 'pack_installing'
+function isInstallingStage(stage: GameInstance['install_stage']): boolean {
+	return (
+		stage === 'minecraft_installing' ||
+		stage === 'pack_installing' ||
+		stage === 'pack_installed'
+	)
 }
 
 function packFileExtension(url: string): string {
@@ -111,19 +120,44 @@ function packFileExtension(url: string): string {
 	return 'mrpack'
 }
 
+function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
+	try {
+		const host = new URL(packUrl).hostname.toLowerCase()
+		if (
+			host === 'api.owyx.site' ||
+			host === 'owyx.site' ||
+			host.endsWith('.owyx.site') ||
+			host === '127.0.0.1' ||
+			host === 'localhost'
+		) {
+			const key = getOwyxClientKey().trim()
+			if (key) return { 'X-Owyx-Client-Key': key }
+		}
+	} catch {
+		/* ignore */
+	}
+	return undefined
+}
+
+/**
+ * Cache curated packs under app data `owyx-packs/` (in Tauri fs scope).
+ */
 export async function downloadOwyxPackToTemp(
 	packUrl: string,
 	serverId: string,
 ): Promise<string> {
+	const headers = packDownloadHeaders(packUrl)
 	let res: Response
 	try {
 		res = await tauriFetch(packUrl, {
 			method: 'GET',
+			headers,
 			signal: AbortSignal.timeout(120_000),
 		})
 	} catch {
 		res = await fetch(packUrl, {
 			method: 'GET',
+			headers,
 			signal: AbortSignal.timeout(120_000),
 		})
 	}
@@ -134,10 +168,10 @@ export async function downloadOwyxPackToTemp(
 	if (buf.byteLength < 32) {
 		throw new Error('Pack download was empty')
 	}
-	const dir = await join(await tempDir(), 'owyx-packs')
+	const dir = await join(await appDataDir(), 'owyx-packs')
 	await mkdir(dir, { recursive: true })
 	const ext = packFileExtension(packUrl)
-	const path = await join(dir, `${serverId}.${ext}`)
+	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
 	await writeFile(path, buf)
 	return path
 }
@@ -156,7 +190,23 @@ export function owyxServerInstanceLink(
 	}
 }
 
-export async function installOwyxServerPack(
+async function waitUntilInstalled(instanceId: string): Promise<GameInstance> {
+	for (let i = 0; i < 180; i++) {
+		const instances = await list()
+		const hit = instances.find((item) => item.id === instanceId)
+		if (!hit) {
+			throw new Error('Server pack instance disappeared during install')
+		}
+		if (hit.install_stage === 'installed') return hit
+		if (!isInstallingStage(hit.install_stage)) {
+			return hit
+		}
+		await new Promise((r) => setTimeout(r, 1000))
+	}
+	throw new Error('Timed out waiting for server pack install')
+}
+
+async function installOwyxServerPackInner(
 	server: OwyxServerEntry,
 	apiBase: string,
 	appEvents: AppEvents,
@@ -166,24 +216,64 @@ export async function installOwyxServerPack(
 		throw new Error('No installable pack URL for this server')
 	}
 	const existing = await findLinkedOwyxServerInstance(server)
-	if (existing && existing.install_stage === 'installed') {
+	if (existing?.install_stage === 'installed') {
 		return { instanceId: existing.id, job: null }
+	}
+	if (existing && isInstallingStage(existing.install_stage)) {
+		const finished = await waitUntilInstalled(existing.id)
+		if (finished.install_stage === 'installed') {
+			rememberOwyxServerInstance(server.id, finished.id)
+			return { instanceId: finished.id, job: null }
+		}
 	}
 
 	const filePath = await downloadOwyxPackToTemp(packUrl, server.id)
 	const filename = filePath.split(/[\\/]/).pop() ?? null
-	const job = await install_create_modpack_instance(
-		{ type: 'fromFile', path: filePath },
-		{
-			name: server.name,
-			link: owyxServerInstanceLink(server, filename),
-		},
-	)
-	const completed = await wait_for_install_job(appEvents, job.job_id)
-	const instanceId = installJobInstanceId(completed)
-	if (!instanceId) {
-		throw new Error('Install finished without an instance id')
+	const link = owyxServerInstanceLink(server, filename)
+	const postEdit = {
+		name: server.name,
+		link,
 	}
-	rememberOwyxServerInstance(server.id, instanceId)
-	return { instanceId, job: completed }
+
+	try {
+		let job: InstallJobSnapshot
+		if (existing) {
+			job = await install_pack_to_existing_instance(
+				existing.id,
+				{ type: 'fromFile', path: filePath },
+				postEdit,
+			)
+		} else {
+			job = await install_create_modpack_instance(
+				{ type: 'fromFile', path: filePath },
+				postEdit,
+			)
+		}
+
+		const completed = await wait_for_install_job(appEvents, job.job_id)
+		const instanceId = installJobInstanceId(completed) ?? existing?.id ?? null
+		if (!instanceId) {
+			throw new Error('Install finished without an instance id')
+		}
+		rememberOwyxServerInstance(server.id, instanceId)
+		return { instanceId, job: completed }
+	} catch (error) {
+		forgetOwyxServerInstance(server.id)
+		throw error
+	}
+}
+
+export async function installOwyxServerPack(
+	server: OwyxServerEntry,
+	apiBase: string,
+	appEvents: AppEvents,
+): Promise<{ instanceId: string; job: InstallJobSnapshot | null }> {
+	const existing = inflightInstalls.get(server.id)
+	if (existing) return existing
+
+	const pending = installOwyxServerPackInner(server, apiBase, appEvents).finally(() => {
+		inflightInstalls.delete(server.id)
+	})
+	inflightInstalls.set(server.id, pending)
+	return pending
 }

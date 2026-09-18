@@ -162,6 +162,20 @@ async fn resolve_instance_path(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| sanitize_instance_name(name));
     crate::state::content_store::validate_relative(&base_path)?;
+    // Reserve `servers` / `servers/*` for curated Owyx packs only.
+    if path.is_none()
+        && (base_path == crate::state::dirs::SERVERS_FOLDER_NAME
+            || base_path.starts_with(&format!(
+                "{}/",
+                crate::state::dirs::SERVERS_FOLDER_NAME
+            )))
+    {
+        return Err(crate::ErrorKind::InputError(
+            "instance name `servers` is reserved for Owyx server packs"
+                .to_string(),
+        )
+        .into());
+    }
     let mut path = base_path.clone();
     let mut full_path = state.directories.instances_dir().join(&path);
 
@@ -265,10 +279,14 @@ fn sanitize_instance_name(input: &str) -> String {
 }
 
 /// Relative path under `profiles/` for curated Owyx server packs.
-pub(crate) fn owyx_server_instance_path(name: &str) -> String {
-    format!(
-        "{}/{}",
-        crate::state::dirs::SERVERS_FOLDER_NAME,
-        sanitize_instance_name(name)
-    )
+/// Uses catalog server id (stable) — not display name — to avoid collisions.
+pub(crate) fn owyx_server_instance_path(server_id: &str) -> String {
+    let mut slug = sanitize_instance_name(server_id.trim());
+    while slug.ends_with('.') || slug.ends_with(' ') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        slug = "server".to_string();
+    }
+    format!("{}/{}", crate::state::dirs::SERVERS_FOLDER_NAME, slug)
 }

@@ -80,6 +80,12 @@ export class OwyxFriendsError extends Error {
 
 function friendsError(raw: string | undefined, status: number, fallback: string): OwyxFriendsError {
 	const msg = (raw || '').toLowerCase()
+	if (
+		msg.includes('unauthorized_client') ||
+		msg.includes('launcher_client_key_missing')
+	) {
+		return new OwyxFriendsError('missing_client_key', status, raw || fallback)
+	}
 	if (status === 401 || msg.includes('unauthorized') || msg.includes('no_session')) {
 		return new OwyxFriendsError('unauthorized', status, raw || fallback)
 	}
@@ -92,7 +98,7 @@ function friendsError(raw: string | undefined, status: number, fallback: string)
 	if (status === 409 && msg.includes('already')) {
 		return new OwyxFriendsError('already_friends', status, raw || fallback)
 	}
-	if (!getOwyxClientKey()) {
+	if (!getOwyxClientKey().trim() && (status === 401 || status === 403)) {
 		return new OwyxFriendsError('missing_client_key', status, raw || fallback)
 	}
 	return new OwyxFriendsError('generic', status, raw || `${fallback} (${status})`)
