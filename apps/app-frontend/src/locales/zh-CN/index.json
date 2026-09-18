@@ -1277,9 +1277,6 @@
   "app.navigation.home": {
     "message": "主页"
   },
-  "app.navigation.next-image": {
-    "message": "下一张图片"
-  },
   "app.news.title": {
     "message": "新闻"
   },

@@ -49,9 +49,7 @@ import {
 	requestOwyxFriend,
 	searchOwyxUsers,
 } from '@/helpers/owyx-friends'
-import {
-	installOwyxServerPack,
-} from '@/helpers/owyx-server-instances'
+import { installOwyxServerPack } from '@/helpers/owyx-server-instances'
 import { playOwyxUiSound } from '@/helpers/owyx-ui-sound'
 import { ensureManagedServerWorldExists, start_join_server } from '@/helpers/worlds'
 import { injectAppEvents } from '@/providers/app-events'
@@ -794,66 +792,66 @@ const messages = defineMessages({
 										<PlayIcon />
 									</IconButton>
 									<TeleportOverflowMenu
-									type="quiet"
-									label="More options"
-									class="opacity-0 group-hover:opacity-100 transition-opacity"
-									:options="[
-										...(friend.presence === 'playing' && friend.instanceName
-											? [
-													{
-														id: 'copy-instance',
-														label: formatMessage(messages.copyInstance),
-														action: () => copyPlayingInstance(friend),
-													},
-												]
-											: []),
-										...(friend.presence === 'playing' && matchCatalogServer(friend)
-											? [
-													{
-														id: 'join-server',
-														label: formatMessage(messages.joinServer),
-														action: () => joinFriendServer(friend),
-														disabled: busyJoinId === friend.id,
-													},
-													{
-														id: 'copy-server-address',
-														label: formatMessage(messages.copyServerAddress),
-														action: () => copyFriendServerAddress(friend),
-													},
-												]
-											: []),
-										{
-											id: 'remove-friend',
-											label: formatMessage(messages.removeFriend),
-											action: () => removeFriend(friend),
-											tone: 'red',
-										},
-									]"
-								>
-									<MoreVerticalIcon />
-									<template
-										v-if="friend.presence === 'playing' && friend.instanceName"
-										#copy-instance
+										type="quiet"
+										label="More options"
+										class="opacity-0 group-hover:opacity-100 transition-opacity"
+										:options="[
+											...(friend.presence === 'playing' && friend.instanceName
+												? [
+														{
+															id: 'copy-instance',
+															label: formatMessage(messages.copyInstance),
+															action: () => copyPlayingInstance(friend),
+														},
+													]
+												: []),
+											...(friend.presence === 'playing' && matchCatalogServer(friend)
+												? [
+														{
+															id: 'join-server',
+															label: formatMessage(messages.joinServer),
+															action: () => joinFriendServer(friend),
+															disabled: busyJoinId === friend.id,
+														},
+														{
+															id: 'copy-server-address',
+															label: formatMessage(messages.copyServerAddress),
+															action: () => copyFriendServerAddress(friend),
+														},
+													]
+												: []),
+											{
+												id: 'remove-friend',
+												label: formatMessage(messages.removeFriend),
+												action: () => removeFriend(friend),
+												tone: 'red',
+											},
+										]"
 									>
-										{{ formatMessage(messages.copyInstance) }}
-									</template>
-									<template
-										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
-										#join-server
-									>
-										{{ formatMessage(messages.joinServer) }}
-									</template>
-									<template
-										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
-										#copy-server-address
-									>
-										{{ formatMessage(messages.copyServerAddress) }}
-									</template>
-									<template #remove-friend>
-										<TrashIcon />
-										{{ formatMessage(messages.removeFriend) }}
-									</template>
-								</TeleportOverflowMenu>
+										<MoreVerticalIcon />
+										<template
+											v-if="friend.presence === 'playing' && friend.instanceName"
+											#copy-instance
+										>
+											{{ formatMessage(messages.copyInstance) }}
+										</template>
+										<template
+											v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
+											#join-server
+										>
+											{{ formatMessage(messages.joinServer) }}
+										</template>
+										<template
+											v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
+											#copy-server-address
+										>
+											{{ formatMessage(messages.copyServerAddress) }}
+										</template>
+										<template #remove-friend>
+											<TrashIcon />
+											{{ formatMessage(messages.removeFriend) }}
+										</template>
+									</TeleportOverflowMenu>
 								</div>
 							</div>
 						</div>

@@ -138,10 +138,6 @@ router.get('/v1/packs/:id', optionalAuthenticate, async (req, res) => {
   try {
     const pack = await catalog.getPublishedPack(req, req.params.id);
     if (!pack) return res.status(404).json({ error: 'Пак не найден' });
-    const allowed = await catalog.listPublishedPacks(req);
-    if (!allowed.some((p) => p.id === pack.id)) {
-      return res.status(404).json({ error: 'Пак не найден' });
-    }
     res.json({ pack });
   } catch (error) {
     console.error('launcher/v1/packs/:id error:', error);
@@ -157,14 +153,43 @@ router.get('/v1/packs/:id/manifest', optionalAuthenticate, async (req, res) => {
       [req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
-    const allowed = await catalog.listPublishedPacks(req);
-    if (!allowed.some((p) => p.id === req.params.id)) {
+    const allowed = await catalog.filterByAcl(req, result.rows, 'pack');
+    if (!allowed[0]) {
       return res.status(404).json({ error: 'Пак не найден' });
     }
-    res.json(catalog.packManifest(req, result.rows[0]));
+    res.json(catalog.packManifest(req, allowed[0]));
   } catch (error) {
     console.error('launcher/v1/packs/:id/manifest error:', error);
     res.status(500).json({ error: 'Не удалось загрузить манифест' });
+  }
+});
+
+// GET /api/launcher/v1/packs/:id/download — ACL-gated bytes for local uploads.
+router.get('/v1/packs/:id/download', optionalAuthenticate, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT * FROM packs WHERE id = $1 AND published = true`,
+      [req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
+    const allowed = await catalog.filterByAcl(req, result.rows, 'pack');
+    if (!allowed[0]) {
+      return res.status(404).json({ error: 'Пак не найден' });
+    }
+    const filePath = catalog.localPackFilePath(allowed[0]);
+    if (!filePath) {
+      return res.status(404).json({ error: 'Файл пака недоступен' });
+    }
+    const fs = require('fs');
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Файл пака не найден' });
+    }
+    const base = require('path').basename(filePath);
+    res.setHeader('Content-Disposition', `attachment; filename="${base}"`);
+    return res.sendFile(filePath);
+  } catch (error) {
+    console.error('launcher/v1/packs/:id/download error:', error);
+    res.status(500).json({ error: 'Не удалось скачать пак' });
   }
 });
 

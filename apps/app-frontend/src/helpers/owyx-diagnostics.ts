@@ -4,11 +4,7 @@
 
 import { save } from '@tauri-apps/plugin-dialog'
 
-import {
-	getOwyxClientKey,
-	getStoredOwyxApiBase,
-	sanitizeOwyxApiBase,
-} from '@/helpers/owyx-api'
+import { getOwyxClientKey, getStoredOwyxApiBase, sanitizeOwyxApiBase } from '@/helpers/owyx-api'
 import { get } from '@/helpers/settings'
 import { exportOwyxDiagnosticsZip, getOS, highlightInFolder } from '@/helpers/utils.js'
 

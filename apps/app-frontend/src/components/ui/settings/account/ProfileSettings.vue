@@ -53,9 +53,12 @@ import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 const { formatMessage } = useVIntl()
 const owyx = injectOwyxSiteSession()
 
-const displayName = computed(
-	() =>
-		(owyx.session.value?.user?.displayNickname || owyx.session.value?.user?.nickname || 'Owyx').trim(),
+const displayName = computed(() =>
+	(
+		owyx.session.value?.user?.displayNickname ||
+		owyx.session.value?.user?.nickname ||
+		'Owyx'
+	).trim(),
 )
 
 const editNick = ref(displayName.value)

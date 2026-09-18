@@ -19,7 +19,11 @@ const {
     revokeUserCredentials,
 } = require('../utils/authSecurity');
 const { logUserActivity } = require('../utils/activityLog');
-const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
+const {
+    passwordTooLong,
+    BCRYPT_MAX_BYTES,
+    passwordComplexityValidators,
+} = require('../utils/passwordPolicy');
 const { consumeIp } = require('../utils/ipRateLimit');
 const {
     setPendingCookie,
@@ -33,6 +37,8 @@ const passwordMaxBytesValidator = body('password').custom((value) => {
     }
     return true;
 });
+
+const registerPasswordValidators = passwordComplexityValidators(body);
 
 const router = express.Router();
 
@@ -274,16 +280,7 @@ router.post('/register', [
     loginFieldValidator,
     legacyNickValidator,
     body('email').isEmail().normalizeEmail().withMessage('Некорректный email'),
-    passwordMaxBytesValidator,
-    body('password')
-        .isLength({ min: 8 })
-        .withMessage('Пароль должен быть минимум 8 символов')
-        .matches(/[A-ZА-ЯЁ]/)
-        .withMessage('Пароль должен содержать хотя бы одну заглавную букву')
-        .matches(/\d/)
-        .withMessage('Пароль должен содержать хотя бы одну цифру')
-        .matches(/[^A-Za-zА-Яа-яЁё0-9]/)
-        .withMessage('Пароль должен содержать хотя бы один спецсимвол'),
+    ...registerPasswordValidators,
     body('first_name').optional().isLength({ max: 50 }).withMessage('Имя не должно превышать 50 символов')
 ], async (req, res) => {
     const errors = validationResult(req);
@@ -1064,8 +1061,7 @@ router.post('/forgot-password', [
 // POST /api/auth/reset-password - Сброс пароля по токену
 router.post('/reset-password', [
     body('token').notEmpty(),
-    passwordMaxBytesValidator,
-    body('password').isLength({ min: 8 })
+    ...registerPasswordValidators,
 ], async (req, res) => {
     try {
         const errors = validationResult(req);

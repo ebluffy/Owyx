@@ -219,11 +219,13 @@ router.patch('/settings', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const me = req.user.id;
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit || ''), 10) || 500, 1), 500);
     const result = await db.query(
       `${FRIEND_SELECT}
        WHERE f.user_id = $1 OR f.friend_id = $1
-       ORDER BY f.updated_at DESC`,
-      [me]
+       ORDER BY f.updated_at DESC
+       LIMIT $2`,
+      [me, limit]
     );
     const friends = result.rows.map((row) => publicFriend(row, me));
     res.json({

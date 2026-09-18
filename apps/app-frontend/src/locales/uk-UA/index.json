@@ -1280,9 +1280,6 @@
   "app.navigation.home": {
     "message": "Головна"
   },
-  "app.navigation.next-image": {
-    "message": "Наступне зображення"
-  },
   "app.news.title": {
     "message": "Новини"
   },

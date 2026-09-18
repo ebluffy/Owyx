@@ -71,8 +71,7 @@ async function detectPlayingInstanceName(): Promise<string | null> {
 		const { get } = await import('@/helpers/instance')
 		const { OWYX_SERVER_LINK_PREFIX } = await import('@/helpers/owyx-server-instances')
 		const inst = await get(instanceId)
-		const linkId =
-			inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
+		const linkId = inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
 		if (linkId.startsWith(OWYX_SERVER_LINK_PREFIX)) {
 			return linkId.slice(0, 120)
 		}

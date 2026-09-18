@@ -14,11 +14,8 @@ import {
 	wait_for_install_job,
 } from '@/helpers/install'
 import { list } from '@/helpers/instance'
-import {
-	getOwyxClientKey,
-	type OwyxServerEntry,
-	resolveOwyxPackUrl,
-} from '@/helpers/owyx-api'
+import { getOwyxClientKey, type OwyxServerEntry, resolveOwyxPackUrl } from '@/helpers/owyx-api'
+import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
 
@@ -88,8 +85,7 @@ export async function findLinkedOwyxServerInstance(
 
 	const candidates = instances.filter(
 		(i) =>
-			i.id === mappedId ||
-			(i.link?.type === 'imported_modpack' && i.link.project_id === linkId),
+			i.id === mappedId || (i.link?.type === 'imported_modpack' && i.link.project_id === linkId),
 	)
 	if (!candidates.length) {
 		if (mappedId) forgetOwyxServerInstance(server.id)
@@ -98,9 +94,7 @@ export async function findLinkedOwyxServerInstance(
 
 	const installed = candidates.find((i) => i.install_stage === 'installed')
 	const preferred =
-		installed ??
-		candidates.find((i) => isInstallingStage(i.install_stage)) ??
-		candidates[0]
+		installed ?? candidates.find((i) => isInstallingStage(i.install_stage)) ?? candidates[0]
 
 	if (preferred.install_stage === 'installed') {
 		rememberOwyxServerInstance(server.id, preferred.id)
@@ -110,9 +104,7 @@ export async function findLinkedOwyxServerInstance(
 
 function isInstallingStage(stage: GameInstance['install_stage']): boolean {
 	return (
-		stage === 'minecraft_installing' ||
-		stage === 'pack_installing' ||
-		stage === 'pack_installed'
+		stage === 'minecraft_installing' || stage === 'pack_installing' || stage === 'pack_installed'
 	)
 }
 
@@ -133,8 +125,12 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 			host === '127.0.0.1' ||
 			host === 'localhost'
 		) {
+			const headers: Record<string, string> = {}
 			const key = getOwyxClientKey().trim()
-			if (key) return { 'X-Owyx-Client-Key': key }
+			if (key) headers['X-Owyx-Client-Key'] = key
+			const token = getStoredOwyxSiteSession()?.token?.trim()
+			if (token) headers.Authorization = `Bearer ${token}`
+			return Object.keys(headers).length ? headers : undefined
 		}
 	} catch {
 		/* ignore */
@@ -145,10 +141,7 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 /**
  * Cache curated packs under app data `owyx-packs/` (in Tauri fs scope).
  */
-export async function downloadOwyxPackToTemp(
-	packUrl: string,
-	serverId: string,
-): Promise<string> {
+export async function downloadOwyxPackToTemp(packUrl: string, serverId: string): Promise<string> {
 	const headers = packDownloadHeaders(packUrl)
 	let res: Response
 	try {
@@ -247,10 +240,7 @@ async function installOwyxServerPackInner(
 				postEdit,
 			)
 		} else {
-			job = await install_create_modpack_instance(
-				{ type: 'fromFile', path: filePath },
-				postEdit,
-			)
+			job = await install_create_modpack_instance({ type: 'fromFile', path: filePath }, postEdit)
 		}
 
 		const completed = await wait_for_install_job(appEvents, job.job_id)

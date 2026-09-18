@@ -1737,6 +1737,18 @@ router.put('/users/:id/role', [
         const user = userResult.rows[0];
         const oldRole = user.role;
 
+        // Mirror ban: never change role of an existing admin (incl. self-demote).
+        if (oldRole === 'admin') {
+            return res.status(403).json({
+                error: 'Нельзя изменить роль администратора',
+            });
+        }
+        if (Number(id) === Number(req.user.id) && role !== 'admin') {
+            return res.status(403).json({
+                error: 'Нельзя понизить собственную роль',
+            });
+        }
+
         // Обновляем роль
         await db.query('UPDATE users SET role = $1 WHERE id = $2', [role, id]);
 
@@ -3027,6 +3039,7 @@ router.get('/api-tokens', authenticateToken, requireRole(['admin']), async (req,
             FROM api_tokens at
             LEFT JOIN users u ON at.created_by = u.id
             ORDER BY at.created_at DESC
+            LIMIT 200
         `);
 
         res.json({
@@ -3064,8 +3077,13 @@ router.post('/api-tokens', authenticateToken, requireRole(['admin']), async (req
             expiresAt.setDate(expiresAt.getDate() + expiresInDays);
         }
 
-        // Определяем пользователя для токена (по умолчанию - создатель)
-        const targetUserId = userId || req.user.id;
+        // Tokens always authenticate as the creating admin — no foreign userId.
+        if (userId != null && Number(userId) !== Number(req.user.id)) {
+            return res.status(400).json({
+                error: 'API-токен можно выписать только на свой аккаунт',
+            });
+        }
+        const targetUserId = req.user.id;
 
         // Создаем токен в базе данных
         const result = await db.query(`
