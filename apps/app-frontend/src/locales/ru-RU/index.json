@@ -1289,9 +1289,6 @@
   "app.navigation.home": {
     "message": "Главная"
   },
-  "app.navigation.next-image": {
-    "message": "Следующее изображение"
-  },
   "app.news.title": {
     "message": "Новости"
   },
@@ -4331,6 +4328,9 @@
   "onboarding-checklist.create-instance": {
     "message": "Создайте сборку"
   },
+  "onboarding-checklist.hide": {
+    "message": "Скрыть начало работы"
+  },
   "onboarding-checklist.login-minecraft": {
     "message": "Войдите в Minecraft"
   },
@@ -4384,9 +4384,6 @@
   },
   "owyx.servers.play": {
     "message": "Играть / Зайти"
-  },
-  "owyx.servers.download-pack": {
-    "message": "Скачать сборку"
   },
   "owyx.servers.copy-address": {
     "message": "Копировать адрес"
@@ -4573,15 +4570,6 @@
   },
   "owyx.admin.forbidden": {
     "message": "Нужна роль admin."
-  },
-  "owyx.servers.open-admin-panel": {
-    "message": "Открыть админ-панель"
-  },
-  "owyx.servers.admin-tools": {
-    "message": "Админ-инструменты"
-  },
-  "owyx.servers.admin-tools-hint": {
-    "message": "Публикация паков и настройки API — в админ-панели."
   },
   "owyx.settings.social.allow-requests-hint": {
     "message": "Если выключено, другие игроки не смогут отправлять вам новые заявки. Текущие друзья остаются."
@@ -4837,8 +4825,5 @@
   },
   "owyx.servers.server-port": {
     "message": "Порт"
-  },
-  "owyx.servers.settings": {
-    "message": "Настройки"
   }
 }

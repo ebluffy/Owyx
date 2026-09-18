@@ -507,8 +507,7 @@ async function enableOwyxSkins() {
 	cslDone.value = false
 	try {
 		await writeOwyxCslConfigForInstance(instance.value.id)
-		const nick =
-			owyx.session.value?.user?.nickname
+		const nick = owyx.session.value?.user?.nickname
 		if (nick) {
 			await mirrorLocalOwyxSkinToInstance(instance.value.id, nick)
 			await mirrorLocalOwyxCapeToInstance(instance.value.id, nick)
@@ -535,8 +534,7 @@ async function installCslMod() {
 			})
 			return
 		}
-		const nick =
-			owyx.session.value?.user?.nickname
+		const nick = owyx.session.value?.user?.nickname
 		if (nick) {
 			await mirrorLocalOwyxSkinToInstance(instance.value.id, nick)
 			await mirrorLocalOwyxCapeToInstance(instance.value.id, nick)

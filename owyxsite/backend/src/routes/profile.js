@@ -5,7 +5,7 @@ const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { revokeUserCredentials } = require('../utils/authSecurity');
-const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
+const { passwordComplexityError } = require('../utils/passwordPolicy');
 const { consumeIp } = require('../utils/ipRateLimit');
 const { verifyTurnstile } = require('../utils/turnstile');
 const { body, validationResult } = require('express-validator');
@@ -147,13 +147,9 @@ router.put('/', authenticateToken, async (req, res) => {
         const currentPassword = body.current_password ? String(body.current_password) : '';
         const newPassword = body.new_password ? String(body.new_password) : '';
         if (newPassword) {
-            if (newPassword.length < 8) {
-                return res.status(400).json({ error: 'Новый пароль — минимум 8 символов' });
-            }
-            if (passwordTooLong(newPassword)) {
-                return res.status(400).json({
-                    error: `Пароль не должен превышать ${BCRYPT_MAX_BYTES} байт`,
-                });
+            const complexityErr = passwordComplexityError(newPassword);
+            if (complexityErr) {
+                return res.status(400).json({ error: complexityErr });
             }
             if (!currentPassword) {
                 return res.status(400).json({ error: 'Укажите текущий пароль' });

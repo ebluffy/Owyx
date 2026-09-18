@@ -177,7 +177,7 @@ Also available as `GET /api/launcher/v1/me`.
 
 ### Friends (`/api/friends`, auth: Bearer + client key on api host)
 
-- `GET /api/friends` → `{ friends: [{ id, userId, nickname, displayNickname, avatarUrl, status, incoming, presence, instanceName, presenceUpdatedAt, ... }], incomingCount }`
+- `GET /api/friends` → `{ friends: [{ id, userId, nickname, displayNickname, avatarUrl, status, incoming, presence, instanceName, presenceUpdatedAt, ... }], incomingCount }` — server caps at **500** rows (`?limit=` optional, max 500).
 - `GET /api/friends/search?q=` → `{ users: [{ id, nickname, displayNickname, avatarUrl }] }` (match login or display)
 - `POST /api/friends/request` `{ nickname }` → create pending by **login or display** nickname (exact match, prefers login on ties; or auto-accept reciprocal); respects target `allowFriendRequests`
 - `POST /api/friends/:id/accept` · `POST /api/friends/:id/decline` · `DELETE /api/friends/:id`
@@ -195,9 +195,13 @@ Also available as `GET /api/launcher/v1/me`.
 
 - `packs.access_mode` / `servers.access_mode`: `open` | `whitelist` | `blacklist`
 - Junction `catalog_acl (resource_type, resource_id, user_id, effect)` with `allow`/`deny`
-- `GET /api/launcher/v1/servers` and `/packs` accept **optional** Bearer JWT:
+- `GET /api/launcher/v1/servers`, `/packs`, `/packs/:id`, `/packs/:id/manifest`, and
+  `/packs/:id/download` accept **optional** Bearer JWT:
   - guest → only `open`
   - signed-in → whitelist/blacklist applied
+- Local ingest `downloadUrl` points at
+  `/api/launcher/v1/packs/:id/download` (not raw `/uploads/packs/…`).
+  Legacy `/uploads/packs/{id}.zip` is gated by the same ACL middleware.
 - Admin: `GET|PUT /api/admin/packs|servers/:id/acl` with `{ accessMode, nicknames: string[] }`
 
 ### `GET /api/launcher/v1/cosmetics`  (auth)

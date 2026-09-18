@@ -47,6 +47,17 @@ function absoluteAsset(req, value) {
   return `${publicBase(req)}${value.startsWith('/') ? '' : '/'}${value}`;
 }
 
+/** True when the stored pack URL points at our local ingest directory. */
+function isLocalPackUploadUrl(rawUrl) {
+  const s = String(rawUrl || '');
+  return s.startsWith('/uploads/packs/') || s.includes('/uploads/packs/');
+}
+
+/** ACL-gated download URL (never expose raw /uploads/packs static path publicly). */
+function packDownloadApiUrl(req, packId) {
+  return absoluteAsset(req, `/api/launcher/v1/packs/${packId}/download`);
+}
+
 function parseConfig(raw) {
   if (!raw) return {};
   if (typeof raw === 'object') return raw;
@@ -299,7 +310,13 @@ function publicPack(req, row) {
     accessMode: row.access_mode || 'open',
   };
   if (type === 'http_zip' || type === 'local_ingest') {
-    out.downloadUrl = cfg.url ? absoluteAsset(req, cfg.url) : null;
+    if (cfg.url) {
+      out.downloadUrl = isLocalPackUploadUrl(cfg.url)
+        ? packDownloadApiUrl(req, row.id)
+        : absoluteAsset(req, cfg.url);
+    } else {
+      out.downloadUrl = null;
+    }
     if (cfg.sha256) out.sha256 = cfg.sha256;
   } else if (type === 'http_manifest') {
     out.manifestUrl = absoluteAsset(req, cfg.manifestUrl || row.manifest_url);
@@ -310,12 +327,15 @@ function publicPack(req, row) {
       out.downloadAvailable = false;
     }
   } else if (type === 'mrpack') {
-    out.downloadUrl = cfg.url ? absoluteAsset(req, cfg.url) : null;
     const rawUrl = String(cfg.url || '');
-    const isLocalUpload =
-      rawUrl.startsWith('/uploads/packs/') ||
-      rawUrl.includes('/uploads/packs/') ||
-      cfg.ingest === 'local';
+    const isLocalUpload = isLocalPackUploadUrl(rawUrl) || cfg.ingest === 'local';
+    if (cfg.url) {
+      out.downloadUrl = isLocalUpload
+        ? packDownloadApiUrl(req, row.id)
+        : absoluteAsset(req, cfg.url);
+    } else {
+      out.downloadUrl = null;
+    }
     if (isLocalUpload && out.downloadUrl) {
       out.downloadAvailable = true;
     } else {
@@ -505,7 +525,27 @@ async function listPublishedServers(req) {
 
 async function getPublishedPack(req, id) {
   const result = await db.query(`SELECT * FROM packs WHERE id = $1 AND published = true`, [id]);
-  return result.rows[0] ? publicPack(req, result.rows[0]) : null;
+  if (!result.rows[0]) return null;
+  const allowed = await filterByAcl(req, result.rows, 'pack');
+  return allowed[0] ? publicPack(req, allowed[0]) : null;
+}
+
+/** Resolve on-disk path for a locally ingested pack archive, or null. */
+function localPackFilePath(row) {
+  const cfg = parseConfig(row.source_config);
+  const rawUrl = String(cfg.url || '');
+  if (!isLocalPackUploadUrl(rawUrl) && cfg.ingest !== 'local' && row.source_type !== 'local_ingest') {
+    return null;
+  }
+  let base = path.basename(rawUrl.split('?')[0] || '');
+  if (!base || base === '.' || base === '..') {
+    const ext = row.source_type === 'mrpack' ? '.mrpack' : '.zip';
+    base = `${row.id}${ext}`;
+  }
+  if (!/^[a-z0-9][a-z0-9._-]{0,80}$/i.test(base)) return null;
+  const full = path.join(ingestDir, base);
+  if (!full.startsWith(ingestDir)) return null;
+  return full;
 }
 
 function packManifest(req, row) {
@@ -525,7 +565,9 @@ function packManifest(req, row) {
     if (cfg.url) {
       files.push({
         path: `${row.id}.zip`,
-        url: absoluteAsset(req, cfg.url),
+        url: isLocalPackUploadUrl(cfg.url)
+          ? packDownloadApiUrl(req, row.id)
+          : absoluteAsset(req, cfg.url),
         sha256: cfg.sha256 || null,
         size: cfg.size || null,
       });
@@ -1002,6 +1044,8 @@ module.exports = {
   listPublishedPacks,
   listPublishedServers,
   getPublishedPack,
+  localPackFilePath,
+  filterByAcl,
   ensureCatalogSchema,
   publicBase,
   absoluteAsset,

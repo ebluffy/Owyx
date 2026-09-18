@@ -116,17 +116,17 @@ async function hideChecklist() {
 		>
 			<template #title>
 				<div class="flex w-full min-w-0 items-center gap-1">
-				<span class="font-semibold leading-6">{{ formatMessage(messages.title) }}</span>
-				<IconButton
-					v-tooltip="formatMessage(messages.hide)"
-					type="quiet"
-					class="ml-auto shrink-0"
-					:label="formatMessage(messages.hide)"
-					:disabled="dismissing"
-					@click.stop="hideChecklist()"
-				>
-					<XIcon />
-				</IconButton>
+					<span class="font-semibold leading-6">{{ formatMessage(messages.title) }}</span>
+					<IconButton
+						v-tooltip="formatMessage(messages.hide)"
+						type="quiet"
+						class="ml-auto shrink-0"
+						:label="formatMessage(messages.hide)"
+						:disabled="dismissing"
+						@click.stop="hideChecklist()"
+					>
+						<XIcon />
+					</IconButton>
 				</div>
 			</template>
 			<button

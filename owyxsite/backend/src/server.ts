@@ -22,6 +22,8 @@ const launcherRoutes = require('./routes/launcher');
 const newsRoutes = require('./routes/news');
 const catalogRoutes = require('./routes/catalog');
 const { clientKeyGate } = require('./middleware/clientKey');
+const { packUploadAcl } = require('./middleware/packUploadAcl');
+const { optionalAuthenticate } = require('./routes/auth');
 const { initSocket } = require('./socket');
 
 const app = express();
@@ -90,6 +92,23 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 // api.owyx.site requires X-Owyx-Client-Key; owyx.site /api proxy does not.
 app.use(clientKeyGate);
 
+// Pack archives are ACL-gated — do not serve /uploads/packs via anonymous static.
+app.use(
+  '/uploads/packs',
+  optionalAuthenticate,
+  packUploadAcl,
+  express.static(path.join(__dirname, '../uploads/packs'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+  })
+);
+app.use('/uploads', (req, res, next) => {
+  // Defense in depth: never fall through to public static for pack bytes.
+  const p = req.path || '';
+  if (p === '/packs' || p.startsWith('/packs/')) {
+    return res.status(404).json({ error: 'pack not found' });
+  }
+  return next();
+});
 app.use(
   '/uploads',
   express.static(path.join(__dirname, '../uploads'), {

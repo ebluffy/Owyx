@@ -19,7 +19,11 @@ import {
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
 } from '@/helpers/owyx-server-instances'
-import { ensureManagedServerWorldExists, get_server_status, start_join_server } from '@/helpers/worlds'
+import {
+	ensureManagedServerWorldExists,
+	get_server_status,
+	start_join_server,
+} from '@/helpers/worlds'
 import { injectAppEvents } from '@/providers/app-events'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
@@ -286,7 +290,9 @@ onUnmounted(() => {
 							</span>
 						</div>
 						<p class="m-0 mt-1 text-sm text-secondary">{{ server.description }}</p>
-						<p class="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-secondary">
+						<p
+							class="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-secondary"
+						>
 							<button
 								type="button"
 								class="cursor-pointer border-0 bg-transparent p-0 font-inherit text-inherit underline decoration-dotted underline-offset-2 hover:text-primary"
@@ -323,9 +329,7 @@ onUnmounted(() => {
 									{{ formatMessage(messages.statusOnline) }}
 									<span v-if="liveStatus[server.id]?.ping != null">
 										·
-										{{
-											formatMessage(messages.statusPing, { ms: liveStatus[server.id].ping })
-										}}
+										{{ formatMessage(messages.statusPing, { ms: liveStatus[server.id].ping }) }}
 									</span>
 									<span v-if="liveStatus[server.id]?.players">
 										· {{ liveStatus[server.id].players }}

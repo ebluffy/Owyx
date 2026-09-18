@@ -1286,9 +1286,6 @@
   "app.navigation.home": {
     "message": "Accueil"
   },
-  "app.navigation.next-image": {
-    "message": "Prochaine image"
-  },
   "app.news.title": {
     "message": "Nouveautés"
   },

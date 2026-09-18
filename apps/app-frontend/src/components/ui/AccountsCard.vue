@@ -31,10 +31,7 @@
 	>
 		<template #title>
 			<div class="flex gap-2 w-full min-w-0">
-				<Avatar
-					size="36px"
-					:src="selectedAccount ? avatarUrl : resolveOwyxAvatarUrl(null)"
-				/>
+				<Avatar size="36px" :src="selectedAccount ? avatarUrl : resolveOwyxAvatarUrl(null)" />
 				<div class="flex flex-col items-start w-full min-w-0">
 					<span class="truncate w-full text-left">{{
 						selectedAccount ? selectedAccount.profile.name : formatMessage(messages.selectAccount)
