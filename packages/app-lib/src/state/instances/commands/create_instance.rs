@@ -263,3 +263,12 @@ fn sanitize_instance_name(input: &str) -> String {
         "_",
     )
 }
+
+/// Relative path under `profiles/` for curated Owyx server packs.
+pub(crate) fn owyx_server_instance_path(name: &str) -> String {
+    format!(
+        "{}/{}",
+        crate::state::dirs::SERVERS_FOLDER_NAME,
+        sanitize_instance_name(name)
+    )
+}

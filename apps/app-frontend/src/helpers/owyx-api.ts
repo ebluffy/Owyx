@@ -65,7 +65,9 @@ export function sanitizeOwyxApiBase(url: string | null | undefined): string {
 	}
 }
 
-/** Safe https URLs for pack download / icons. Relative paths OK; protocol-relative `//` is not. */
+/** Safe https URLs for pack download / icons. Relative paths OK; protocol-relative `//` is not.
+ * Loopback http is allowed for local API pack URLs during development.
+ */
 export function isSafeExternalHttpsUrl(url: string | null | undefined): boolean {
 	if (!url) return false
 	const trimmed = url.trim()
@@ -73,7 +75,16 @@ export function isSafeExternalHttpsUrl(url: string | null | undefined): boolean 
 	if (trimmed.startsWith('/')) return true
 	try {
 		const parsed = new URL(trimmed)
-		return parsed.protocol === 'https:'
+		if (parsed.protocol === 'https:') return true
+		if (
+			parsed.protocol === 'http:' &&
+			(parsed.hostname === '127.0.0.1' ||
+				parsed.hostname === 'localhost' ||
+				parsed.hostname === '[::1]')
+		) {
+			return true
+		}
+		return false
 	} catch {
 		return false
 	}
@@ -217,6 +228,11 @@ function formatAddress(raw: Record<string, unknown>): string {
 function packDownloadUrl(raw: Record<string, unknown>): string | undefined {
 	const nested =
 		raw.pack && typeof raw.pack === 'object' ? (raw.pack as Record<string, unknown>) : null
+	if (nested && nested.downloadAvailable === false) {
+		const url = nested.downloadUrl ?? nested.download_url ?? nested.url
+		const s = url ? String(url) : ''
+		if (!s.includes('/uploads/packs/')) return undefined
+	}
 	const candidates = [
 		raw.packUrl,
 		raw.pack_url,

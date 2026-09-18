@@ -40,17 +40,24 @@ import {
 	declineOwyxFriend,
 	listOwyxFriends,
 	type OwyxFriend,
+	OwyxFriendsError,
 	owyxFriendLabel,
 	removeOwyxFriend,
 	requestOwyxFriend,
 	searchOwyxUsers,
 } from '@/helpers/owyx-friends'
+import {
+	installOwyxServerPack,
+} from '@/helpers/owyx-server-instances'
 import { playOwyxUiSound } from '@/helpers/owyx-ui-sound'
+import { start_join_server } from '@/helpers/worlds'
+import { injectAppEvents } from '@/providers/app-events'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 
 const { formatMessage } = useVIntl()
 const { handleError, addNotification } = injectNotificationManager()
 const owyx = injectOwyxSiteSession()
+const appEvents = injectAppEvents()
 
 const props = defineProps<{
 	credentials: ModrinthCredentials | null
@@ -262,7 +269,7 @@ async function addFriendFromModal(nickOverride?: string) {
 		playOwyxUiSound('success')
 		await refresh()
 	} catch (e) {
-		handleError(e)
+		handleFriendsError(e)
 	}
 }
 
@@ -272,7 +279,7 @@ async function acceptIncoming(friend: OwyxFriend) {
 		playOwyxUiSound('success')
 		await refresh()
 	} catch (e) {
-		handleError(e)
+		handleFriendsError(e)
 	}
 }
 
@@ -282,7 +289,7 @@ async function declineIncoming(friend: OwyxFriend) {
 		playOwyxUiSound('soft')
 		await refresh()
 	} catch (e) {
-		handleError(e)
+		handleFriendsError(e)
 	}
 }
 
@@ -292,7 +299,7 @@ async function removeFriend(friend: OwyxFriend) {
 		playOwyxUiSound('soft')
 		await refresh()
 	} catch (e) {
-		handleError(e)
+		handleFriendsError(e)
 	}
 }
 
@@ -322,9 +329,50 @@ async function copyFriendServerAddress(friend: OwyxFriend) {
 			title: formatMessage(messages.copiedServerAddress),
 		})
 	} catch (e) {
-		handleError(e)
+		handleFriendsError(e)
 	}
 }
+
+function handleFriendsError(e: unknown) {
+	if (e instanceof OwyxFriendsError) {
+		const map = {
+			unauthorized: messages.errUnauthorized,
+			not_accepting: messages.errNotAccepting,
+			not_found: messages.errNotFound,
+			already_friends: messages.errAlreadyFriends,
+			missing_client_key: messages.errMissingClientKey,
+			generic: messages.errGeneric,
+		} as const
+		addNotification({
+			type: 'error',
+			title: formatMessage(map[e.code] ?? messages.errGeneric),
+		})
+		return
+	}
+	handleError(e)
+}
+
+async function joinFriendServer(friend: OwyxFriend) {
+	const server = matchCatalogServer(friend)
+	if (!server) return
+	try {
+		busyJoinId.value = friend.id
+		await navigator.clipboard.writeText(server.address).catch(() => undefined)
+		const { instanceId } = await installOwyxServerPack(
+			server,
+			sanitizeOwyxApiBase(getStoredOwyxApiBase()),
+			appEvents,
+		)
+		await start_join_server(instanceId, server.address)
+		playOwyxUiSound('success')
+	} catch (e) {
+		handleFriendsError(e)
+	} finally {
+		busyJoinId.value = null
+	}
+}
+
+const busyJoinId = ref<string | null>(null)
 
 const messages = defineMessages({
 	addFriend: { id: 'friends.action.add-friend', defaultMessage: 'Add a friend' },
@@ -437,6 +485,10 @@ const messages = defineMessages({
 		id: 'friends.copy-server-address',
 		defaultMessage: 'Copy matching server address',
 	},
+	joinServer: {
+		id: 'friends.join-server',
+		defaultMessage: 'Join catalog server',
+	},
 	copiedInstanceName: {
 		id: 'friends.copied-instance-name',
 		defaultMessage: 'Instance name copied',
@@ -444,6 +496,30 @@ const messages = defineMessages({
 	copiedServerAddress: {
 		id: 'friends.copied-server-address',
 		defaultMessage: 'Server address copied',
+	},
+	errUnauthorized: {
+		id: 'friends.error.unauthorized',
+		defaultMessage: 'Sign in to your Owyx account again, then retry.',
+	},
+	errNotAccepting: {
+		id: 'friends.error.not-accepting',
+		defaultMessage: 'This player is not accepting friend requests.',
+	},
+	errNotFound: {
+		id: 'friends.error.not-found',
+		defaultMessage: 'User not found. Check the nickname and try again.',
+	},
+	errAlreadyFriends: {
+		id: 'friends.error.already-friends',
+		defaultMessage: 'You are already friends or a request is pending.',
+	},
+	errMissingClientKey: {
+		id: 'friends.error.missing-client-key',
+		defaultMessage: 'Missing client key. Set X-Owyx-Client-Key in Admin → API.',
+	},
+	errGeneric: {
+		id: 'friends.error.generic',
+		defaultMessage: 'Friends request failed. Try again.',
 	},
 })
 </script>
@@ -682,6 +758,12 @@ const messages = defineMessages({
 										...(friend.presence === 'playing' && matchCatalogServer(friend)
 											? [
 													{
+														id: 'join-server',
+														label: formatMessage(messages.joinServer),
+														action: () => joinFriendServer(friend),
+														disabled: busyJoinId === friend.id,
+													},
+													{
 														id: 'copy-server-address',
 														label: formatMessage(messages.copyServerAddress),
 														action: () => copyFriendServerAddress(friend),
@@ -702,6 +784,12 @@ const messages = defineMessages({
 										#copy-instance
 									>
 										{{ formatMessage(messages.copyInstance) }}
+									</template>
+									<template
+										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
+										#join-server
+									>
+										{{ formatMessage(messages.joinServer) }}
 									</template>
 									<template
 										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"

@@ -4,7 +4,6 @@ import { Button, defineMessages, injectNotificationManager, useVIntl } from '@mo
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { install_create_instance, installJobInstanceId } from '@/helpers/install'
 import {
 	fetchOwyxCatalog,
 	getOwyxClientKey,
@@ -16,13 +15,20 @@ import {
 	resolveOwyxPackUrl,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import {
+	findLinkedOwyxServerInstance,
+	installOwyxServerPack,
+} from '@/helpers/owyx-server-instances'
+import { start_join_server } from '@/helpers/worlds'
+import { injectAppEvents } from '@/providers/app-events'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 
 const { formatMessage } = useVIntl()
-const { handleError } = injectNotificationManager()
+const { handleError, addNotification } = injectNotificationManager()
 const router = useRouter()
 const owyx = injectOwyxSiteSession()
+const appEvents = injectAppEvents()
 
 const messages = defineMessages({
 	title: { id: 'owyx.servers.title', defaultMessage: 'Owyx Servers' },
@@ -49,14 +55,20 @@ const messages = defineMessages({
 	refresh: { id: 'owyx.servers.refresh', defaultMessage: 'Refresh' },
 	version: { id: 'owyx.servers.version', defaultMessage: 'MC {version}' },
 	demoBadge: { id: 'owyx.servers.demo-badge', defaultMessage: 'demo' },
-	adminTools: { id: 'owyx.servers.admin-tools', defaultMessage: 'Admin tools' },
-	adminToolsHint: {
-		id: 'owyx.servers.admin-tools-hint',
-		defaultMessage: 'Publish packs and API settings live in the Admin panel.',
-	},
-	openAdminPanel: { id: 'owyx.servers.open-admin-panel', defaultMessage: 'Open Admin panel' },
 	playing: { id: 'owyx.servers.playing', defaultMessage: 'Preparing…' },
 	downloadPack: { id: 'owyx.servers.download-pack', defaultMessage: 'Pack' },
+	installPackFirst: {
+		id: 'owyx.servers.install-pack-first',
+		defaultMessage: 'Install the pack first (Pack or Play).',
+	},
+	noPackUrl: {
+		id: 'owyx.servers.no-pack-url',
+		defaultMessage: 'No installable pack is published for this server yet.',
+	},
+	packInstalled: {
+		id: 'owyx.servers.pack-installed',
+		defaultMessage: 'Pack installed for {name}.',
+	},
 })
 
 useRootBreadcrumb({
@@ -70,12 +82,11 @@ useRootBreadcrumb({
 const servers = ref<OwyxServerEntry[]>([])
 const loading = ref(false)
 const loadError = ref('')
-const playingId = ref<string | null>(null)
+const busyId = ref<string | null>(null)
 const apiBase = ref(getStoredOwyxApiBase())
 const copiedId = ref<string | null>(null)
 
 const hasServers = computed(() => servers.value.length > 0)
-const isAdmin = computed(() => owyx.isAdmin.value)
 
 async function loadCatalog() {
 	loading.value = true
@@ -111,35 +122,64 @@ async function copyAddress(server: OwyxServerEntry) {
 	}
 }
 
-function mapLoader(loader?: string): 'vanilla' | 'fabric' | 'forge' | 'quilt' | 'neoforge' {
-	const l = (loader || 'vanilla').toLowerCase()
-	if (l === 'fabric' || l === 'forge' || l === 'quilt' || l === 'neoforge') return l
-	return 'vanilla'
+function hasPack(server: OwyxServerEntry): boolean {
+	return Boolean(resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase.value)))
 }
 
 async function openServerSettings(server: OwyxServerEntry) {
-	const name = server.name
-	await router.push({
-		path: '/',
-		query: { owyxServer: server.id, owyxServerName: name },
-	})
 	try {
-		playingId.value = server.id
-		const job = await install_create_instance({
-			name,
-			gameVersion: server.mcVersion || '1.21.1',
-			loader: mapLoader(server.loader),
-			loaderVersion: 'latest',
-			iconPath: null,
-		})
-		const instanceId = installJobInstanceId(job)
-		if (instanceId) {
-			await router.push(`/instance/${encodeURIComponent(instanceId)}/options`)
+		const linked = await findLinkedOwyxServerInstance(server)
+		if (!linked) {
+			addNotification({
+				type: 'warning',
+				title: formatMessage(messages.settings),
+				text: formatMessage(messages.installPackFirst),
+			})
+			return
 		}
+		await router.push(`/instance/${encodeURIComponent(linked.id)}/options`)
 	} catch (e) {
 		handleError(e)
+	}
+}
+
+async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | null> {
+	if (!hasPack(server)) {
+		addNotification({
+			type: 'warning',
+			title: formatMessage(messages.downloadPack),
+			text: formatMessage(messages.noPackUrl),
+		})
+		return null
+	}
+	const existing = await findLinkedOwyxServerInstance(server)
+	if (existing?.install_stage === 'installed') {
+		return existing.id
+	}
+	const { instanceId } = await installOwyxServerPack(
+		server,
+		sanitizeOwyxApiBase(apiBase.value),
+		appEvents,
+	)
+	return instanceId
+}
+
+async function openPack(server: OwyxServerEntry) {
+	busyId.value = server.id
+	try {
+		const instanceId = await ensurePackInstalled(server)
+		if (!instanceId) return
+		addNotification({
+			type: 'success',
+			title: formatMessage(messages.downloadPack),
+			text: formatMessage(messages.packInstalled, { name: server.name }),
+		})
+	} catch (e) {
+		handleError(e)
+		const url = resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase.value))
+		if (url) window.open(url, '_blank', 'noopener,noreferrer')
 	} finally {
-		playingId.value = null
+		busyId.value = null
 	}
 }
 
@@ -148,31 +188,21 @@ async function playServer(server: OwyxServerEntry) {
 		await owyx.signIn()
 		if (!owyx.isSignedIn.value) return
 	}
-	playingId.value = server.id
+	busyId.value = server.id
 	try {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
-		const job = await install_create_instance({
-			name: server.name,
-			gameVersion: server.mcVersion || '1.21.1',
-			loader: mapLoader(server.loader),
-			loaderVersion: 'latest',
-			iconPath: null,
-		})
-		const instanceId = installJobInstanceId(job)
-		if (instanceId) {
+		const instanceId = await ensurePackInstalled(server)
+		if (!instanceId) return
+		try {
+			await start_join_server(instanceId, server.address)
+		} catch {
 			await router.push(`/instance/${encodeURIComponent(instanceId)}`)
 		}
 	} catch (e) {
 		handleError(e)
 	} finally {
-		playingId.value = null
+		busyId.value = null
 	}
-}
-
-function openPack(server: OwyxServerEntry) {
-	const url = resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase.value))
-	if (!url) return
-	window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 onMounted(() => {
@@ -193,18 +223,6 @@ onMounted(() => {
 				{{ formatMessage(messages.refresh) }}
 			</Button>
 		</header>
-
-		<section
-			v-if="isAdmin"
-			class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-solid border-surface-5 bg-surface-2 p-4"
-		>
-			<p class="m-0 text-sm text-secondary">
-				{{ formatMessage(messages.adminTools) }} — {{ formatMessage(messages.adminToolsHint) }}
-			</p>
-			<Button type="colored" color="brand" @click="router.push('/owyx-admin')">
-				{{ formatMessage(messages.openAdminPanel) }}
-			</Button>
-		</section>
 
 		<section v-if="loading" class="text-secondary animate-pulse">
 			{{ formatMessage(messages.loading) }}
@@ -273,15 +291,16 @@ onMounted(() => {
 						{{ copiedId === server.id ? '✓' : formatMessage(messages.copyAddress) }}
 					</Button>
 					<Button
-						v-if="resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase))"
+						v-if="hasPack(server)"
 						class="!bg-button-bg"
+						:disabled="busyId === server.id"
 						@click="openPack(server)"
 					>
 						{{ formatMessage(messages.downloadPack) }}
 					</Button>
 					<Button
 						class="!bg-button-bg"
-						:disabled="playingId === server.id"
+						:disabled="busyId === server.id"
 						@click="openServerSettings(server)"
 					>
 						<CogIcon class="h-4 w-4" />
@@ -290,14 +309,12 @@ onMounted(() => {
 					<Button
 						type="colored"
 						color="brand"
-						:disabled="playingId === server.id"
+						:disabled="busyId === server.id"
 						@click="playServer(server)"
 					>
 						<PlayIcon class="h-4 w-4" />
 						{{
-							playingId === server.id
-								? formatMessage(messages.playing)
-								: formatMessage(messages.play)
+							busyId === server.id ? formatMessage(messages.playing) : formatMessage(messages.play)
 						}}
 					</Button>
 				</div>

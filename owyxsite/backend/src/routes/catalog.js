@@ -231,7 +231,8 @@ function normalizeSource(typeRaw, configRaw) {
   }
   if (type === 'mrpack') {
     const url = validateHttpUrl(cfg.url || cfg.downloadUrl, 'source.url');
-    return { type, config: { url, ingest: 'planned' } };
+    const ingest = cfg.ingest === 'local' ? 'local' : 'planned';
+    return { type, config: { url, ingest } };
   }
   // sftp — admin-only warehouse. Players never see these fields.
   const host = String(cfg.host || '').trim();
@@ -304,8 +305,17 @@ function publicPack(req, row) {
     }
   } else if (type === 'mrpack') {
     out.downloadUrl = cfg.url ? absoluteAsset(req, cfg.url) : null;
-    out.downloadAvailable = false;
-    out.ingest = 'planned';
+    const rawUrl = String(cfg.url || '');
+    const isLocalUpload =
+      rawUrl.startsWith('/uploads/packs/') ||
+      rawUrl.includes('/uploads/packs/') ||
+      cfg.ingest === 'local';
+    if (isLocalUpload && out.downloadUrl) {
+      out.downloadAvailable = true;
+    } else {
+      out.downloadAvailable = false;
+      out.ingest = 'planned';
+    }
   } else if (type === 'sftp') {
     out.downloadAvailable = false;
   }
@@ -710,7 +720,7 @@ packsAdmin.post(
       [
         req.params.id,
         isMrpack ? 'mrpack' : 'http_zip',
-        JSON.stringify({ url, sha256, size: bytes.length, ingest: isMrpack ? 'planned' : 'local' }),
+        JSON.stringify({ url, sha256, size: bytes.length, ingest: 'local' }),
         `/api/launcher/v1/packs/${req.params.id}/manifest`,
       ]
     );
