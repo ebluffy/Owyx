@@ -479,6 +479,7 @@ window.addEventListener('offline', () => {
 })
 window.addEventListener('online', () => {
 	offline.value = false
+	// queryClient may not exist yet at first paint — refresh is wired below after useQueryClient()
 })
 
 const os = ref('')
@@ -526,8 +527,8 @@ const authServerQuery = useQuery({
 		return true
 	},
 	refetchInterval: 5 * 60 * 1000, // 5 minutes
-	retry: false,
-	refetchOnWindowFocus: false,
+	retry: 2,
+	refetchOnWindowFocus: true,
 })
 
 const authUnreachable = computed(() => {
@@ -1010,6 +1011,10 @@ function onSuspenseResolve() {
 }
 
 const queryClient = useQueryClient()
+
+window.addEventListener('online', () => {
+	void queryClient.invalidateQueries({ queryKey: ['authServerReachability'] })
+})
 
 watch(stateInitialized, (ready) => {
 	debugStartup('State readiness changed', { ready })
@@ -2318,7 +2323,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			>
 				{{ formatMessage(messages.authUnreachableBody) }}
 			</Admonition>
-			<RouterView v-else v-slot="{ Component }">
+			<RouterView v-slot="{ Component }">
 				<template v-if="Component">
 					<Suspense @pending="onSuspensePending" @resolve="onSuspenseResolve">
 						<component :is="Component"></component>
