@@ -35,6 +35,7 @@ The Owyx launcher does **not** mount them: `/hosting/manage*` redirects to
 | Topic | Where |
 |-------|--------|
 | Design tokens | `brand/DESIGN.md` |
+| Site header ↔ footer align | `brand/DESIGN.md` § шапка/футер · `.cursor/rules/owyx-site-header-align.mdc` · `Header.tsx` |
 | Logos / icons | `brand/v2/` |
 | Brand / trademarks | `TRADEMARK.md`, `COPYING.md` |
 | MS OAuth | `docs/ms-oauth.md` |

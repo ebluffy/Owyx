@@ -10,9 +10,15 @@ import { useLocale } from "@/hooks/useLocale";
 import { resolveSiteAvatarUrl } from "@/lib/avatar";
 
 /**
- * Content column = same max-w-6xl as the footer (green bounds).
- * Download + profile sit on the column’s right edge.
- * Lang + theme stay outside the column, on the viewport right.
+ * Site sticky chrome — two layers (see brand/DESIGN.md «Шапка ↔ футер»).
+ *
+ * 1) Content column = same max-w-6xl + px as Footer.tsx.
+ *    Download + profile/ЛК must sit on that column’s RIGHT edge (flush with footer).
+ * 2) Lang + theme = absolute on the VIEWPORT right, outside the column.
+ *
+ * DO NOT add always-on sm:pr-28/48 on the column to clear lang/theme — that
+ * pulls Download/ЛК left and looks like missing buttons (regression 2026-09-18).
+ * Collision guard only below xl: max-xl:pr-40.
  */
 export default function Header() {
   const { user, logout } = useAuth();
@@ -74,8 +80,9 @@ export default function Header() {
           </div>
         </div>
 
-        {/* Same width/padding as footer — Download + ЛК flush with the right green edge.
-            Below xl, reserve room so they don't collide with lang/theme on the viewport edge. */}
+        {/* Content column: match Footer max-w-6xl + px. Download/ЛК flush with
+            footer's right edge on xl+. NEVER always-on sm:pr-48 (regression).
+            max-xl:pr-40 only — room for absolute lang/theme when column is tight. */}
         <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 max-xl:pr-40">
           <div className="flex min-w-0 items-center gap-7">
             <Link href="/" className="flex shrink-0 items-center" aria-label={dict.header.logoHome}>

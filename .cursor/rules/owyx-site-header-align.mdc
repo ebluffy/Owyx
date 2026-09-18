@@ -1,0 +1,26 @@
+---
+description: Site header Download + ЛК must align with footer content column (anti-regression)
+globs: owyxsite/frontend/components/layout/Header.tsx,owyxsite/frontend/components/layout/Footer.tsx
+alwaysApply: false
+---
+
+# Site header ↔ footer column alignment
+
+Canonical write-up: `brand/DESIGN.md` § «Шапка ↔ футер (колонка)». Source: `owyxsite/frontend/components/layout/Header.tsx`.
+
+## Rule
+
+The sticky site chrome (`Header.tsx`) has **two layers**:
+
+1. **Content column** — `max-w-6xl` + `px-4 sm:px-6`, same as `Footer.tsx`.
+   - **Download** and **profile / ЛК** (or login/register CTA) sit on this column’s **right edge**.
+2. **Viewport chrome** — `LanguageToggle` + `ThemeToggle` (+ mobile menu) are `absolute` on the **viewport right**, *outside* the content column.
+
+## Do not
+
+- Add always-on right padding on the content column (`sm:pr-28`, `sm:pr-48`, etc.) to “make room” for lang/theme. That pulls Download + ЛК **left of the footer edge** and looks like missing buttons (regression 2026-09-18).
+- Move Download / ЛК into the absolute viewport-right cluster with lang/theme.
+
+## Allowed collision guard
+
+Only below `xl`, when the column is nearly full-bleed: `max-xl:pr-40` (or similar) so Download/ЛК do not overlap lang/theme. On `xl+`, right padding must match the footer (`sm:px-6`).
