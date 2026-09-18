@@ -234,6 +234,8 @@ function AdminPageInner() {
             advanced={advanced && !readOnly}
             readOnly={readOnly}
             selfId={user?.id}
+            authHeaders={authHeaders}
+            showMessage={showMessage}
             changeRole={changeRole}
             toggleBan={toggleBan}
             deleteUser={deleteUser}
@@ -263,6 +265,8 @@ function UsersPane({
   advanced,
   readOnly,
   selfId,
+  authHeaders,
+  showMessage,
   changeRole,
   toggleBan,
   deleteUser,
@@ -274,19 +278,53 @@ function UsersPane({
   advanced: boolean;
   readOnly: boolean;
   selfId?: number;
+  authHeaders: () => Record<string, string>;
+  showMessage: (text: string, type: "success" | "error") => void;
   changeRole: (id: number, role: string) => void;
   toggleBan: (u: AdminUser) => void;
   deleteUser: (u: AdminUser) => void;
 }) {
+  const [emailBusy, setEmailBusy] = useState(false);
+
+  async function sendTestEmail() {
+    setEmailBusy(true);
+    try {
+      const res = await fetch("/api/admin/test/email", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) showMessage(data.message || "Письмо отправлено", "success");
+      else showMessage(data.error || "Не удалось отправить", "error");
+    } catch {
+      showMessage("Ошибка соединения", "error");
+    } finally {
+      setEmailBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="font-display text-lg font-bold tracking-tight">Аккаунты</h2>
-        <p className="mt-1 text-sm text-muted">
-          {readOnly
-            ? "Режим просмотра: роли и баны недоступны."
-            : "Роли для сайта и лаунчера. Бан/удаление — только advanced."}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold tracking-tight">Аккаунты</h2>
+          <p className="mt-1 text-sm text-muted">
+            {readOnly
+              ? "Режим просмотра: роли и баны недоступны."
+              : "Роли для сайта и лаунчера. Бан/удаление — только advanced."}
+          </p>
+        </div>
+        {!readOnly && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            disabled={emailBusy}
+            onClick={() => void sendTestEmail()}
+          >
+            {emailBusy ? "Отправка…" : "Тест почты мне"}
+          </button>
+        )}
       </div>
 
       <div className="field max-w-md">
