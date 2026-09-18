@@ -103,6 +103,10 @@ router.get('/topics/:id', async (req, res) => {
 
     await db.query(`UPDATE forum_topics SET views_count = views_count + 1 WHERE id = $1`, [topicId]);
 
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+
     const posts = await db.query(
       `
       SELECT p.id, p.content, p.parent_post_id, p.created_at, p.updated_at,
@@ -113,11 +117,23 @@ router.get('/topics/:id', async (req, res) => {
       LEFT JOIN users u ON u.id = p.author_id
       WHERE p.topic_id = $1 AND p.is_deleted = false
       ORDER BY p.created_at ASC
+      LIMIT $2 OFFSET $3
       `,
+      [topicId, limit, offset]
+    );
+
+    const count = await db.query(
+      `SELECT COUNT(*)::int AS total FROM forum_posts WHERE topic_id = $1 AND is_deleted = false`,
       [topicId]
     );
 
-    res.json({ topic: topic.rows[0], posts: posts.rows });
+    res.json({
+      topic: topic.rows[0],
+      posts: posts.rows,
+      page,
+      limit,
+      total: count.rows[0]?.total ?? posts.rows.length,
+    });
   } catch (error) {
     console.error('Forum topic detail error:', error);
     res.status(500).json({ error: 'Внутренняя ошибка сервера' });

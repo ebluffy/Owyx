@@ -130,6 +130,16 @@ router.post('/users/:id/ban', authenticateToken, requireRole(['admin']), async (
     try {
         const { id } = req.params;
         const reason = req.body?.reason || 'Заблокирован администратором';
+        const target = await db.query('SELECT id, role FROM users WHERE id = $1', [id]);
+        if (!target.rows[0]) {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        if (target.rows[0].role === 'admin') {
+            return res.status(403).json({ error: 'Нельзя заблокировать аккаунт администратора' });
+        }
+        if (Number(id) === Number(req.user.id)) {
+            return res.status(403).json({ error: 'Нельзя заблокировать собственный аккаунт' });
+        }
         await db.query(`
             UPDATE users SET is_banned = true, ban_reason = $1, status = 'banned', ban_until = NULL
             WHERE id = $2
@@ -409,20 +419,30 @@ router.put('/users/:id/ban', [
 
         // Если передан minecraft_nick, ищем пользователя по нику (поддержка оффлайн игроков)
         if (minecraft_nick) {
-            const userResult = await db.query('SELECT id, nickname FROM users WHERE LOWER(nickname) = LOWER($1)', [minecraft_nick]);
+            const userResult = await db.query('SELECT id, nickname, role FROM users WHERE LOWER(nickname) = LOWER($1)', [minecraft_nick]);
             if (userResult.rows.length === 0) {
                 return res.status(404).json({ error: `Пользователь с ником ${minecraft_nick} не найден` });
             }
             userId = userResult.rows[0].id;
             userNickname = userResult.rows[0].nickname;
+            if (userResult.rows[0].role === 'admin') {
+                return res.status(403).json({ error: 'Нельзя заблокировать аккаунт администратора' });
+            }
             console.log(`🎯 Найден пользователь по нику ${minecraft_nick}: ID ${userId}`);
         } else {
             // Проверяем, что пользователь существует по ID
-            const userResult = await db.query('SELECT nickname FROM users WHERE id = $1', [userId]);
+            const userResult = await db.query('SELECT nickname, role FROM users WHERE id = $1', [userId]);
             if (userResult.rows.length === 0) {
                 return res.status(404).json({ error: 'Пользователь не найден' });
             }
             userNickname = userResult.rows[0].nickname;
+            if (userResult.rows[0].role === 'admin') {
+                return res.status(403).json({ error: 'Нельзя заблокировать аккаунт администратора' });
+            }
+        }
+
+        if (Number(userId) === Number(req.user.id)) {
+            return res.status(403).json({ error: 'Нельзя заблокировать собственный аккаунт' });
         }
 
         // Вычисляем дату окончания бана для временной блокировки

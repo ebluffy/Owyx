@@ -80,6 +80,9 @@
   "app.action-bar.install.summary.modrinth-unreachable": {
     "message": "Couldn't reach Owyx"
   },
+  "app.action-bar.install.summary.mojang-maps-timeout": {
+    "message": "NeoForge could not download Mojang mappings (network timeout or proxy). Check VPN/firewall, then Retry."
+  },
   "app.action-bar.install.summary.no-write-permission": {
     "message": "No permission to write"
   },
@@ -738,19 +741,19 @@
     "message": "This instance has reached the {limit}-user limit."
   },
   "app.instance.share.locked.empty-description-prefix": {
-    "message": "You need to sign in as"
+    "message": "Shared instances need a Modrinth account. Sign in as"
   },
   "app.instance.share.locked.empty-description-suffix": {
-    "message": "to access this page."
+    "message": "to access this page. Owyx site login is not enough here."
   },
   "app.instance.share.locked.linked-account-fallback": {
-    "message": "the linked account"
+    "message": "the linked Modrinth account"
   },
   "app.instance.share.locked.signed-out-heading": {
-    "message": "Not signed in"
+    "message": "Modrinth sign-in required"
   },
   "app.instance.share.locked.switch-account-button": {
-    "message": "Switch account"
+    "message": "Switch Modrinth account"
   },
   "app.instance.share.locked.wrong-account-heading": {
     "message": "Wrong account"
@@ -789,7 +792,7 @@
     "message": "If you revoke {username}'s access to this shared instance, you'll need to invite them again before they can receive updates."
   },
   "app.instance.share.sign-in.button": {
-    "message": "Sign in"
+    "message": "Sign in with Modrinth"
   },
   "app.instance.share.unable-to-connect.description": {
     "message": "The shared instances service is not accessible at the moment, please try again later"
@@ -1393,9 +1396,6 @@
   },
   "app.navigation.home": {
     "message": "Home"
-  },
-  "app.navigation.next-image": {
-    "message": "Next image"
   },
   "app.news.title": {
     "message": "News"
@@ -2780,18 +2780,6 @@
   "app.settings.resource-management.app-database-backups.title": {
     "message": "App database backups"
   },
-  "app.settings.resource-management.diagnostics.description": {
-    "message": "Export a zip with a redacted API report and recent launcher logs for Discord support."
-  },
-  "app.settings.resource-management.diagnostics.export": {
-    "message": "Export diagnostics"
-  },
-  "app.settings.resource-management.diagnostics.exported": {
-    "message": "Diagnostics saved"
-  },
-  "app.settings.resource-management.diagnostics.title": {
-    "message": "Support diagnostics"
-  },
   "app.settings.resource-management.app-directory.browse": {
     "message": "Browse for an app directory"
   },
@@ -2803,6 +2791,18 @@
   },
   "app.settings.resource-management.app-directory.title": {
     "message": "App directory"
+  },
+  "app.settings.resource-management.diagnostics.description": {
+    "message": "Export a zip with a redacted API report and recent launcher logs for Discord support."
+  },
+  "app.settings.resource-management.diagnostics.export": {
+    "message": "Export diagnostics"
+  },
+  "app.settings.resource-management.diagnostics.exported": {
+    "message": "Diagnostics saved"
+  },
+  "app.settings.resource-management.diagnostics.title": {
+    "message": "Support diagnostics"
   },
   "app.settings.resource-management.maximum-concurrent-downloads.description": {
     "message": "Number of files the app can download at once. Lower this if downloads are unreliable on your connection. Requires an app restart."
@@ -3590,6 +3590,27 @@
   "friends.copy-server-address": {
     "message": "Copy matching server address"
   },
+  "friends.error.already-friends": {
+    "message": "You are already friends or a request is pending."
+  },
+  "friends.error.generic": {
+    "message": "Friends request failed. Try again."
+  },
+  "friends.error.missing-client-key": {
+    "message": "Missing client key. Set X-Owyx-Client-Key in Admin → API."
+  },
+  "friends.error.no-pack": {
+    "message": "No installable pack is published for this server yet."
+  },
+  "friends.error.not-accepting": {
+    "message": "This player is not accepting friend requests."
+  },
+  "friends.error.not-found": {
+    "message": "User not found. Check the nickname and try again."
+  },
+  "friends.error.unauthorized": {
+    "message": "Sign in to your Owyx account again, then retry."
+  },
   "friends.friend.actions.label": {
     "message": "Friend actions"
   },
@@ -3613,6 +3634,9 @@
   },
   "friends.heading.pending": {
     "message": "Pending"
+  },
+  "friends.join-server": {
+    "message": "Join catalog server"
   },
   "friends.list-error": {
     "message": "Could not reach Owyx friends API. Check your connection and client key, then retry."
@@ -3667,42 +3691,6 @@
   },
   "friends.status.unknown-instance": {
     "message": "Minecraft"
-  },
-  "friends.join-server": {
-    "message": "Join catalog server"
-  },
-  "friends.error.no-pack": {
-    "message": "No installable pack is published for this server yet."
-  },
-  "friends.error.unauthorized": {
-    "message": "Sign in to your Owyx account again, then retry."
-  },
-  "friends.error.not-accepting": {
-    "message": "This player is not accepting friend requests."
-  },
-  "friends.error.not-found": {
-    "message": "User not found. Check the nickname and try again."
-  },
-  "friends.error.already-friends": {
-    "message": "You are already friends or a request is pending."
-  },
-  "friends.error.missing-client-key": {
-    "message": "Missing client key. Set X-Owyx-Client-Key in Admin → API."
-  },
-  "friends.error.generic": {
-    "message": "Friends request failed. Try again."
-  },
-  "owyx.instance.csl.install-mod": {
-    "message": "Install CustomSkinLoader mod"
-  },
-  "owyx.instance.csl.install-mod-done": {
-    "message": "CustomSkinLoader installed and Owyx config written."
-  },
-  "owyx.instance.csl.install-unsupported": {
-    "message": "CustomSkinLoader needs a modded loader (Fabric, Forge, NeoForge, or Quilt)."
-  },
-  "owyx.instance.csl.capes-note": {
-    "message": "Capes: when your Owyx account has a cape URL, it is mirrored to LocalSkin/capes on launch. Site cape upload is coming soon."
   },
   "installation-settings.shared-instance.linked-title": {
     "message": "Linked shared instance"
@@ -4658,6 +4646,9 @@
   "onboarding-checklist.create-instance": {
     "message": "Create first instance"
   },
+  "onboarding-checklist.hide": {
+    "message": "Hide getting started"
+  },
   "onboarding-checklist.login-minecraft": {
     "message": "Sign in to Minecraft"
   },
@@ -4754,11 +4745,23 @@
   "owyx.instance.csl.body": {
     "message": "Writes CustomSkinLoader config pointing at https://owyx.site/api/csl/ (public, no client key). Localhost API builds use your configured API base instead. Install the CustomSkinLoader mod in this instance (Fabric/Forge/NeoForge)."
   },
+  "owyx.instance.csl.capes-note": {
+    "message": "Capes: when your Owyx account has a cape URL, it is mirrored to LocalSkin/capes on launch. Site cape upload is coming soon."
+  },
   "owyx.instance.csl.done": {
     "message": "Config written. Add CustomSkinLoader from Modrinth if it is not installed yet."
   },
   "owyx.instance.csl.enable": {
     "message": "Write Owyx skin config"
+  },
+  "owyx.instance.csl.install-mod": {
+    "message": "Install CustomSkinLoader mod"
+  },
+  "owyx.instance.csl.install-mod-done": {
+    "message": "CustomSkinLoader installed and Owyx config written."
+  },
+  "owyx.instance.csl.install-unsupported": {
+    "message": "CustomSkinLoader needs a modded loader (Fabric, Forge, NeoForge, or Quilt)."
   },
   "owyx.instance.csl.mod-link": {
     "message": "Open CustomSkinLoader"
@@ -4768,12 +4771,6 @@
   },
   "owyx.servers.add-server-title": {
     "message": "Publish server + pack from library"
-  },
-  "owyx.servers.admin-tools": {
-    "message": "Admin tools"
-  },
-  "owyx.servers.admin-tools-hint": {
-    "message": "Publish packs and API settings live in the Admin panel."
   },
   "owyx.servers.api-base": {
     "message": "API base URL"
@@ -4808,9 +4805,6 @@
   "owyx.servers.demo-toggle": {
     "message": "Show demo seed when API is unreachable"
   },
-  "owyx.servers.download-pack": {
-    "message": "Pack"
-  },
   "owyx.servers.empty": {
     "message": "No servers published yet. Check back later, or ask an admin to publish one."
   },
@@ -4823,29 +4817,14 @@
   "owyx.servers.local-fallback-toggle": {
     "message": "Also try http://127.0.0.1:3001 (dev only)"
   },
-  "owyx.servers.open-admin-panel": {
-    "message": "Open Admin panel"
+  "owyx.servers.no-pack-url": {
+    "message": "No pack download URL for this server"
   },
   "owyx.servers.play": {
     "message": "Play"
   },
   "owyx.servers.playing": {
     "message": "Preparing…"
-  },
-  "owyx.servers.no-pack-url": {
-    "message": "No pack download URL for this server"
-  },
-  "owyx.servers.status.online": {
-    "message": "Online"
-  },
-  "owyx.servers.status.offline": {
-    "message": "Offline"
-  },
-  "owyx.servers.status.checking": {
-    "message": "Checking…"
-  },
-  "owyx.servers.status.ping": {
-    "message": "{ms} ms"
   },
   "owyx.servers.refresh": {
     "message": "Refresh"
@@ -4883,11 +4862,20 @@
   "owyx.servers.server-port": {
     "message": "Port"
   },
-  "owyx.servers.settings": {
-    "message": "Settings"
-  },
   "owyx.servers.show-snapshots": {
     "message": "Show all versions"
+  },
+  "owyx.servers.status.checking": {
+    "message": "Checking…"
+  },
+  "owyx.servers.status.offline": {
+    "message": "Offline"
+  },
+  "owyx.servers.status.online": {
+    "message": "Online"
+  },
+  "owyx.servers.status.ping": {
+    "message": "{ms} ms"
   },
   "owyx.servers.subtitle": {
     "message": "Community and curated servers from the Owyx control plane."
@@ -4901,12 +4889,6 @@
   "owyx.servers.version": {
     "message": "MC {version}"
   },
-  "owyx.settings.profile.avatar-saved": {
-    "message": "Avatar updated"
-  },
-  "owyx.settings.profile.current-password": {
-    "message": "Current password"
-  },
   "owyx.settings.profile.discord": {
     "message": "Discord username"
   },
@@ -4919,20 +4901,8 @@
   "owyx.settings.profile.display-nick-hint": {
     "message": "Shown to friends in the UI. Offline play uses your login nick."
   },
-  "owyx.settings.profile.nick": {
-    "message": "Nickname"
-  },
   "owyx.settings.profile.open-site": {
     "message": "Open on owyx.site"
-  },
-  "owyx.settings.profile.password": {
-    "message": "New password"
-  },
-  "owyx.settings.profile.password-placeholder": {
-    "message": "Leave blank to keep current"
-  },
-  "owyx.settings.profile.role": {
-    "message": "Role: {role}"
   },
   "owyx.settings.profile.save": {
     "message": "Save"
@@ -4951,9 +4921,6 @@
   },
   "owyx.settings.profile.sign-out": {
     "message": "Sign out of Owyx"
-  },
-  "owyx.settings.profile.upload-avatar": {
-    "message": "Upload avatar"
   },
   "owyx.settings.social.allow-requests": {
     "message": "Allow friend requests from anyone"
