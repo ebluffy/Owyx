@@ -292,7 +292,9 @@ function AvatarSection({ currentUrl }: { currentUrl?: string | null }) {
           </div>
         </div>
       </SettingsRow>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
       {cropFile && (
         <AvatarCropModal
           file={cropFile}
@@ -549,7 +551,9 @@ function DisplayNicknameSection({ currentNick }: { currentNick?: string }) {
           </div>
         </SettingsRow>
       </form>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
     </SettingsSection>
   );
 }
@@ -612,7 +616,9 @@ function NicknameSection({
 
   return (
     <SettingsSection title={p.nickTitle} description={p.nickDesc}>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
       {onCooldown && (
         <p className="mb-3 rounded-lg border border-accent/25 bg-accent/10 px-3 py-2 text-sm text-accent">
           {p.nickCooldown.replace("{days}", String(daysLeft))}
@@ -723,7 +729,9 @@ function ProfileInfoSection({ user }: { user: ReturnType<typeof useAuth>["user"]
           </button>
         </div>
       </form>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
     </SettingsSection>
   );
 }
@@ -801,7 +809,9 @@ function PasswordSection() {
           </button>
         </div>
       </form>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
     </SettingsSection>
   );
 }

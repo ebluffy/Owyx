@@ -18,13 +18,19 @@ type Props = {
   onConfirm: (crop: AvatarCropData) => void;
 };
 
-const VIEW = 280;
+/** Preview frame size (px). Crop circle is 256×256 centered inside. */
+const VIEW = 288;
 const CROP = 256;
+const PAD = (VIEW - CROP) / 2;
 
-/** Zoom / pan / rotate cropper; output matches backend cropData. */
+/**
+ * Start with the full image visible (contain). User zooms in and pans so the
+ * circle picks the region. Backend scale = fit × zoom (image-pixel multiplier).
+ */
 export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
   const [url, setUrl] = useState<string | null>(null);
-  const [scale, setScale] = useState(1);
+  const [nat, setNat] = useState({ w: 0, h: 0 });
+  const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [flipX, setFlipX] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
@@ -35,13 +41,18 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
   useEffect(() => {
     const objectUrl = URL.createObjectURL(file);
     setUrl(objectUrl);
-    setScale(1);
+    setZoom(1);
     setRotation(0);
     setFlipX(1);
     setOffsetX(0);
     setOffsetY(0);
+    setNat({ w: 0, h: 0 });
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
+
+  const fit =
+    nat.w > 0 && nat.h > 0 ? Math.min(VIEW / nat.w, VIEW / nat.h) : 1;
+  const displayScale = fit * zoom;
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -66,15 +77,15 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.06 : 0.06;
-      setScale((s) => Math.min(4, Math.max(0.4, Number((s + delta).toFixed(2)))));
+      const delta = e.deltaY > 0 ? -0.08 : 0.08;
+      setZoom((z) => Math.min(6, Math.max(1, Number((z + delta).toFixed(2)))));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [url]);
 
   function reset() {
-    setScale(1);
+    setZoom(1);
     setRotation(0);
     setFlipX(1);
     setOffsetX(0);
@@ -85,10 +96,11 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     <Modal
       onClose={onCancel}
       title="Обрезка аватара"
-      description="Перетащите фото, крутите колесом для масштаба. На сервер уйдёт квадрат 256×256."
+      description="Фото целиком в кадре. Приблизьте и сдвиньте — в круге то, что сохранится (256×256)."
       size="md"
+      scrollable={false}
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div
           ref={frameRef}
           className="relative mx-auto overflow-hidden rounded-2xl border border-line bg-[#0a0a0f] touch-none select-none"
@@ -106,32 +118,45 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
               draggable={false}
               className="absolute left-1/2 top-1/2 max-w-none pointer-events-none"
               style={{
-                transform: `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px)) rotate(${rotation}deg) scale(${flipX * scale}, ${scale})`,
+                width: nat.w || undefined,
+                height: nat.h || undefined,
+                transform: `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px)) rotate(${rotation}deg) scale(${flipX * displayScale}, ${displayScale})`,
+              }}
+              onLoad={(e) => {
+                const img = e.currentTarget;
+                setNat({ w: img.naturalWidth, h: img.naturalHeight });
               }}
             />
           )}
-          {/* Dim outside circle crop guide */}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
-              background:
-                "radial-gradient(circle closest-side, transparent 69%, rgba(0,0,0,0.62) 70%)",
+              background: `radial-gradient(circle ${CROP / 2}px at 50% 50%, transparent ${CROP / 2 - 1}px, rgba(0,0,0,0.65) ${CROP / 2}px)`,
             }}
           />
-          <div className="pointer-events-none absolute inset-[14%] rounded-full border border-accent/50 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]" />
+          <div
+            className="pointer-events-none absolute rounded-full border border-accent/55"
+            style={{
+              width: CROP,
+              height: CROP,
+              left: PAD,
+              top: PAD,
+              boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+            }}
+          />
           <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-white/55">
-            Перетащите · колесо = масштаб
+            Перетащите · колесо = приблизить
           </p>
         </div>
 
-        <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <CropSlider
-            label={`Масштаб ${scale.toFixed(2)}×`}
-            min={0.4}
-            max={4}
+            label={`Приближение ${zoom.toFixed(2)}×`}
+            min={1}
+            max={6}
             step={0.01}
-            value={scale}
-            onChange={setScale}
+            value={zoom}
+            onChange={setZoom}
           />
           <CropSlider
             label={`Поворот ${rotation}°`}
@@ -143,7 +168,7 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
           />
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -154,28 +179,28 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
           <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>
             Сбросить
           </button>
-        </div>
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() =>
-              onConfirm({
-                scale,
-                rotation,
-                flipX,
-                offsetX,
-                offsetY,
-                cropSize: CROP,
-              })
-            }
-          >
-            Сохранить
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>
-            Отмена
-          </button>
+          <div className="ml-auto flex flex-wrap gap-2">
+            <button type="button" className="btn btn-ghost" onClick={onCancel}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!nat.w}
+              onClick={() =>
+                onConfirm({
+                  scale: displayScale,
+                  rotation,
+                  flipX,
+                  offsetX,
+                  offsetY,
+                  cropSize: CROP,
+                })
+              }
+            >
+              Сохранить
+            </button>
+          </div>
         </div>
       </div>
     </Modal>
@@ -198,10 +223,8 @@ function CropSlider({
   onChange: (n: number) => void;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1.5 flex items-center justify-between text-xs text-muted">
-        <span>{label}</span>
-      </span>
+    <label className="block min-w-0">
+      <span className="mb-1.5 block text-xs text-muted">{label}</span>
       <input
         type="range"
         min={min}
