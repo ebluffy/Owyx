@@ -1,5 +1,7 @@
 "use client";
 
+import { useLocale } from "@/hooks/useLocale";
+
 // Front-facing full-body preview built from a Minecraft 64x64 skin PNG using
 // CSS sprite slicing — no WebGL, no external service, works with our own
 // uploaded skins. Left arm/leg mirror the right slices so it renders for both
@@ -39,6 +41,7 @@ export default function SkinPreview({
   scale?: number;
   flip?: boolean;
 }) {
+  const { dict } = useLocale();
   const W = 16 * scale;
   const H = 32 * scale;
 
@@ -48,9 +51,9 @@ export default function SkinPreview({
         className="flex items-center justify-center rounded-xl border border-[#2a2b30] bg-[#0e0e14] text-[#9aa0a8] text-xs text-center"
         style={{ width: W, height: H }}
       >
-        Стандартный
+        {dict.profile.defaultSkinLine1}
         <br />
-        скин
+        {dict.profile.defaultSkinLine2}
       </div>
     );
   }

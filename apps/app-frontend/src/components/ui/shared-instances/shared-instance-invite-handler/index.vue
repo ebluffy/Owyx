@@ -1,5 +1,4 @@
 <template>
-	<ModrinthAccountRequiredModal ref="accountRequiredModal" />
 	<SharedInstanceInstallModal ref="installModal" />
 	<SharedInstanceAlreadyInstalledModal
 		ref="alreadyInstalledModal"
@@ -12,7 +11,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-import ModrinthAccountRequiredModal from '@/components/ui/modal/ModrinthAccountRequiredModal.vue'
 import SharedInstanceInstallModal from '@/components/ui/shared-instances/shared-instance-install-modal/index.vue'
 import SharedInstanceAlreadyInstalledModal from '@/components/ui/shared-instances/SharedInstanceAlreadyInstalledModal.vue'
 
@@ -21,7 +19,6 @@ import { useSharedInstanceInviteHandler } from './use-shared-instance-invite-han
 
 const installModal = ref<InstanceType<typeof SharedInstanceInstallModal>>()
 const alreadyInstalledModal = ref<InstanceType<typeof SharedInstanceAlreadyInstalledModal>>()
-const accountRequiredModal = ref<InstanceType<typeof ModrinthAccountRequiredModal>>()
 const {
 	handleNotification,
 	installFromInviteId,
@@ -29,7 +26,7 @@ const {
 	handleAlreadyInstalledCancel,
 	handleAlreadyInstalledGoToInstance,
 	handleAlreadyInstalledInstallAnyway,
-} = useSharedInstanceInviteHandler(installModal, alreadyInstalledModal, accountRequiredModal)
+} = useSharedInstanceInviteHandler(installModal, alreadyInstalledModal)
 
 defineExpose<SharedInstanceInviteHandler>({
 	handleNotification,

@@ -9,7 +9,7 @@ launcher/site boundary. Keep in sync with `backend/src/routes/launcher.js`.
 (`GET|PATCH /api/friends/settings`), CustomSkinLoader public API (`/api/csl`),
 anonymous launcher telemetry (`POST /api/launcher/v1/telemetry`).
 
-**Updated:** 2026-09-18 — launcher telemetry ingest + admin Logs (account / moderation / launcher).
+**Updated:** 2026-09-18 — status `modules`/`skins` match `launcher.js`; display nick is UI-only.
 
 ---
 
@@ -132,10 +132,12 @@ Also available as `GET /api/launcher/v1/me`.
   "serverAccess": true,
   "accessReason": "ok",          // "ok" | "banned" | "inactive"
   "cosmetics": {
+    "avatarUrl": "https://api.owyx.site/uploads/avatars/avatar-1-....png",
     "skinUrl": "https://api.owyx.site/uploads/skins/skin-1-....png",
-    "skinModel": "classic",      // "classic" | "slim"
+    "skinModel": "classic",
     "capeUrl": null
   },
+  "avatarUrl": "https://api.owyx.site/uploads/avatars/avatar-1-....png",
   "skinUrl": "https://api.owyx.site/uploads/skins/skin-1-....png",
   "application": null            // DEPRECATED: always null, removed next release
 }
@@ -159,7 +161,17 @@ Also available as `GET /api/launcher/v1/me`.
   "siteVersion": "0.1.0",
   "serverAccessModel": "open",
   "auth": { "login": "/api/auth/login", "me": "/api/launcher/me" },
-  "modules": ["servers", "packs", "news", "cosmetics", "adminCatalog"]
+  "modules": ["servers", "packs", "news", "cosmetics", "adminCatalog", "friends", "csl", "telemetry"],
+  "skins": {
+    "customSkinLoader": {
+      "mod": "https://modrinth.com/mod/customskinloader",
+      "source": "https://github.com/xfl03/MCCustomSkinLoader",
+      "license": "GPL-3.0",
+      "apiRoot": "/api/csl/",
+      "legacySkin": "/api/csl/skins/{USERNAME}.png",
+      "profileJson": "/api/csl/{USERNAME}.json"
+    }
+  }
 }
 ```
 

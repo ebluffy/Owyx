@@ -53,10 +53,11 @@ function readCookie(req, name) {
   return null;
 }
 
-/** Store only Discord identity + binding userId — never OAuth tokens. */
+/** Store Discord identity + binding userId + OAuth state — never OAuth tokens. */
 function setPendingCookie(res, discordData) {
   const safe = {
     userId: discordData.userId,
+    state: discordData.state || null,
     id: discordData.id,
     username: discordData.username,
     email: discordData.email || null,

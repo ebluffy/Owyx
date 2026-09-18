@@ -8,17 +8,17 @@ import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs'
 
 import { get_project_versions } from '@/helpers/cache.js'
 import {
-	get_installed_project_ids,
 	get_full_path,
+	get_installed_project_ids,
 	install_project_with_dependencies,
 	list,
 } from '@/helpers/instance'
-import type { GameInstance } from '@/helpers/types'
 import {
 	DEFAULT_OWYX_API_BASE,
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import type { GameInstance } from '@/helpers/types'
 
 export const CUSTOM_SKIN_LOADER_MODRINTH = 'https://modrinth.com/mod/customskinloader'
 /** Modrinth project id/slug for ContentInstallModal. */

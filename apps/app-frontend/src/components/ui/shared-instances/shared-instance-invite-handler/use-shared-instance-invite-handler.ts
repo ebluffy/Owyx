@@ -37,10 +37,6 @@ type SharedInstanceCreator = {
 	avatarUrl: string | null
 }
 
-type AccountRequiredModal = {
-	show(event?: MouseEvent): Promise<boolean>
-}
-
 type AlreadyInstalledModal = {
 	show(instanceName: string): void
 }
@@ -48,7 +44,6 @@ type AlreadyInstalledModal = {
 export function useSharedInstanceInviteHandler(
 	installModal: Ref<InstallModal | undefined>,
 	alreadyInstalledModal: Ref<AlreadyInstalledModal | undefined>,
-	accountRequiredModal: Ref<AccountRequiredModal | undefined>,
 ) {
 	const auth = injectAuth()
 	const client = injectModrinthClient()
@@ -269,7 +264,9 @@ export function useSharedInstanceInviteHandler(
 			})
 		}
 		if (auth.session_token.value) return true
-		return (await accountRequiredModal.value?.show()) ?? false
+		// Shared instances need Modrinth credentials (showModal:false → mr-auth login).
+		await auth.requestSignIn('', 'sign-in', { showModal: false })
+		return !!auth.session_token.value
 	}
 
 	async function installFromInviteId(inviteId: string) {

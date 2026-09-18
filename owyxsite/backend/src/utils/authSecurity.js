@@ -57,6 +57,17 @@ async function revokeOtherUserSessions(userId, keepSessionId) {
   }
 }
 
+/** Deactivate long-term API tokens (password reset / password change). */
+async function revokeUserApiTokens(userId) {
+  await db.query('UPDATE api_tokens SET is_active = false WHERE user_id = $1', [userId]);
+}
+
+/** Sessions + API tokens — use on credential rotation. */
+async function revokeUserCredentials(userId, keepSessionId) {
+  await revokeOtherUserSessions(userId, keepSessionId);
+  await revokeUserApiTokens(userId);
+}
+
 function publicUser(user) {
   const safe = {};
   for (const field of PUBLIC_USER_FIELDS) {
@@ -75,4 +86,6 @@ module.exports = {
   sessionTokenHashes,
   publicUser,
   revokeOtherUserSessions,
+  revokeUserApiTokens,
+  revokeUserCredentials,
 };

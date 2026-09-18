@@ -30,8 +30,8 @@ function resolveAdminSelfTestEmail(req, requested) {
 // GET /api/admin/applications → same as /api/applications
 router.get('/applications', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 50;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
         const status = req.query.status || 'all';
         const offset = (page - 1) * limit;
 
@@ -291,8 +291,8 @@ router.get('/users/by-nick/:nickname', authenticateLongTermApiToken, requireRole
 // GET /api/admin/users - Управление пользователями
 router.get('/users', authenticateLongTermApiToken, requireRole(['admin', 'moderator']), async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 50;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
         const search = req.query.search || '';
         const nickname = req.query.nickname || '';
         const status = req.query.status || 'all';
@@ -2211,10 +2211,13 @@ router.post('/test-email-with-template', [
         };
 
         // Переменные для замены в шаблоне (используем реальные данные)
+        const publicSiteBase = (
+            process.env.FRONTEND_URL || getSetting('site-url', 'https://owyx.site')
+        ).replace(/\/+$/, '');
         const templateVars = {
             serverName: getSetting('server-name', 'Owyx'),
             serverDescription: getSetting('server-description', 'Owyx launcher and site'),
-            siteUrl: getSetting('site-url', 'https://owyx.site'),
+            siteUrl: publicSiteBase,
             discordInvite: getSetting('discord-invite', 'https://discord.gg/owyx'),
             telegramInvite: getSetting('telegram-invite', 'https://t.me/owyx'),
 
@@ -2225,11 +2228,11 @@ router.post('/test-email-with-template', [
             trustLevel: targetUser ? targetUser.trust_level : 0,
             joinDate: targetUser ? new Date(targetUser.registered_at).toLocaleDateString('ru-RU') : new Date().toLocaleDateString('ru-RU'),
             
-            // Специальные переменные для разных типов писем (используем текущий хост)
-            verificationLink: `${req.protocol}://${req.get('host')}/verify/${Math.random().toString(36).substring(7)}`,
-            resetLink: `${req.protocol}://${req.get('host')}/reset/${Math.random().toString(36).substring(7)}`,
-            unsubscribeLink: `${req.protocol}://${req.get('host')}/unsubscribe/${Math.random().toString(36).substring(7)}`,
-            serverLink: `${req.protocol}://${req.get('host')}`,
+            // User-facing links: never use req Host (poisonable)
+            verificationLink: `${publicSiteBase}/verify/${Math.random().toString(36).substring(7)}`,
+            resetLink: `${publicSiteBase}/reset/${Math.random().toString(36).substring(7)}`,
+            unsubscribeLink: `${publicSiteBase}/unsubscribe/${Math.random().toString(36).substring(7)}`,
+            serverLink: publicSiteBase,
 
             // Переменные для заявок
             rejectionReason: 'Пример причины отклонения для демонстрации',
@@ -2867,15 +2870,19 @@ router.post('/test-email', authenticateToken, requireRole(['admin']), async (req
                         serverSettings[row.setting_key] = row.setting_value;
                     });
                     
-                    // Используем реальные данные пользователя и сервера
+                    const publicSiteBase = (
+                        process.env.FRONTEND_URL ||
+                        serverSettings['site-url'] ||
+                        'https://owyx.site'
+                    ).replace(/\/+$/, '');
                     const templateData = {
                         serverName: serverSettings['server-name'] || 'Owyx',
                         nickname: req.user?.nickname || 'Администратор',
-                        siteUrl: 'https://owyx.site',
+                        siteUrl: publicSiteBase,
                         discordInvite: serverSettings['discord-invite'] || 'https://discord.gg/owyx',
                         telegramInvite: serverSettings['telegram-invite'] || 'https://t.me/owyx',
-                        verificationLink: `${req.protocol}://${req.get('host')}/verify/test-token`,
-                        resetLink: `${req.protocol}://${req.get('host')}/reset-password/test-token`,
+                        verificationLink: `${publicSiteBase}/verify/test-token`,
+                        resetLink: `${publicSiteBase}/reset-password/test-token`,
                         currentDate: new Date().toLocaleDateString('ru-RU'),
                         userEmail: req.user?.email || 'admin@owyx.site'
                     };

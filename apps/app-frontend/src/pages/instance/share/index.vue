@@ -1,6 +1,5 @@
 <template>
 	<div v-if="!instance.quarantined" class="flex flex-col gap-4">
-		<ModrinthAccountRequiredModal ref="accountRequiredModal" />
 		<InvitePlayersModal
 			ref="invitePlayersModal"
 			:header="formatMessage(messages.shareModalHeader, { name: instance.name })"
@@ -144,7 +143,6 @@ import {
 import { useQueryClient } from '@tanstack/vue-query'
 import { computed, ref, watch } from 'vue'
 
-import ModrinthAccountRequiredModal from '@/components/ui/modal/ModrinthAccountRequiredModal.vue'
 import SharedInstancePublishModal from '@/components/ui/shared-instances/SharedInstancePublishModal.vue'
 import {
 	getSharedInstanceUnavailableReason,
@@ -185,7 +183,6 @@ const sharedInstanceActionsLocked = actionsLocked
 const currentUserId = computed(() => auth.user.value?.id ?? null)
 const isSignedIn = computed(() => !!auth.session_token.value)
 const sharedInstancesApiUnavailable = ref(false)
-const accountRequiredModal = ref<InstanceType<typeof ModrinthAccountRequiredModal>>()
 const invitePlayersModal = ref<InstanceType<typeof InvitePlayersModal>>()
 const unlinkModal = ref<InstanceType<typeof ConfirmUnlinkModal>>()
 const removeMemberModal = ref<InstanceType<typeof SharedInstanceRemoveMemberModal>>()
@@ -286,7 +283,10 @@ const importedModpackBackupTip = computed(() =>
 )
 
 const messages = defineMessages({
-	signInButton: { id: 'app.instance.share.sign-in.button', defaultMessage: 'Sign in' },
+	signInButton: {
+		id: 'app.instance.share.sign-in.button',
+		defaultMessage: 'Sign in with Modrinth',
+	},
 	unableToConnectHeading: {
 		id: 'app.instance.share.unable-to-connect.heading',
 		defaultMessage: 'Unable to connect',
@@ -322,23 +322,23 @@ const messages = defineMessages({
 	},
 	lockedSignedOutHeading: {
 		id: 'app.instance.share.locked.signed-out-heading',
-		defaultMessage: 'Not signed in',
+		defaultMessage: 'Modrinth sign-in required',
 	},
 	lockedEmptyDescriptionPrefix: {
 		id: 'app.instance.share.locked.empty-description-prefix',
-		defaultMessage: 'You need to sign in as',
+		defaultMessage: 'Shared instances need a Modrinth account. Sign in as',
 	},
 	lockedEmptyDescriptionSuffix: {
 		id: 'app.instance.share.locked.empty-description-suffix',
-		defaultMessage: 'to access this page.',
+		defaultMessage: 'to access this page. Owyx site login is not enough here.',
 	},
 	linkedAccountFallback: {
 		id: 'app.instance.share.locked.linked-account-fallback',
-		defaultMessage: 'the linked account',
+		defaultMessage: 'the linked Modrinth account',
 	},
 	switchAccountButton: {
 		id: 'app.instance.share.locked.switch-account-button',
-		defaultMessage: 'Switch account',
+		defaultMessage: 'Switch Modrinth account',
 	},
 	unlinkForShareHeader: {
 		id: 'app.instance.share.unlink.header',
@@ -391,8 +391,9 @@ function removeMember(row: ShareRow) {
 function userProfileLink(username: string) {
 	return !username || username.includes('@') ? undefined : `/user/${encodeURIComponent(username)}`
 }
-function signInToShare(event?: MouseEvent) {
-	void accountRequiredModal.value?.show(event)
+function signInToShare(_event?: MouseEvent) {
+	// Shared instances use Labrinth / Modrinth credentials — not Owyx site login.
+	void auth.requestSignIn('', isSignedIn.value ? 'sign-in' : 'sign-in', { showModal: false })
 }
 
 provideSharedInstanceManagement({

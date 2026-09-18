@@ -1274,6 +1274,9 @@
   "app.nav.switch-account": {
     "message": "Сменить аккаунт"
   },
+  "app.nav.toggle-sidebar": {
+    "message": "Свернуть боковую панель"
+  },
   "app.nav.view-profile": {
     "message": "Посмотреть профиль"
   },
@@ -4409,6 +4412,60 @@
   "owyx.servers.demo-badge": {
     "message": "demo"
   },
+  "owyx.servers.playing": {
+    "message": "Подготовка…"
+  },
+  "owyx.servers.no-pack-url": {
+    "message": "У этого сервера нет ссылки на сборку"
+  },
+  "owyx.servers.status.online": {
+    "message": "Онлайн"
+  },
+  "owyx.servers.status.offline": {
+    "message": "Оффлайн"
+  },
+  "owyx.servers.status.checking": {
+    "message": "Проверка…"
+  },
+  "owyx.servers.status.ping": {
+    "message": "{ms} мс"
+  },
+  "owyx.servers.loading": {
+    "message": "Загрузка серверов…"
+  },
+  "owyx.settings.profile.sign-in-title": {
+    "message": "Нужен аккаунт Owyx"
+  },
+  "owyx.settings.profile.sign-in-body": {
+    "message": "Войдите тем же логином, что и на owyx.site, чтобы управлять профилем."
+  },
+  "owyx.settings.profile.sign-in": {
+    "message": "Войти"
+  },
+  "owyx.settings.profile.display-nick": {
+    "message": "Отображаемый ник"
+  },
+  "owyx.settings.profile.display-nick-hint": {
+    "message": "Виден друзьям в интерфейсе. В игре используется логин."
+  },
+  "owyx.settings.profile.discord": {
+    "message": "Discord"
+  },
+  "owyx.settings.profile.discord-hint": {
+    "message": "Привязывается только через Discord OAuth на сайте."
+  },
+  "owyx.settings.profile.save": {
+    "message": "Сохранить"
+  },
+  "owyx.settings.profile.saved": {
+    "message": "Профиль сохранён"
+  },
+  "owyx.settings.profile.open-site": {
+    "message": "Открыть на owyx.site"
+  },
+  "owyx.settings.profile.sign-out": {
+    "message": "Выйти из Owyx"
+  },
   "app.nav.admin-panel": {
     "message": "Админ-панель"
   },
@@ -4585,9 +4642,6 @@
   },
   "app.welcome-screen.account-paths": {
     "message": "Новичок? Карточка аккаунта слева: аккаунт Owyx или Microsoft."
-  },
-  "owyx.servers.loading": {
-    "message": "Загрузка серверов…"
   },
   "owyx.admin.api-health": {
     "message": "Проверить статус API"

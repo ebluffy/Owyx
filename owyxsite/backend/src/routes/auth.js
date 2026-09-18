@@ -3,6 +3,7 @@
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
@@ -15,6 +16,7 @@ const {
     sessionTokenHashes,
     publicUser,
     revokeOtherUserSessions,
+    revokeUserCredentials,
 } = require('../utils/authSecurity');
 const { logUserActivity } = require('../utils/activityLog');
 const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
@@ -786,14 +788,16 @@ router.get('/discord', async (req, res) => {
         return res.status(500).json({ error: 'Discord OAuth не настроен' });
     }
 
+    let state;
     try {
-        setPendingCookie(res, { userId: user.id });
+        state = crypto.randomBytes(32).toString('hex');
+        setPendingCookie(res, { userId: user.id, state });
     } catch (err) {
         console.error('Discord pending cookie secret missing:', err.message);
         return res.status(500).json({ error: 'Сервер не настроен для Discord OAuth' });
     }
 
-    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${discordClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`;
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${discordClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${encodeURIComponent(state)}`;
     res.redirect(discordAuthUrl);
 });
 
@@ -801,14 +805,22 @@ router.get('/discord', async (req, res) => {
 router.get('/discord/callback', async (req, res) => {
     try {
         const pending = readPendingDiscord(req);
-        if (!pending?.userId) {
+        if (!pending?.userId || !pending?.state) {
             return res.redirect('/login?error=discord_session_missing');
         }
 
-        const { code } = req.query;
+        const { code, state: returnedState } = req.query;
 
-        if (!code) {
+        if (!code || typeof code !== 'string') {
             return res.redirect('/?error=discord_auth_failed');
+        }
+        if (
+            typeof returnedState !== 'string' ||
+            returnedState.length !== pending.state.length ||
+            !crypto.timingSafeEqual(Buffer.from(returnedState), Buffer.from(pending.state))
+        ) {
+            clearPendingCookie(res);
+            return res.redirect('/?error=discord_state_mismatch');
         }
 
         // Обмениваем код на токен (tokens stay server-side only for this request)
@@ -841,9 +853,10 @@ router.get('/discord/callback', async (req, res) => {
         const discordUser = await userResponse.json();
         const discordUsername = discordUser.username;
 
-        // Cookie: userId + Discord profile only (no OAuth tokens)
+        // Cookie: userId + Discord profile only (no OAuth tokens); keep state until link-discord
         setPendingCookie(res, {
             userId: pending.userId,
+            state: pending.state,
             id: discordUser.id,
             username: discordUsername,
             avatar: discordUser.avatar,
@@ -1093,11 +1106,8 @@ router.post('/reset-password', [
             [token]
         );
 
-        // Удаляем все активные сессии пользователя для безопасности
-        await db.query(
-            'UPDATE user_sessions SET is_active = false WHERE user_id = $1',
-            [userId]
-        );
+        // Revoke sessions + long-term API tokens after credential rotation
+        await revokeUserCredentials(userId);
 
         await logUserActivity(userId, 'password_reset', 'Пароль сброшен по ссылке из письма', {
             req,

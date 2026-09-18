@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "@/hooks/useLocale";
 import SkinPreview from "./SkinPreview";
 
 // Skin preview with a 2D | 3D toggle.
@@ -18,6 +19,7 @@ export default function SkinViewer({
   model?: "classic" | "slim";
   initialMode?: "2d" | "3d";
 }) {
+  const { dict } = useLocale();
   const [mode, setMode] = useState<"2d" | "3d">(initialMode);
   const effectiveMode = skinUrl ? mode : "2d";
 
@@ -27,13 +29,13 @@ export default function SkinViewer({
         {effectiveMode === "2d" ? (
           <SkinPreview skinUrl={skinUrl} model={model} scale={9} />
         ) : (
-          <Skin3D src={skinUrl!} model={model} />
+          <Skin3D src={skinUrl!} model={model} ariaLabel={dict.profile.skinPreview3dAria} />
         )}
       </div>
       <div
         className="inline-flex rounded-lg border border-line overflow-hidden text-xs"
         role="tablist"
-        aria-label="Режим превью скина"
+        aria-label={dict.profile.skinPreviewModeAria}
       >
         {(["2d", "3d"] as const).map((m) => (
           <button
@@ -55,7 +57,15 @@ export default function SkinViewer({
   );
 }
 
-function Skin3D({ src, model }: { src: string; model: "classic" | "slim" }) {
+function Skin3D({
+  src,
+  model,
+  ariaLabel,
+}: {
+  src: string;
+  model: "classic" | "slim";
+  ariaLabel: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [error, setError] = useState(false);
   const W = 160;
@@ -90,5 +100,5 @@ function Skin3D({ src, model }: { src: string; model: "classic" | "slim" }) {
     return <SkinPreview skinUrl={src} model={model} scale={9} />;
   }
 
-  return <canvas ref={canvasRef} width={W} height={H} style={{ width: W, height: H }} aria-label="3D-превью скина" />;
+  return <canvas ref={canvasRef} width={W} height={H} style={{ width: W, height: H }} aria-label={ariaLabel} />;
 }
