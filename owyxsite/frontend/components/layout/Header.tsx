@@ -10,8 +10,9 @@ import { useLocale } from "@/hooks/useLocale";
 import { resolveSiteAvatarUrl } from "@/lib/avatar";
 
 /**
- * Logo/nav align with the content column; Download, profile, lang, and theme
- * sit together on the viewport right edge.
+ * Content column = same max-w-6xl as the footer (green bounds).
+ * Download + profile sit on the column’s right edge.
+ * Lang + theme stay outside the column, on the viewport right.
  */
 export default function Header() {
   const { user, logout } = useAuth();
@@ -49,9 +50,50 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 border-b border-line/60 bg-bg/55 backdrop-blur-xl liquid-glass-header">
       <div className="relative flex h-16 w-full items-center">
-        {/* Right edge cluster: Download / ЛК + lang / theme */}
+        {/* Outside the content column — viewport right (like beyond the footer). */}
         <div className="pointer-events-none absolute inset-y-0 right-0 z-20 flex items-center pr-3 sm:pr-4">
-          <div className="pointer-events-auto flex items-center gap-2 sm:gap-2.5">
+          <div className="pointer-events-auto flex items-center gap-2">
+            <LanguageToggle />
+            <ThemeToggle />
+            <button
+              type="button"
+              className="sm:hidden inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-[10px] border border-line bg-panel text-text transition-colors hover:border-accent"
+              aria-label={mobileOpen ? dict.header.closeMenu : dict.header.openMenu}
+              aria-expanded={mobileOpen}
+              aria-controls="mobile-nav"
+              onClick={() => setMobileOpen((v) => !v)}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+                {mobileOpen ? (
+                  <path strokeLinecap="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
+                ) : (
+                  <path strokeLinecap="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
+                )}
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Same width/padding as footer — Download + ЛК on the right green edge. */}
+        <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 pr-[7.5rem] sm:pr-[8.75rem]">
+          <div className="flex min-w-0 items-center gap-7">
+            <Link href="/" className="flex shrink-0 items-center" aria-label={dict.header.logoHome}>
+              <Logo size={26} wordClassName="text-xl" />
+            </Link>
+            <nav className="hidden sm:flex items-center gap-5" aria-label="Main">
+              {NAV.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="text-sm text-muted hover:text-accent transition-colors"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {user ? (
               <>
                 <Link href="/download" className="hidden sm:inline-flex btn btn-ghost btn-sm">
@@ -76,7 +118,7 @@ export default function Header() {
                         className="h-full w-full object-cover"
                       />
                     </span>
-                    <span className="hidden max-w-[9rem] truncate sm:inline">
+                    <span className="hidden max-w-[10rem] truncate sm:inline">
                       {user.display_nickname || user.nickname || user.email || "Player"}
                     </span>
                   </button>
@@ -135,46 +177,6 @@ export default function Header() {
                 </Link>
               </>
             )}
-
-            <LanguageToggle />
-            <ThemeToggle />
-
-            <button
-              type="button"
-              className="sm:hidden inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-[10px] border border-line bg-panel text-text transition-colors hover:border-accent"
-              aria-label={mobileOpen ? dict.header.closeMenu : dict.header.openMenu}
-              aria-expanded={mobileOpen}
-              aria-controls="mobile-nav"
-              onClick={() => setMobileOpen((v) => !v)}
-            >
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-                {mobileOpen ? (
-                  <path strokeLinecap="round" strokeWidth={2} d="M6 6l12 12M18 6L6 18" />
-                ) : (
-                  <path strokeLinecap="round" strokeWidth={2} d="M4 7h16M4 12h16M4 17h16" />
-                )}
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Content-aligned logo + nav (left). Extra pr keeps clear of edge cluster. */}
-        <div className="mx-auto flex h-full w-full max-w-6xl items-center px-4 sm:px-6 pr-[min(22rem,52vw)] sm:pr-[26rem]">
-          <div className="flex min-w-0 items-center gap-7">
-            <Link href="/" className="flex shrink-0 items-center" aria-label={dict.header.logoHome}>
-              <Logo size={26} wordClassName="text-xl" />
-            </Link>
-            <nav className="hidden sm:flex items-center gap-5" aria-label="Main">
-              {NAV.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="text-sm text-muted hover:text-accent transition-colors"
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
           </div>
         </div>
       </div>
