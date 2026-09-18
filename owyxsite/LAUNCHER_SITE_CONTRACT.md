@@ -18,9 +18,10 @@ anonymous launcher telemetry (`POST /api/launcher/v1/telemetry`).
 Playing is **open** (no application / whitelist gate):
 
 - **Owyx account** — register on the site, sign in inside the launcher with the
-  same account. The launcher syncs an offline-mode play profile to your
-  **display nickname** (in-game name). Friends, skins/CSL, and presence use this
-  account.
+  same account. The launcher syncs an offline-mode play profile to your unique
+  **login nickname** (in-game / OfflinePlayer name). **Display nickname** is a
+  UI label only (duplicates allowed). Friends, skins/CSL, and presence key off
+  the login nick for identity; display nick is shown in the UI.
 - **Microsoft** — licensed Minecraft via Theseus SISU / Microsoft OAuth in
   `packages/app-lib` (optional; see `docs/ms-oauth.md`). Use for online-mode
   servers and licensed skins. Does not replace the Owyx site account.
@@ -141,10 +142,11 @@ Also available as `GET /api/launcher/v1/me`.
 ```
 - `user.nickname` is the **login** (site/launcher auth). Change via
   `PUT /api/profile/nickname` ≤ 1 / 30 days.
-- `user.displayNickname` is the **visible / in-game** name. Change via
-  `PUT /api/profile/display-nickname` (MC format `3–16` `[A-Za-z0-9_]`;
+- `user.displayNickname` is the **visible UI label** (friends list, profile).
+  Change via `PUT /api/profile/display-nickname` (MC format `3–16` `[A-Za-z0-9_]`;
   duplicates allowed across accounts; login + email stay unique; rate limit
-  5/min). Launcher syncs offline play profile to this value.
+  5/min). Offline play UUID and CSL disk paths use **login** `nickname`, not
+  display.
 - `serverAccess` = account is active **and** not banned.
 - `skinUrl` is absolute, built from the request host, so it is downloadable by
   whatever base the launcher used.

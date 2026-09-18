@@ -1253,11 +1253,23 @@
   "app.nav.loading-profile": {
     "message": "Загрузка профиля..."
   },
+  "app.nav.owyx-account": {
+    "message": "Аккаунт Owyx"
+  },
+  "app.nav.owyx-servers": {
+    "message": "Серверы Owyx"
+  },
   "app.nav.remove-account": {
     "message": "Удалить аккаунт"
   },
   "app.nav.screenshots": {
     "message": "Скриншоты"
+  },
+  "app.nav.sign-in-to-owyx-account": {
+    "message": "Войти в Owyx"
+  },
+  "app.nav.sign-out-owyx": {
+    "message": "Выйти из Owyx"
   },
   "app.nav.switch-account": {
     "message": "Сменить аккаунт"
@@ -3369,13 +3381,13 @@
     "message": "Добавление в друзья"
   },
   "friends.add-friend.username.description": {
-    "message": "Найдите по нику Owyx или введите его точно (3–16 символов)."
+    "message": "Ищите по логину или отображаемому нику. Заявка идёт на уникальный логин (выберите из списка или введите логин)."
   },
   "friends.add-friend.username.placeholder": {
-    "message": "Поиск ника Owyx…"
+    "message": "Поиск логина или ника…"
   },
   "friends.add-friend.username.title": {
-    "message": "Какой ник у друга на Owyx?"
+    "message": "Найти друга на Owyx"
   },
   "friends.add-friends-to-share": {
     "message": "<link>Добавьте друзей</link>, чтобы видеть, во что они играют!"
@@ -4354,9 +4366,6 @@
   },
   "minecraft-account.sign-in-microsoft": {
     "message": "Войти через Microsoft"
-  },
-  "app.nav.owyx-servers": {
-    "message": "Серверы Owyx"
   },
   "owyx.servers.title": {
     "message": "Серверы Owyx"

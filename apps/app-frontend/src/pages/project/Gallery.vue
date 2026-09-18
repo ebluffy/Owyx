@@ -39,6 +39,7 @@ import { Button, Card, ImageViewerEditor, useFormatDateTime } from '@modrinth/ui
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, ref } from 'vue'
 
+import galleryPlaceholder from '@/assets/owyx-gallery-placeholder.svg?url'
 import { trackEvent } from '@/helpers/analytics'
 
 const MC_SERVER_BANNER_NAME = '__mc_server_banner__'
@@ -64,7 +65,7 @@ const galleryViewer = ref()
 const galleryViewerItems = computed(() =>
 	filteredGallery.value.map((image) => ({
 		id: image.url,
-		src: image.raw_url ?? 'https://cdn.modrinth.com/placeholder-banner.svg',
+		src: image.raw_url ?? galleryPlaceholder,
 		alt: image.title || 'Gallery image',
 		title: image.title,
 		description: image.description,

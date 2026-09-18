@@ -3564,13 +3564,13 @@
     "message": "Adding a friend"
   },
   "friends.add-friend.username.description": {
-    "message": "Search by nickname or type it exactly (3–16 characters)."
+    "message": "Search by login or display name. Requests use the unique login nick (pick a result or type @login)."
   },
   "friends.add-friend.username.placeholder": {
-    "message": "Search Owyx nickname…"
+    "message": "Search login or display name…"
   },
   "friends.add-friend.username.title": {
-    "message": "What's your friend's Owyx nickname?"
+    "message": "Find a friend on Owyx"
   },
   "friends.add-friends-to-share": {
     "message": "<link>Add friends</link> to see what they’re playing!"

@@ -715,7 +715,6 @@ function ProfileInfoSection({ user }: { user: ReturnType<typeof useAuth>["user"]
         headers: { ...authHeader(), "Content-Type": "application/json" },
         body: JSON.stringify({
           first_name: form.first_name,
-          discord_username: form.discord_username,
         }),
       });
       const data = await res.json();
@@ -746,7 +745,8 @@ function ProfileInfoSection({ user }: { user: ReturnType<typeof useAuth>["user"]
             id="acc-discord"
             className="input w-full"
             value={form.discord_username}
-            onChange={(e) => setForm((f) => ({ ...f, discord_username: e.target.value }))}
+            readOnly
+            disabled
           />
         </SettingsRow>
         <div className="pt-4 flex justify-end">

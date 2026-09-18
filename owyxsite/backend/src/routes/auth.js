@@ -890,18 +890,19 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
             WHERE id = $2
         `, [discordData.username, req.user.id]);
 
-        // Link without storing OAuth tokens from the cookie (column is NOT NULL — use placeholder)
-        await db.query(`
+        // Link without storing OAuth tokens; never reassign discord_id to another user.
+        const linked = await db.query(`
             INSERT INTO discord_oauth (
                 user_id, discord_id, discord_username, discord_avatar,
                 access_token, refresh_token, expires_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
             ON CONFLICT (discord_id)
             DO UPDATE SET
-                user_id = $1,
-                discord_username = $3,
-                discord_avatar = $4,
+                discord_username = EXCLUDED.discord_username,
+                discord_avatar = EXCLUDED.discord_avatar,
                 updated_at = NOW()
+            WHERE discord_oauth.user_id = EXCLUDED.user_id
+            RETURNING user_id
         `, [
             req.user.id,
             discordData.id,
@@ -911,6 +912,12 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
             null,
             null
         ]);
+
+        if (!linked.rows[0] || Number(linked.rows[0].user_id) !== Number(req.user.id)) {
+            return res.status(400).json({
+                error: 'Этот Discord аккаунт уже привязан к другому пользователю'
+            });
+        }
 
         await logUserActivity(req.user.id, 'discord_linked', 'Discord привязан', {
             req,

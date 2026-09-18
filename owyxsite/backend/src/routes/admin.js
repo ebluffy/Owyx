@@ -1200,8 +1200,8 @@ router.post('/user-activity', authenticateLongTermApiToken, requireRole(['admin'
 // GET /api/admin/logs - Просмотр логов действий
 router.get('/logs', authenticateToken, requireRole(['admin', 'moderator']), async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 100;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 200);
         const action = req.query.action || 'all';
         const user_id = req.query.user_id || null;
         const offset = (page - 1) * limit;
@@ -2282,16 +2282,33 @@ router.post('/test-email-with-template', [
         
         console.log('🔧 SMTP настройки из базы:', Object.keys(smtpSettings));
         
-        // Унифицируем ключи SMTP настроек
-        const emailConfig = {
-            host: smtpSettings['smtp_host'] || smtpSettings['smtp-host'] || smtpSettings['smtpHost'],
-            port: smtpSettings['smtp_port'] || smtpSettings['smtp-port'] || smtpSettings['smtpPort'],
-            user: smtpSettings['smtp_user'] || smtpSettings['smtp-user'] || smtpSettings['smtpUser'],
-            password: smtpSettings['smtp_password'] || smtpSettings['smtp-password'] || smtpSettings['smtpPassword'],
-            from: smtpSettings['smtp_from'] || smtpSettings['smtp-from'] || smtpSettings['smtpFrom'],
-            senderName: smtpSettings['smtp_sender_name'] || smtpSettings['smtp-sender-name'] || smtpSettings['smtpSenderName'],
-            tls: smtpSettings['smtp_tls'] || smtpSettings['smtp-tls'] || smtpSettings['smtpTls'] || smtpSettings['smtp-secure']
-        };
+        // Production: env-only SMTP (DB host is an SSRF vector — same as test-email-settings).
+        let emailConfig;
+        if (process.env.NODE_ENV === 'production') {
+            emailConfig = {
+                host: process.env.SMTP_HOST,
+                port: process.env.SMTP_PORT || 465,
+                user: process.env.SMTP_USER,
+                password: process.env.SMTP_PASS || process.env.SMTP_PASSWORD,
+                from: process.env.SMTP_FROM || process.env.EMAIL_FROM,
+                senderName: process.env.SMTP_SENDER_NAME || 'Owyx',
+                tls: process.env.SMTP_SECURE !== 'false',
+            };
+        } else {
+            emailConfig = {
+                host: smtpSettings['smtp_host'] || smtpSettings['smtp-host'] || smtpSettings['smtpHost'],
+                port: smtpSettings['smtp_port'] || smtpSettings['smtp-port'] || smtpSettings['smtpPort'],
+                user: smtpSettings['smtp_user'] || smtpSettings['smtp-user'] || smtpSettings['smtpUser'],
+                password: smtpSettings['smtp_password'] || smtpSettings['smtp-password'] || smtpSettings['smtpPassword'],
+                from: smtpSettings['smtp_from'] || smtpSettings['smtp-from'] || smtpSettings['smtpFrom'],
+                senderName: smtpSettings['smtp_sender_name'] || smtpSettings['smtp-sender-name'] || smtpSettings['smtpSenderName'],
+                tls: smtpSettings['smtp_tls'] || smtpSettings['smtp-tls'] || smtpSettings['smtpTls'] || smtpSettings['smtp-secure']
+            };
+            const blocked = /^(127\.|10\.|192\.168\.|169\.254\.|0\.|localhost|::1)/i;
+            if (emailConfig.host && blocked.test(String(emailConfig.host).trim())) {
+                return res.status(400).json({ error: 'Запрещённый SMTP host' });
+            }
+        }
         
         console.log('📧 Конфигурация email:', {
             host: emailConfig.host,

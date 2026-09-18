@@ -18,10 +18,13 @@
 			<p class="m-0 text-xs text-secondary">{{ formatMessage(messages.nickHint) }}</p>
 			<label class="text-sm text-secondary">{{ formatMessage(messages.discordLabel) }}</label>
 			<input
-				v-model="editDiscord"
-				class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
-				placeholder="username"
+				:value="editDiscord"
+				class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary opacity-70"
+				placeholder="—"
+				readonly
+				disabled
 			/>
+			<p class="m-0 text-xs text-secondary">{{ formatMessage(messages.discordHint) }}</p>
 			<div class="flex flex-wrap gap-2 mt-1">
 				<Button type="colored" color="brand" :disabled="saving" @click="saveProfile">
 					{{ saving ? '…' : formatMessage(messages.save) }}
@@ -42,20 +45,9 @@
 
 <script setup lang="ts">
 import { Button, defineMessages, useVIntl } from '@modrinth/ui'
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { computed, ref, watch } from 'vue'
 
-import {
-	DEFAULT_OWYX_API_BASE,
-	getOwyxClientKey,
-	getStoredOwyxApiBase,
-	sanitizeOwyxApiBase,
-} from '@/helpers/owyx-api'
-import {
-	getStoredOwyxSiteSession,
-	OWYX_SITE_PROFILE_URL,
-	updateOwyxDisplayNickname,
-} from '@/helpers/owyx-site-auth'
+import { OWYX_SITE_PROFILE_URL, updateOwyxDisplayNickname } from '@/helpers/owyx-site-auth'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 
 const { formatMessage } = useVIntl()
@@ -67,7 +59,9 @@ const displayName = computed(
 )
 
 const editNick = ref(displayName.value)
-const editDiscord = ref('')
+const editDiscord = computed(
+	() => (owyx.session.value?.user as { discord?: string } | undefined)?.discord || '',
+)
 const saving = ref(false)
 const statusMsg = ref('')
 const statusOk = ref(true)
@@ -76,28 +70,6 @@ watch(displayName, (n) => {
 	editNick.value = n
 })
 
-function apiBase() {
-	return sanitizeOwyxApiBase(getStoredOwyxApiBase() || DEFAULT_OWYX_API_BASE)
-}
-
-function authHeaders(json = true): Record<string, string> {
-	const h: Record<string, string> = { Accept: 'application/json' }
-	if (json) h['Content-Type'] = 'application/json'
-	const key = getOwyxClientKey()
-	if (key) h['X-Owyx-Client-Key'] = key
-	const token = getStoredOwyxSiteSession()?.token
-	if (token) h.Authorization = `Bearer ${token}`
-	return h
-}
-
-async function owyxFetch(url: string, init?: RequestInit) {
-	try {
-		return await tauriFetch(url, init as Parameters<typeof tauriFetch>[1])
-	} catch {
-		return await fetch(url, init)
-	}
-}
-
 async function saveProfile() {
 	saving.value = true
 	statusMsg.value = ''
@@ -105,17 +77,6 @@ async function saveProfile() {
 		const nick = editNick.value.trim()
 		if (nick && nick !== displayName.value) {
 			await updateOwyxDisplayNickname(nick)
-		}
-		const body: Record<string, string> = {}
-		if (editDiscord.value.trim()) body.discord_username = editDiscord.value.trim()
-		if (Object.keys(body).length > 0) {
-			const res = await owyxFetch(`${apiBase()}/api/profile`, {
-				method: 'PUT',
-				headers: authHeaders(),
-				body: JSON.stringify(body),
-			})
-			const data = (await res.json().catch(() => ({}))) as { error?: string }
-			if (!res.ok) throw new Error(data.error || `Save failed (${res.status})`)
 		}
 		statusOk.value = true
 		statusMsg.value = formatMessage(messages.saved)
@@ -151,11 +112,15 @@ const messages = defineMessages({
 	},
 	nickHint: {
 		id: 'owyx.settings.profile.display-nick-hint',
-		defaultMessage: 'Shown to friends and in-game. Your login stays the same.',
+		defaultMessage: 'Shown to friends in the UI. Offline play uses your login nick.',
 	},
 	discordLabel: {
 		id: 'owyx.settings.profile.discord',
 		defaultMessage: 'Discord username',
+	},
+	discordHint: {
+		id: 'owyx.settings.profile.discord-hint',
+		defaultMessage: 'Linked via Discord OAuth on the site only.',
 	},
 	save: {
 		id: 'owyx.settings.profile.save',
