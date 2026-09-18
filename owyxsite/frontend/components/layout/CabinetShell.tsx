@@ -123,21 +123,4 @@ export function SettingsRow({
   );
 }
 
-export function Toast({
-  text,
-  type,
-}: {
-  text: string;
-  type: "success" | "error";
-}) {
-  return (
-    <div
-      role="status"
-      className={`fixed bottom-5 left-1/2 z-[70] max-w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-[10px] border px-4 py-3 text-sm shadow-lg fade-up ${
-        type === "success" ? "form-msg-ok" : "form-msg-err"
-      }`}
-    >
-      {text}
-    </div>
-  );
-}
+export { Toast } from "@/components/ui/Toast";

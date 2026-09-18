@@ -12,6 +12,7 @@ const createTransporter = () => {
     host: process.env.SMTP_HOST || process.env.EMAIL_SMTP_HOST || 'smtp.yandex.ru',
     port,
     secure,
+    requireTLS: !secure && port === 587,
     auth: {
       user: process.env.SMTP_USER || process.env.EMAIL_SMTP_USER || '',
       pass: process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_SMTP_PASSWORD || '',

@@ -9,10 +9,10 @@ type ModalProps = {
   title: string;
   description?: string;
   children: ReactNode;
-  /** Wider dialog (default max-w-md). */
   size?: "sm" | "md" | "lg";
-  /** Extra class on the dialog panel. */
   panelClassName?: string;
+  /** When false, dialog never scrolls (default true). */
+  scrollable?: boolean;
 };
 
 const SIZE = {
@@ -33,6 +33,7 @@ export default function Modal({
   children,
   size = "md",
   panelClassName = "",
+  scrollable = true,
 }: ModalProps) {
   const titleId = useId();
   const descId = useId();
@@ -83,7 +84,9 @@ export default function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={`relative z-10 w-full ${SIZE[size]} max-h-[min(92vh,40rem)] overflow-y-auto rounded-2xl border border-line bg-panel p-5 sm:p-6 shadow-[0_24px_80px_-20px_rgba(0,0,0,0.85)] fade-up ${panelClassName}`}
+        className={`relative z-10 w-full ${SIZE[size]} rounded-2xl border border-line bg-panel p-5 sm:p-6 shadow-[0_24px_80px_-20px_rgba(0,0,0,0.85)] fade-up ${
+          scrollable ? "max-h-[min(92vh,40rem)] overflow-y-auto" : "overflow-hidden"
+        } ${panelClassName}`}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} className="font-display text-lg font-bold tracking-tight text-text">
@@ -94,7 +97,7 @@ export default function Modal({
             {description}
           </p>
         )}
-        <div className={description || title ? "mt-5" : ""}>{children}</div>
+        <div className={description || title ? "mt-4" : ""}>{children}</div>
       </div>
     </div>,
     document.body,
