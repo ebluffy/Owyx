@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 import { useLocale } from "@/hooks/useLocale";
+import Modal from "@/components/ui/Modal";
 
 type SourceType = "http_zip" | "http_manifest" | "google_drive" | "mrpack" | "sftp" | "local_ingest";
 
@@ -980,37 +980,9 @@ function ModalShell({
   onClose: () => void;
   children: ReactNode;
 }) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  if (!mounted) return null;
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/65"
-      onClick={onClose}
-      role="presentation"
-    >
-      <div
-        className="w-full max-w-xl max-h-[min(90vh,44rem)] overflow-y-auto rounded-2xl border border-line bg-panel p-5 sm:p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="catalog-modal-title"
-      >
-        <h3 id="catalog-modal-title" className="font-display text-lg font-bold tracking-tight mb-4">
-          {title}
-        </h3>
-        {children}
-      </div>
-    </div>,
-    document.body
+  return (
+    <Modal onClose={onClose} title={title} size="lg">
+      {children}
+    </Modal>
   );
 }

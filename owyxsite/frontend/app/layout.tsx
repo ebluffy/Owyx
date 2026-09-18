@@ -4,6 +4,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { LocaleProvider } from "@/hooks/useLocale";
 import SkipLink from "@/components/layout/SkipLink";
 import SpaceParticles from "@/components/brand/SpaceParticles";
+import SupportWidget from "@/components/support/SupportContact";
 import "./globals.css";
 
 /* Onest = UI/body with Cyrillic (PR #27). Unbounded = display headings. */
@@ -67,7 +68,10 @@ export default function RootLayout({
         <SpaceParticles />
         <LocaleProvider>
           <SkipLink />
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            {children}
+            <SupportWidget />
+          </AuthProvider>
         </LocaleProvider>
       </body>
     </html>
