@@ -16,6 +16,7 @@ pub(crate) async fn create(
     icon_path: Option<String>,
     icon_config: Option<InstanceIconConfig>,
     link: InstanceLink,
+    path: Option<String>,
 ) -> crate::Result<InstanceMetadata> {
     let state = State::get().await?;
     if let Some(icon_config) = &icon_config {
@@ -24,7 +25,7 @@ pub(crate) async fn create(
     let instance = crate::state::create_instance(
         CreateInstance {
             name,
-            path: None,
+            path,
             game_version,
             loader: modloader,
             loader_version,

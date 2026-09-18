@@ -11,6 +11,8 @@ use tokio::fs;
 pub const CACHES_FOLDER_NAME: &str = "caches";
 pub const LAUNCHER_LOGS_FOLDER_NAME: &str = "launcher_logs";
 pub const INSTANCES_FOLDER_NAME: &str = "profiles";
+/// Curated Owyx server packs live under `profiles/servers/` (not the Library root).
+pub const SERVERS_FOLDER_NAME: &str = "servers";
 pub const METADATA_FOLDER_NAME: &str = "meta";
 pub const SYNCED_OPTIONS_FOLDER_NAME: &str = "synced-options";
 pub const STORE_FOLDER_NAME: &str = "store";
@@ -169,6 +171,12 @@ impl DirectoryInfo {
     #[inline]
     pub fn instances_dir(&self) -> PathBuf {
         self.config_dir.join(INSTANCES_FOLDER_NAME)
+    }
+
+    /// Curated Owyx server pack instances (`profiles/servers/`).
+    #[inline]
+    pub fn servers_dir(&self) -> PathBuf {
+        self.instances_dir().join(SERVERS_FOLDER_NAME)
     }
 
     #[inline]

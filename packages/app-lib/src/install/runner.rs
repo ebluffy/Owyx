@@ -22,7 +22,9 @@ use crate::api::pack::install_mrpack::install_zipped_mrpack_files_with_reporter;
 use crate::event::InstancePayloadType;
 use crate::event::emit::emit_instance;
 use crate::state::instances::adapters::sqlite::content_rows;
-use crate::state::instances::commands::resolve_icon_path;
+use crate::state::instances::commands::{
+    owyx_server_instance_path, resolve_icon_path,
+};
 use crate::state::{
     ContentSourceKind, InstanceIconConfig, InstanceInstallStage, InstanceLink,
     ModLoader, State,
@@ -33,6 +35,20 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 use tokio::sync::{Mutex as AsyncMutex, MutexGuard, OwnedMutexGuard};
 use uuid::Uuid;
+
+const OWYX_SERVER_LINK_PREFIX: &str = "owyx-server:";
+
+fn owyx_server_path_for_link(link: &InstanceLink, name: &str) -> Option<String> {
+    match link {
+        InstanceLink::ImportedModpack {
+            project_id: Some(project_id),
+            ..
+        } if project_id.starts_with(OWYX_SERVER_LINK_PREFIX) => {
+            Some(owyx_server_instance_path(name))
+        }
+        _ => None,
+    }
+}
 
 /// Admission covers setup and deletion. A target reservation stays with its worker
 /// until cleanup finishes, so backups and rollback cannot overlap another install.
@@ -495,6 +511,7 @@ async fn prepare_initial_instance(
                 icon_path,
                 icon_config,
                 link,
+                None,
             ))
             .await?;
             set_display(
@@ -534,6 +551,7 @@ async fn prepare_initial_instance(
                 .and_then(|edit| edit.link.clone())
                 .or_else(|| preview.link.clone())
                 .unwrap_or(InstanceLink::Unmanaged);
+            let path = owyx_server_path_for_link(&link, &name);
             let metadata = Box::pin(crate::api::instance::create(
                 name,
                 preview.game_version,
@@ -542,6 +560,7 @@ async fn prepare_initial_instance(
                 icon_path,
                 None,
                 link,
+                path,
             ))
             .await?;
             set_display(
@@ -588,6 +607,7 @@ async fn prepare_initial_instance(
                 icon_path,
                 None,
                 shared_link,
+                None,
             ))
             .await?;
             set_display(
@@ -611,6 +631,7 @@ async fn prepare_initial_instance(
                 None,
                 None,
                 InstanceLink::Unmanaged,
+                None,
             ))
             .await?;
             set_display(
@@ -629,6 +650,7 @@ async fn prepare_initial_instance(
                             "Unknown instance".to_string(),
                         )
                     })?;
+            let path = owyx_server_path_for_link(&metadata.link, &metadata.instance.name);
             let created = Box::pin(crate::api::instance::create(
                 metadata.instance.name,
                 metadata.applied_content_set.game_version,
@@ -637,6 +659,7 @@ async fn prepare_initial_instance(
                 metadata.instance.icon_path,
                 None,
                 metadata.link,
+                path,
             ))
             .await?;
             set_display(

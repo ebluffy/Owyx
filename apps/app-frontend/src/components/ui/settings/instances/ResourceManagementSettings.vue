@@ -17,10 +17,11 @@ import ConfirmModalWrapper from '@/components/ui/modal/ConfirmModalWrapper.vue'
 import ContentStorageSettings from '@/components/ui/settings/instances/ContentStorageSettings.vue'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { purge_cache_types } from '@/helpers/cache.js'
+import { exportOwyxDiagnosticsReport } from '@/helpers/owyx-diagnostics'
 import { get, set } from '@/helpers/settings.ts'
 import { showAppDbBackupsFolder } from '@/helpers/utils.js'
 
-const { handleError } = injectNotificationManager()
+const { handleError, addNotification } = injectNotificationManager()
 const { formatMessage } = useVIntl()
 const appSettings = useAppSettings()
 const settings = ref(await get())
@@ -106,6 +107,23 @@ const messages = defineMessages({
 		defaultMessage:
 			'Backups of important app data are stored here in case you need to recover them later.',
 	},
+	diagnosticsTitle: {
+		id: 'app.settings.resource-management.diagnostics.title',
+		defaultMessage: 'Support diagnostics',
+	},
+	diagnosticsDescription: {
+		id: 'app.settings.resource-management.diagnostics.description',
+		defaultMessage:
+			'Export a text report with API base (client key redacted) and open launcher logs for Discord support.',
+	},
+	exportDiagnostics: {
+		id: 'app.settings.resource-management.diagnostics.export',
+		defaultMessage: 'Export diagnostics',
+	},
+	diagnosticsExported: {
+		id: 'app.settings.resource-management.diagnostics.exported',
+		defaultMessage: 'Diagnostics saved',
+	},
 })
 
 watch(
@@ -156,6 +174,20 @@ function handlePurgeCacheClick() {
 
 async function openDbBackupsFolder() {
 	await showAppDbBackupsFolder().catch(handleError)
+}
+
+async function exportDiagnostics() {
+	try {
+		const path = await exportOwyxDiagnosticsReport()
+		if (!path) return
+		addNotification({
+			type: 'success',
+			title: formatMessage(messages.diagnosticsExported),
+			text: path,
+		})
+	} catch (e) {
+		handleError(e)
+	}
 }
 
 async function findLauncherDir() {
@@ -287,6 +319,19 @@ async function findLauncherDir() {
 			</Button>
 			<p class="m-0 leading-tight text-secondary">
 				{{ formatMessage(messages.appDatabaseBackupsDescription) }}
+			</p>
+		</div>
+
+		<div class="flex flex-col gap-2.5">
+			<h2 class="mt-0 m-0 text-lg font-semibold text-contrast">
+				{{ formatMessage(messages.diagnosticsTitle) }}
+			</h2>
+			<Button id="export-owyx-diagnostics" class="w-fit" @click="exportDiagnostics">
+				<FolderOpenIcon aria-hidden="true" />
+				{{ formatMessage(messages.exportDiagnostics) }}
+			</Button>
+			<p class="m-0 leading-tight text-secondary">
+				{{ formatMessage(messages.diagnosticsDescription) }}
 			</p>
 		</div>
 	</div>

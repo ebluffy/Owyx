@@ -2146,9 +2146,8 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 			>
 				<ImageIcon />
 			</NavButton>
-			<!-- Owyx Servers: admin-only catalog / API tools -->
+			<!-- Owyx Servers: public curated catalog -->
 			<NavButton
-				v-if="isOwyxSiteAdmin"
 				v-tooltip.right="formatMessage(messages.owyxServers)"
 				to="/owyx-servers"
 				:is-primary="(r) => r.path === '/owyx-servers'"

@@ -599,7 +599,18 @@ async fn install_minecraft_inner(
                     cp
                 };
 
-                let child = Command::new(&java_version.path)
+                let mut child_cmd = Command::new(&java_version.path);
+                // NeoForge DownloadMojmaps inherits OS SOCKS and can hang; prefer direct.
+                child_cmd.env_remove("JAVA_TOOL_OPTIONS");
+                child_cmd.env_remove("JDK_JAVA_OPTIONS");
+                child_cmd.env_remove("socksProxyHost");
+                child_cmd.env_remove("socksProxyPort");
+                child_cmd.env_remove("http.proxyHost");
+                child_cmd.env_remove("https.proxyHost");
+                let child = child_cmd
+                    .arg("-Djava.net.useSystemProxies=false")
+                    .arg("-DsocksProxyHost=")
+                    .arg("-DsocksProxyPort=")
                     .arg("-cp")
                     .arg(args::get_class_paths_jar(
                         &libraries_dir,

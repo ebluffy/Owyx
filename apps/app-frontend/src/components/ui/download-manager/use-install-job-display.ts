@@ -196,6 +196,11 @@ const failureSummaryMessages = defineMessages({
 		id: 'app.action-bar.install.summary.loader-setup-failed',
 		defaultMessage: 'Loader setup failed',
 	},
+	mojangMapsTimeout: {
+		id: 'app.action-bar.install.summary.mojang-maps-timeout',
+		defaultMessage:
+			'NeoForge could not download Mojang mappings (network timeout or proxy). Check VPN/firewall, then Retry.',
+	},
 	localDataError: {
 		id: 'app.action-bar.install.summary.local-data-error',
 		defaultMessage: "Couldn't update local data",
@@ -308,6 +313,7 @@ export function useInstallJobDisplay() {
 	function getFailureSummary(job: InstallJobSnapshot): string {
 		const code = job.error?.code
 		const phase = job.error?.phase ?? job.phase
+		const errMsg = (job.error?.message ?? '').toLowerCase()
 
 		if (code === 'app_closed' || (job.status === 'interrupted' && code === 'interrupted')) {
 			return formatMessage(failureSummaryMessages.appClosed)
@@ -320,6 +326,16 @@ export function useInstallJobDisplay() {
 		}
 		if (hasPermissionError(job)) {
 			return formatMessage(failureSummaryMessages.noWritePermission)
+		}
+
+		if (
+			(code === 'processor_error' || phase === 'running_loader_processors') &&
+			(errMsg.includes('downloadmojmaps') ||
+				errMsg.includes('connectexception') ||
+				errMsg.includes('connection timed out') ||
+				errMsg.includes('sockssocketimpl'))
+		) {
+			return formatMessage(failureSummaryMessages.mojangMapsTimeout)
 		}
 
 		if (code === 'network_error') {

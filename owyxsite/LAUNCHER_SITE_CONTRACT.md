@@ -232,10 +232,11 @@ credentials — public GET returns only HTTP(S) download/manifest URLs.
 Source types on a pack: `http_zip` | `http_manifest` | `google_drive` | `mrpack`
 | `sftp` | `local_ingest`. Friends-MVP download path is **`http_zip` /
 `http_manifest`**. Other types are stored + admin-editable; `sftp` is
-admin-warehouse only (`downloadAvailable: false` in public GET). `mrpack` is
-schema-only for now: public GET sets `downloadAvailable: false` and
-`ingest: "planned"` even when a URL is stored. Drive without a direct URL is
-not a fake download.
+admin-warehouse only (`downloadAvailable: false` in public GET). Local
+uploaded packs under `/uploads/packs/` (including `.mrpack`) set
+`downloadAvailable: true`. Remote schema-only `mrpack` without a local upload
+still returns `downloadAvailable: false` / `ingest: "planned"`. Drive without
+a direct URL is not a fake download.
 
 Dev seed (fresh DB / `ensureCatalogSchema`): pack `demo-vanilla` (tiny fixture
 zip at `/fixtures/packs/demo-vanilla.zip`) and servers `owyx-demo` /

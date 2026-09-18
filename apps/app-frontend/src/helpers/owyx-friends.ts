@@ -57,25 +57,45 @@ function authHeaders(): Record<string, string> {
 	return headers
 }
 
-/** Map common API errors to short English (Vue i18n layers can translate later). */
-function friendlyFriendsError(raw: string | undefined, status: number, fallback: string): string {
+/** Error codes for ICU mapping in the friends UI (en-US / ru-RU via FormatJS). */
+export type OwyxFriendsErrorCode =
+	| 'unauthorized'
+	| 'not_accepting'
+	| 'not_found'
+	| 'already_friends'
+	| 'missing_client_key'
+	| 'generic'
+
+export class OwyxFriendsError extends Error {
+	code: OwyxFriendsErrorCode
+	status: number
+
+	constructor(code: OwyxFriendsErrorCode, status: number, message: string) {
+		super(message)
+		this.name = 'OwyxFriendsError'
+		this.code = code
+		this.status = status
+	}
+}
+
+function friendsError(raw: string | undefined, status: number, fallback: string): OwyxFriendsError {
 	const msg = (raw || '').toLowerCase()
 	if (status === 401 || msg.includes('unauthorized') || msg.includes('no_session')) {
-		return 'Sign in to your Owyx account again, then retry.'
+		return new OwyxFriendsError('unauthorized', status, raw || fallback)
 	}
 	if (status === 403 && msg.includes('not accepting')) {
-		return 'This player is not accepting friend requests.'
+		return new OwyxFriendsError('not_accepting', status, raw || fallback)
 	}
 	if (status === 404 && msg.includes('not found')) {
-		return 'User not found. Check the nickname and try again.'
+		return new OwyxFriendsError('not_found', status, raw || fallback)
 	}
 	if (status === 409 && msg.includes('already')) {
-		return 'You are already friends or a request is pending.'
+		return new OwyxFriendsError('already_friends', status, raw || fallback)
 	}
 	if (!getOwyxClientKey()) {
-		return 'Missing client key. Set X-Owyx-Client-Key in Admin → API.'
+		return new OwyxFriendsError('missing_client_key', status, raw || fallback)
 	}
-	return raw || `${fallback} (${status})`
+	return new OwyxFriendsError('generic', status, raw || `${fallback} (${status})`)
 }
 
 export async function listOwyxFriends(): Promise<OwyxFriend[]> {
@@ -85,7 +105,7 @@ export async function listOwyxFriends(): Promise<OwyxFriend[]> {
 		signal: AbortSignal.timeout(12000),
 	})
 	const data = (await res.json().catch(() => ({}))) as { friends?: OwyxFriend[]; error?: string }
-	if (!res.ok) throw new Error(friendlyFriendsError(data.error, res.status, 'Friends list failed'))
+	if (!res.ok) throw friendsError(data.error, res.status, 'Friends list failed')
 	return Array.isArray(data.friends) ? data.friends : []
 }
 
@@ -127,7 +147,7 @@ export async function searchOwyxUsers(
 		}[]
 		error?: string
 	}
-	if (!res.ok) throw new Error(friendlyFriendsError(data.error, res.status, 'Search failed'))
+	if (!res.ok) throw friendsError(data.error, res.status, 'Search failed')
 	return Array.isArray(data.users) ? data.users : []
 }
 
@@ -139,8 +159,7 @@ export async function requestOwyxFriend(nickname: string): Promise<OwyxFriend> {
 		signal: AbortSignal.timeout(12000),
 	})
 	const data = (await res.json().catch(() => ({}))) as { friend?: OwyxFriend; error?: string }
-	if (!res.ok || !data.friend)
-		throw new Error(friendlyFriendsError(data.error, res.status, 'Request failed'))
+	if (!res.ok || !data.friend) throw friendsError(data.error, res.status, 'Request failed')
 	return data.friend
 }
 
@@ -151,8 +170,7 @@ export async function acceptOwyxFriend(id: string): Promise<OwyxFriend> {
 		signal: AbortSignal.timeout(10000),
 	})
 	const data = (await res.json().catch(() => ({}))) as { friend?: OwyxFriend; error?: string }
-	if (!res.ok || !data.friend)
-		throw new Error(friendlyFriendsError(data.error, res.status, 'Accept failed'))
+	if (!res.ok || !data.friend) throw friendsError(data.error, res.status, 'Accept failed')
 	return data.friend
 }
 
@@ -164,7 +182,7 @@ export async function declineOwyxFriend(id: string): Promise<void> {
 	})
 	if (!res.ok) {
 		const data = (await res.json().catch(() => ({}))) as { error?: string }
-		throw new Error(friendlyFriendsError(data.error, res.status, 'Decline failed'))
+		throw friendsError(data.error, res.status, 'Decline failed')
 	}
 }
 
@@ -176,7 +194,7 @@ export async function removeOwyxFriend(id: string): Promise<void> {
 	})
 	if (!res.ok) {
 		const data = (await res.json().catch(() => ({}))) as { error?: string }
-		throw new Error(friendlyFriendsError(data.error, res.status, 'Remove failed'))
+		throw friendsError(data.error, res.status, 'Remove failed')
 	}
 }
 
@@ -195,7 +213,7 @@ export async function getOwyxSocialSettings(): Promise<OwyxSocialSettings> {
 		settings?: Partial<OwyxSocialSettings>
 		error?: string
 	}
-	if (!res.ok) throw new Error(friendlyFriendsError(data.error, res.status, 'Settings failed'))
+	if (!res.ok) throw friendsError(data.error, res.status, 'Settings failed')
 	return {
 		allowFriendRequests: data.settings?.allowFriendRequests !== false,
 		sharePresence: data.settings?.sharePresence !== false,
@@ -216,7 +234,7 @@ export async function patchOwyxSocialSettings(
 		error?: string
 	}
 	if (!res.ok || !data.settings) {
-		throw new Error(friendlyFriendsError(data.error, res.status, 'Save settings failed'))
+		throw friendsError(data.error, res.status, 'Save settings failed')
 	}
 	return {
 		allowFriendRequests: data.settings.allowFriendRequests !== false,
