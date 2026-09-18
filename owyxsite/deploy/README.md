@@ -57,5 +57,4 @@ Records alone are not enough if policies are soft:
    `v=DMARC1; p=quarantine; rua=mailto:…` (keep your rua).
 4. Send only via Mailjet SMTP; From domain must match SPF/DKIM (e.g. `@owyx.site`).
 5. Backend already sends multipart text + HTML and `List-Unsubscribe` headers.
-
-After tightening DNS, wait 24–48h and re-test with Mail-Tester / Gmail.
+6. **Mail.ru / new domains:** DNS alone is not enough. Mark one letter «Не спам», wait for domain reputation, check Mailjet → Sender domains (DKIM Valid). Optional: [Mail.ru Postmaster](https://postmaster.mail.ru/) for `@owyx.site`.

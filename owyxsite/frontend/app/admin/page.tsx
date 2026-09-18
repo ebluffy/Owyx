@@ -251,7 +251,9 @@ function AdminPageInner() {
           <AdminLogs authHeaders={authHeaders} showMessage={showMessage} />
         )}
       </CabinetShell>
-      {toast && <Toast text={toast.text} type={toast.type} />}
+      {toast && (
+        <Toast text={toast.text} type={toast.type} onDismiss={() => setToast(null)} />
+      )}
       <Footer />
     </>
   );
