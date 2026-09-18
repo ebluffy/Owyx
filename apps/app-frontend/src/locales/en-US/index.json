@@ -2777,6 +2777,18 @@
   "app.settings.resource-management.app-database-backups.title": {
     "message": "App database backups"
   },
+  "app.settings.resource-management.diagnostics.description": {
+    "message": "Export a zip with a redacted API report and recent launcher logs for Discord support."
+  },
+  "app.settings.resource-management.diagnostics.export": {
+    "message": "Export diagnostics"
+  },
+  "app.settings.resource-management.diagnostics.exported": {
+    "message": "Diagnostics saved"
+  },
+  "app.settings.resource-management.diagnostics.title": {
+    "message": "Support diagnostics"
+  },
   "app.settings.resource-management.app-directory.browse": {
     "message": "Browse for an app directory"
   },

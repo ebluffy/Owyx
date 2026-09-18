@@ -460,6 +460,7 @@
     "createOne": "Create one",
     "forgotPassword": "Forgot password?",
     "captchaRequired": "Please complete the captcha.",
+    "captchaHint": "Confirm you are not a robot",
     "loginFailed": "Could not sign in. Check your details.",
     "registerTitle": "Create account",
     "registerSubtitle": "One Owyx™ account: site and launcher.",

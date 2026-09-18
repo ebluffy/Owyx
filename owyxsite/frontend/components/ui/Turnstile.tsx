@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { useEffect, useRef } from "react";
+import { useLocale } from "@/hooks/useLocale";
 
 /**
  * Cloudflare Turnstile — explicit render (existing-widget flow).
@@ -29,6 +30,7 @@ export default function Turnstile({
   /** Change to force a fresh widget (e.g. after failed login). */
   resetKey?: number;
 }) {
+  const { dict } = useLocale();
   const ref = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
   const onTokenRef = useRef(onToken);
@@ -81,7 +83,7 @@ export default function Turnstile({
 
   return (
     <div className="space-y-1.5">
-      <p className="field-hint">Подтвердите, что вы не робот</p>
+      <p className="field-hint">{dict.auth.captchaHint || dict.auth.captchaRequired}</p>
       <Script
         src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=onOwyxTurnstileLoad"
         strategy="afterInteractive"

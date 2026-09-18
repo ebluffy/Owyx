@@ -2574,39 +2574,54 @@ router.get('/users-for-email', authenticateToken, requireRole(['admin']), async 
 router.post('/test-email-settings', [
     authenticateToken,
     requireRole(['admin']),
-    body('host').notEmpty(),
-    body('port').isInt({ min: 1, max: 65535 }),
-    body('user').notEmpty(),
-    body('from').isEmail(),
-    body('tls').isBoolean()
 ], async (req, res) => {
     try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({
-                error: 'Ошибка валидации',
-                details: errors.array()
+        const nodemailer = require('nodemailer');
+
+        // Production: env-only SMTP (never connect to client-supplied hosts — SSRF).
+        if (process.env.NODE_ENV === 'production') {
+            const host = process.env.SMTP_HOST;
+            if (!host) {
+                return res.status(503).json({ error: 'SMTP_HOST не задан в окружении' });
+            }
+            const testTransporter = nodemailer.createTransport({
+                host,
+                port: Number(process.env.SMTP_PORT || 465),
+                secure: String(process.env.SMTP_SECURE || 'true') !== 'false',
+                auth: {
+                    user: process.env.SMTP_USER,
+                    pass: process.env.SMTP_PASS || process.env.SMTP_PASSWORD,
+                },
+            });
+            await testTransporter.verify();
+            return res.json({
+                success: true,
+                message: 'Email настройки (env) корректны — соединение установлено',
             });
         }
 
-        const { host, port, user, from, tls } = req.body;
-        const nodemailer = require('nodemailer');
+        const { host, port, user, from, tls } = req.body || {};
+        if (!host || !port || !user || !from) {
+            return res.status(400).json({ error: 'host, port, user, from обязательны (dev)' });
+        }
+        const blocked = /^(127\.|10\.|192\.168\.|169\.254\.|0\.|localhost|::1)/i;
+        if (blocked.test(String(host).trim())) {
+            return res.status(400).json({ error: 'Запрещённый SMTP host' });
+        }
 
-        // Создаем тестовый транспорт
-        const testTransporter = nodemailer.createTransporter({
-            host: host,
-            port: port,
-            secure: port === 465,
+        const testTransporter = nodemailer.createTransport({
+            host: String(host),
+            port: Number(port),
+            secure: Number(port) === 465,
             auth: {
-                user: user,
-                pass: 'test' // Для тестирования используем заглушку
+                user: String(user),
+                pass: 'test',
             },
             tls: {
-                rejectUnauthorized: !tls
-            }
+                rejectUnauthorized: !tls,
+            },
         });
 
-        // Проверяем соединение
         await testTransporter.verify();
 
         res.json({
@@ -2704,92 +2719,48 @@ router.put('/settings', [
         }
 
         const settings = req.body;
-        const fs = require('fs').promises;
-        const path = require('path');
 
-        // Читаем текущий файл настроек
-        const settingsPath = path.join(__dirname, '../config/settings.js');
-        let currentConfig;
-        
-        try {
-            // Очищаем кеш и читаем заново
-            delete require.cache[require.resolve('../config/settings')];
-            currentConfig = require('../config/settings');
-        } catch (error) {
-            // Если файл не существует, создаем базовую структуру
-            currentConfig = {
-                server: {},
-                applications: {},
-                trustLevel: {},
-                security: {},
-                email: {}
-            };
+        // Persist to DB only — never rewrite executable settings.js (injection).
+        const upserts = [];
+        const map = {
+            serverName: 'server-name',
+            serverDescription: 'server-description',
+            discordInvite: 'discord-invite',
+            telegramInvite: 'telegram-invite',
+            minMotivationLength: 'applications-minMotivationLength',
+            minPlansLength: 'applications-minPlansLength',
+            maxApplicationsPerDay: 'applications-maxApplicationsPerDay',
+            maxLoginAttempts: 'security-maxLoginAttempts',
+            rateLimitRequests: 'security-rateLimitRequests',
+        };
+        for (const [bodyKey, settingKey] of Object.entries(map)) {
+            if (settings[bodyKey] === undefined || settings[bodyKey] === null) continue;
+            const value = settings[bodyKey];
+            if (typeof value === 'object') continue;
+            upserts.push({ key: settingKey, value: String(value) });
+        }
+        for (const row of upserts) {
+            await db.query(
+                `INSERT INTO server_settings (setting_key, setting_value, updated_at)
+                 VALUES ($1, $2, NOW())
+                 ON CONFLICT (setting_key) DO UPDATE
+                 SET setting_value = EXCLUDED.setting_value, updated_at = NOW()`,
+                [row.key, row.value],
+            );
         }
 
-        // Обновляем настройки
-        if (settings.serverName !== undefined) currentConfig.server.name = settings.serverName;
-        if (settings.serverDescription !== undefined) currentConfig.server.description = settings.serverDescription;
-        if (settings.serverIp !== undefined) currentConfig.server.ip = settings.serverIp;
-        if (settings.serverPort !== undefined) currentConfig.server.port = settings.serverPort.toString();
-        if (settings.discordInvite !== undefined) currentConfig.server.discord = settings.discordInvite;
-        if (settings.telegramInvite !== undefined) currentConfig.server.telegram = settings.telegramInvite;
-
-        // Настройки заявок
-        if (settings.applicationsEnabled !== undefined) currentConfig.applications.enabled = settings.applicationsEnabled;
-        if (settings.minMotivationLength !== undefined) currentConfig.applications.minMotivationLength = settings.minMotivationLength;
-        if (settings.minPlansLength !== undefined) currentConfig.applications.minPlansLength = settings.minPlansLength;
-        if (settings.maxApplicationsPerDay !== undefined) currentConfig.applications.maxApplicationsPerDay = settings.maxApplicationsPerDay;
-        if (settings.autoApproveTrustLevel !== undefined) currentConfig.applications.autoApproveTrustLevel = settings.autoApproveTrustLevel;
-
-        // Trust Level настройки
-        if (settings.trustPointsEmail !== undefined) currentConfig.trustLevel.pointsForEmail = settings.trustPointsEmail;
-        if (settings.trustPointsDiscord !== undefined) currentConfig.trustLevel.pointsForDiscord = settings.trustPointsDiscord;
-        if (settings.trustPointsHour !== undefined) currentConfig.trustLevel.pointsPerHour = settings.trustPointsHour;
-        if (settings.trustLevel1Required !== undefined) currentConfig.trustLevel.level1Required = settings.trustLevel1Required;
-        if (settings.trustLevel2Required !== undefined) currentConfig.trustLevel.level2Required = settings.trustLevel2Required;
-        if (settings.trustLevel3Required !== undefined) currentConfig.trustLevel.level3Required = settings.trustLevel3Required;
-
-        // Настройки безопасности
-        if (settings.maxLoginAttempts !== undefined) currentConfig.security.maxLoginAttempts = settings.maxLoginAttempts;
-        if (settings.loginLockoutDuration !== undefined) currentConfig.security.lockoutDuration = settings.loginLockoutDuration;
-        if (settings.jwtExpiresDays !== undefined) currentConfig.security.jwtExpiresDays = settings.jwtExpiresDays;
-        if (settings.requireEmailVerification !== undefined) currentConfig.security.requireEmailVerification = settings.requireEmailVerification;
-        if (settings.twoFactorEnabled !== undefined) currentConfig.security.twoFactorEnabled = settings.twoFactorEnabled;
-        if (settings.rateLimitRequests !== undefined) currentConfig.security.rateLimitRequests = settings.rateLimitRequests;
-
-        // Email настройки
-        if (settings.smtpHost !== undefined) currentConfig.email.host = settings.smtpHost;
-        if (settings.smtpPort !== undefined) currentConfig.email.port = settings.smtpPort;
-        if (settings.smtpFrom !== undefined) currentConfig.email.from = settings.smtpFrom;
-        if (settings.smtpUser !== undefined) currentConfig.email.user = settings.smtpUser;
-        if (settings.smtpPassword !== undefined) currentConfig.email.password = settings.smtpPassword;
-        if (settings.smtpTls !== undefined) currentConfig.email.tls = settings.smtpTls;
-
-        // Записываем обновленный файл настроек
-        const configContent = `// Настройки сервера
-// Автоматически сгенерировано админ-панелью
-
-module.exports = ${JSON.stringify(currentConfig, null, 4)};
-`;
-
-        await fs.writeFile(settingsPath, configContent, 'utf-8');
-
-        // Очищаем кеш настроек
-        delete require.cache[require.resolve('../config/settings')];
-
-        // Логируем изменение настроек
         await db.query(`
             INSERT INTO admin_logs (admin_id, action, details)
             VALUES ($1, $2, $3)
         `, [
             req.user.id,
             'settings_updated',
-            'Настройки сервера обновлены через админ-панель'
+            `Настройки сервера обновлены через админ-панель (${upserts.length} ключей)`
         ]);
 
         res.json({
             success: true,
-            message: 'Настройки успешно сохранены и применены'
+            message: 'Настройки успешно сохранены'
         });
 
     } catch (error) {

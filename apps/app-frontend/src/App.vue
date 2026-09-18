@@ -107,7 +107,7 @@ import {
 	take_ads_window_hold,
 } from '@/helpers/ads.js'
 import { trackEvent } from '@/helpers/analytics'
-import { check_reachable, login_offline, remove_user } from '@/helpers/auth.js'
+import { check_reachable, login_offline, remove_user, set_default_user } from '@/helpers/auth.js'
 import { get_user, get_version } from '@/helpers/cache.js'
 import { gameSettingsQueryOptions } from '@/helpers/game-options'
 import { install_create_modpack_instance, install_get_modpack_preview } from '@/helpers/install'
@@ -299,15 +299,22 @@ useAppEvent(
 		if (!owyxSiteSession.value?.token) return
 		const kind = typeof event.event === 'string' ? event.event : event.event?.tag
 		if (kind === 'launched') {
-			let name = 'Minecraft'
+			let presenceKey = 'Minecraft'
 			try {
 				const { get } = await import('@/helpers/instance')
+				const { OWYX_SERVER_LINK_PREFIX } = await import('@/helpers/owyx-server-instances')
 				const inst = event.instance_id ? await get(event.instance_id) : null
-				if (inst?.name) name = inst.name
+				const linkId =
+					inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
+				if (linkId.startsWith(OWYX_SERVER_LINK_PREFIX)) {
+					presenceKey = linkId
+				} else if (inst?.name) {
+					presenceKey = inst.name
+				}
 			} catch {
 				/* ignore */
 			}
-			setOwyxPresencePlaying(name)
+			setOwyxPresencePlaying(presenceKey)
 			if (event.instance_id) {
 				try {
 					const {
@@ -316,9 +323,7 @@ useAppEvent(
 						mirrorLocalOwyxCapeToInstance,
 					} = await import('@/helpers/owyx-csl')
 					await writeOwyxCslConfigForInstance(event.instance_id)
-					const nick =
-						owyxSiteSession.value?.user?.displayNickname ||
-						owyxSiteSession.value?.user?.nickname
+					const nick = owyxSiteSession.value?.user?.nickname
 					if (nick) {
 						await mirrorLocalOwyxSkinToInstance(event.instance_id, nick)
 						await mirrorLocalOwyxCapeToInstance(event.instance_id, nick)
@@ -1422,6 +1427,7 @@ async function refreshOwyxSiteSession() {
 				if (!match) {
 					// Remove inactive offline profiles first so remove_user does not
 					// promote Microsoft to active before the new Owyx nick exists.
+					const hadActiveOffline = offlineAccounts.some((a) => a?.active)
 					const staleSorted = [...offlineAccounts].sort(
 						(a, b) => Number(Boolean(a?.active)) - Number(Boolean(b?.active)),
 					)
@@ -1435,7 +1441,23 @@ async function refreshOwyxSiteSession() {
 							}
 						}
 					}
-					await login_offline(nick, true)
+					// Background sync must not steal an active Microsoft account.
+					await login_offline(nick, false)
+					if (hadActiveOffline) {
+						const after = await users()
+						const remaining = Array.isArray(after) ? after : []
+						const next =
+							remaining.find((a) => a?.active) ||
+							remaining.find((a) => !isOwyxOffline(a)) ||
+							remaining[0]
+						if (next?.profile?.id) {
+							try {
+								await set_default_user(next.profile.id)
+							} catch (e) {
+								console.warn('Could not restore active account after offline sync', e)
+							}
+						}
+					}
 				}
 			} catch (e) {
 				console.warn('Could not sync Owyx login nickname to play profile', e)

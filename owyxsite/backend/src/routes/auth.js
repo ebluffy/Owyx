@@ -312,6 +312,14 @@ router.post('/register', [
             });
         }
 
+        const regRate = consumeIp(`register:${clientIp}`, { windowMs: 60 * 60 * 1000, max: 5 });
+        if (!regRate.allowed) {
+            return res.status(429).json({
+                error: 'Слишком много попыток регистрации. Попробуйте позже.',
+                retryAfterSec: regRate.retryAfterSec,
+            });
+        }
+
         // Case-insensitive: login + email must be unique. Display nick may duplicate.
         const existingUser = await db.query(
             `SELECT id, email, nickname FROM users
@@ -424,6 +432,7 @@ router.post('/register', [
 router.post('/login', [
     body('login').optional().trim().isLength({ min: 1 }).withMessage('Укажите логин или email'),
     body('email').optional().trim().isLength({ min: 1 }),
+    passwordMaxBytesValidator,
     body('password').isLength({ min: 6 }).withMessage('Пароль должен быть минимум 6 символов')
 ], async (req, res) => {
     try {
@@ -501,6 +510,11 @@ router.post('/login', [
         if (!isPasswordValid) {
             await logLoginAttempt(loginKey, ip, userAgent, false);
             return res.status(401).json({ error: 'Неверный логин или пароль' });
+        }
+
+        if (user.is_banned === true) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            return res.status(403).json({ error: 'Аккаунт заблокирован' });
         }
 
         // Создаём JWT токен
@@ -742,31 +756,62 @@ router.get('/verify-email', async (req, res) => {
     }
 });
 
-// GET /api/auth/discord - Переадресация на Discord OAuth
-router.get('/discord', (req, res) => {
+async function resolveDiscordStartUser(req) {
+    const authHeader = req.headers['authorization'];
+    let token = authHeader && authHeader.split(' ')[1];
+    if (!token && typeof req.query.token === 'string') {
+        token = req.query.token;
+    }
+    if (!token) return null;
+    try {
+        await attachUserFromToken(req, token, { failOnMissingSession: true });
+        return req.user;
+    } catch {
+        return null;
+    }
+}
+
+// GET /api/auth/discord - Переадресация на Discord OAuth (requires logged-in user)
+router.get('/discord', async (req, res) => {
+    const user = await resolveDiscordStartUser(req);
+    if (!user) {
+        return res.redirect('/login?error=discord_auth_required');
+    }
+
     const discordClientId = process.env.DISCORD_CLIENT_ID;
     const redirectUri = encodeURIComponent(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/api/auth/discord/callback`);
     const scope = encodeURIComponent('identify email');
-    
+
     if (!discordClientId) {
         return res.status(500).json({ error: 'Discord OAuth не настроен' });
     }
-    
+
+    try {
+        setPendingCookie(res, { userId: user.id });
+    } catch (err) {
+        console.error('Discord pending cookie secret missing:', err.message);
+        return res.status(500).json({ error: 'Сервер не настроен для Discord OAuth' });
+    }
+
     const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${discordClientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}`;
-    
     res.redirect(discordAuthUrl);
 });
 
 // GET /api/auth/discord/callback - Обработка ответа от Discord
 router.get('/discord/callback', async (req, res) => {
     try {
+        const pending = readPendingDiscord(req);
+        if (!pending?.userId) {
+            return res.redirect('/login?error=discord_session_missing');
+        }
+
         const { code } = req.query;
-        
+
         if (!code) {
             return res.redirect('/?error=discord_auth_failed');
         }
 
-        // Обмениваем код на токен
+        // Обмениваем код на токен (tokens stay server-side only for this request)
         const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
             method: 'POST',
             headers: {
@@ -782,12 +827,11 @@ router.get('/discord/callback', async (req, res) => {
         });
 
         const tokenData = await tokenResponse.json();
-        
+
         if (!tokenData.access_token) {
             return res.redirect('/?error=discord_token_failed');
         }
 
-        // Получаем информацию о пользователе Discord
         const userResponse = await fetch('https://discord.com/api/users/@me', {
             headers: {
                 'Authorization': `Bearer ${tokenData.access_token}`
@@ -795,19 +839,14 @@ router.get('/discord/callback', async (req, res) => {
         });
 
         const discordUser = await userResponse.json();
-        
-        // Формируем новый Discord username (без дискриминатора, так как Discord его убрал)
         const discordUsername = discordUser.username;
-        
-        // Временно сохраняем в сессии для связывания с пользователем
+
+        // Cookie: userId + Discord profile only (no OAuth tokens)
         setPendingCookie(res, {
+            userId: pending.userId,
             id: discordUser.id,
             username: discordUsername,
-            email: discordUser.email,
             avatar: discordUser.avatar,
-            access_token: tokenData.access_token,
-            refresh_token: tokenData.refresh_token,
-            expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
         });
 
         res.redirect(`/profile?discord_ready=true&username=${encodeURIComponent(discordUsername)}`);
@@ -822,13 +861,19 @@ router.get('/discord/callback', async (req, res) => {
 router.post('/link-discord', authenticateToken, async (req, res) => {
     try {
         const discordData = readPendingDiscord(req);
-        if (!discordData) {
-            return res.status(400).json({ 
-                error: 'Нет ожидающей привязки Discord аккаунта. Пройдите авторизацию через Discord заново.' 
+        if (!discordData || !discordData.id) {
+            return res.status(400).json({
+                error: 'Нет ожидающей привязки Discord аккаунта. Пройдите авторизацию через Discord заново.'
             });
         }
 
-        // Проверяем, не привязан ли этот Discord к другому пользователю
+        if (Number(discordData.userId) !== Number(req.user.id)) {
+            clearPendingCookie(res);
+            return res.status(403).json({
+                error: 'Discord сессия принадлежит другому пользователю'
+            });
+        }
+
         const existingLink = await db.query(`
             SELECT user_id FROM discord_oauth WHERE discord_id = $1
         `, [discordData.id]);
@@ -839,45 +884,39 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
             });
         }
 
-        // Обновляем пользователя
         await db.query(`
-            UPDATE users 
-            SET discord_username = $1 
+            UPDATE users
+            SET discord_username = $1
             WHERE id = $2
         `, [discordData.username, req.user.id]);
 
-        // Сохраняем OAuth данные
+        // Link without storing OAuth tokens from the cookie (column is NOT NULL — use placeholder)
         await db.query(`
             INSERT INTO discord_oauth (
                 user_id, discord_id, discord_username, discord_avatar,
                 access_token, refresh_token, expires_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (discord_id) 
-            DO UPDATE SET 
+            ON CONFLICT (discord_id)
+            DO UPDATE SET
                 user_id = $1,
                 discord_username = $3,
                 discord_avatar = $4,
-                access_token = $5,
-                refresh_token = $6,
-                expires_at = $7,
                 updated_at = NOW()
         `, [
-            req.user.id, 
-            discordData.id, 
+            req.user.id,
+            discordData.id,
             discordData.username,
             discordData.avatar,
-            discordData.access_token,
-            discordData.refresh_token,
-            discordData.expires_at
+            '',
+            null,
+            null
         ]);
 
-        // Логируем активность
         await logUserActivity(req.user.id, 'discord_linked', 'Discord привязан', {
             req,
             metadata: { discordUsername: String(discordData.username || '').slice(0, 64) },
         });
 
-        // Очищаем временные данные
         clearPendingCookie(res);
 
         res.json({

@@ -11,6 +11,7 @@ import CabinetShell, {
 } from "@/components/layout/CabinetShell";
 import AvatarCropModal from "@/components/profile/AvatarCropModal";
 import Modal from "@/components/ui/Modal";
+import Turnstile from "@/components/ui/Turnstile";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocale } from "@/hooks/useLocale";
 import type { Locale } from "@/lib/i18n";
@@ -368,22 +369,34 @@ function EmailChangeModal({
   const { dict } = useLocale();
   const p = dict.profile;
   const c = dict.common;
+  const a = dict.auth;
 
+  const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
   const [step, setStep] = useState<"email" | "code">("email");
   const [newEmail, setNewEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setMsg(null);
     try {
+      if (SITE_KEY && !turnstileToken) {
+        setMsg({ text: a.captchaRequired, type: "error" });
+        setBusy(false);
+        return;
+      }
       const res = await fetch("/api/profile/email/request", {
         method: "POST",
         headers: { ...authHeader(), "Content-Type": "application/json" },
-        body: JSON.stringify({ email: newEmail }),
+        body: JSON.stringify({
+          email: newEmail,
+          turnstileToken: turnstileToken || undefined,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -393,9 +406,15 @@ function EmailChangeModal({
             ? `Dev: ${data.devCode}`
             : p.codeSent;
         setMsg({ text: shown, type: "success" });
-      } else setMsg({ text: data.error || p.codeSendFailed, type: "error" });
+      } else {
+        setMsg({ text: data.error || p.codeSendFailed, type: "error" });
+        setTurnstileToken(null);
+        setTurnstileReset((n) => n + 1);
+      }
     } catch {
       setMsg({ text: c.serverError, type: "error" });
+      setTurnstileToken(null);
+      setTurnstileReset((n) => n + 1);
     } finally {
       setBusy(false);
     }
@@ -452,6 +471,13 @@ function EmailChangeModal({
               autoComplete="email"
             />
           </div>
+          {SITE_KEY && step === "email" && (
+            <Turnstile
+              siteKey={SITE_KEY}
+              onToken={setTurnstileToken}
+              resetKey={turnstileReset}
+            />
+          )}
           <div className="flex flex-wrap gap-2">
             <button type="submit" disabled={busy} className="btn btn-primary">
               {busy ? p.sending : p.sendCode}

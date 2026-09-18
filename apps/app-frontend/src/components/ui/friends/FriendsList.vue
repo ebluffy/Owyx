@@ -151,14 +151,27 @@ async function loadCatalogQuiet() {
 }
 
 function matchCatalogServer(friend: OwyxFriend): OwyxServerEntry | null {
-	const name = friend.instanceName?.trim().toLowerCase()
-	if (!name) return null
+	const explicitId = (friend.serverId || friend.instanceId || '').trim()
+	if (explicitId) {
+		const byField = catalogServers.value.find(
+			(s) => s.id.toLowerCase() === explicitId.toLowerCase(),
+		)
+		if (byField) return byField
+	}
+	const raw = friend.instanceName?.trim()
+	if (!raw) return null
+	const name = raw.toLowerCase()
+	const linkPrefix = 'owyx-server:'
+	if (name.startsWith(linkPrefix)) {
+		const id = name.slice(linkPrefix.length)
+		return catalogServers.value.find((s) => s.id.toLowerCase() === id) || null
+	}
+	// Prefer exact catalog id match; name/address are weak fallback only.
+	const byId = catalogServers.value.find((s) => s.id.toLowerCase() === name)
+	if (byId) return byId
 	return (
 		catalogServers.value.find(
-			(s) =>
-				s.name.toLowerCase() === name ||
-				s.address.toLowerCase() === name ||
-				s.id.toLowerCase() === name,
+			(s) => s.address.toLowerCase() === name || s.name.toLowerCase() === name,
 		) || null
 	)
 }

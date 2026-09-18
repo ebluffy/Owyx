@@ -17,6 +17,7 @@ const { formatMessage } = useVIntl()
 const { handleError } = injectNotificationManager()
 const { adConsentAvailable } = injectPageContext()
 const settings = ref(await get())
+let lastTelemetry = Boolean(settings.value?.telemetry)
 
 const messages = defineMessages({
 	adsConsentTitle: {
@@ -60,6 +61,15 @@ watch(
 	settings,
 	async () => {
 		await set(settings.value)
+		const on = Boolean(settings.value?.telemetry)
+		if (on === lastTelemetry) return
+		lastTelemetry = on
+		try {
+			const { reportOwyxLauncherSession } = await import('@/helpers/owyx-telemetry')
+			if (on) await reportOwyxLauncherSession()
+		} catch {
+			/* best-effort */
+		}
 	},
 	{ deep: true },
 )

@@ -459,6 +459,7 @@
     "createOne": "Создать",
     "forgotPassword": "Забыли пароль?",
     "captchaRequired": "Пройдите проверку, что вы не робот.",
+    "captchaHint": "Подтвердите, что вы не робот",
     "loginFailed": "Не удалось войти. Проверьте данные.",
     "registerTitle": "Создать аккаунт",
     "registerSubtitle": "Один аккаунт Owyx™: сайт и лаунчер.",
