@@ -1,40 +1,27 @@
 import type { App } from 'vue'
 import type { Router } from 'vue-router'
 
-export function setupErrorReporting(app: App, router: Router): void {
+/**
+ * Error reporting for Owyx. Never initializes Modrinth's Sentry DSN.
+ * When the user opts into settings.telemetry, sanitized errors go to api.owyx.site.
+ */
+export function setupErrorReporting(app: App, _router: Router): void {
 	if (!import.meta.env.PROD) return
 
 	const previousHandler = app.config.errorHandler
-	let pending: Promise<typeof import('@sentry/vue')> | undefined
 	let queuedErrors = 0
-
-	function removeListeners() {
-		window.removeEventListener('pointerdown', activate)
-		window.removeEventListener('keydown', activate)
-		window.removeEventListener('error', onError)
-		window.removeEventListener('unhandledrejection', onRejection)
-	}
-
-	function load() {
-		pending ??= import('@sentry/vue').then((sentry) => {
-			app.config.errorHandler = previousHandler
-			sentry.init({
-				app,
-				dsn: 'https://9508775ee5034536bc70433f5f531dd4@o485889.ingest.us.sentry.io/4504579615227904',
-				integrations: [sentry.browserTracingIntegration({ router })],
-				tracesSampleRate: 0.1,
-			})
-			removeListeners()
-			return sentry
-		})
-		return pending
-	}
 
 	function capture(error: unknown) {
 		if (queuedErrors >= 20) return
 		queuedErrors++
-		void load()
-			.then((sentry) => sentry.captureException(error))
+		const message =
+			error instanceof Error ? error.message : typeof error === 'string' ? error : 'unknown_error'
+		void import('@/helpers/owyx-telemetry')
+			.then(({ reportOwyxLauncherError }) =>
+				reportOwyxLauncherError(String(message).slice(0, 500), {
+					metadata: { source: 'vue_error_handler' },
+				}),
+			)
 			.catch(() => {})
 			.finally(() => {
 				queuedErrors--
@@ -49,10 +36,6 @@ export function setupErrorReporting(app: App, router: Router): void {
 		capture(event.reason)
 	}
 
-	function activate() {
-		void load().catch(() => {})
-	}
-
 	app.config.errorHandler = (error, instance, info) => {
 		if (previousHandler) previousHandler(error, instance, info)
 		else console.error(error)
@@ -60,7 +43,8 @@ export function setupErrorReporting(app: App, router: Router): void {
 	}
 	window.addEventListener('error', onError)
 	window.addEventListener('unhandledrejection', onRejection)
-	window.addEventListener('pointerdown', activate, { once: true, passive: true })
-	window.addEventListener('keydown', activate, { once: true })
-	app.onUnmount(removeListeners)
+	app.onUnmount(() => {
+		window.removeEventListener('error', onError)
+		window.removeEventListener('unhandledrejection', onRejection)
+	})
 }

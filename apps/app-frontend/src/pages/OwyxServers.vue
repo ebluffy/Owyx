@@ -56,7 +56,7 @@ const messages = defineMessages({
 	playing: { id: 'owyx.servers.playing', defaultMessage: 'Preparing…' },
 	noPackUrl: {
 		id: 'owyx.servers.no-pack-url',
-		defaultMessage: 'No installable pack is published for this server yet.',
+		defaultMessage: 'No pack download URL for this server',
 	},
 	copyAddress: { id: 'owyx.servers.copy-address', defaultMessage: 'Copy address' },
 	statusOnline: { id: 'owyx.servers.status.online', defaultMessage: 'Online' },

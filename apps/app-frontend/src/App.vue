@@ -304,8 +304,7 @@ useAppEvent(
 				const { get } = await import('@/helpers/instance')
 				const { OWYX_SERVER_LINK_PREFIX } = await import('@/helpers/owyx-server-instances')
 				const inst = event.instance_id ? await get(event.instance_id) : null
-				const linkId =
-					inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
+				const linkId = inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
 				if (linkId.startsWith(OWYX_SERVER_LINK_PREFIX)) {
 					presenceKey = linkId
 				} else if (inst?.name) {

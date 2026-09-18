@@ -83,10 +83,7 @@ export class OwyxFriendsError extends Error {
 
 function friendsError(raw: string | undefined, status: number, fallback: string): OwyxFriendsError {
 	const msg = (raw || '').toLowerCase()
-	if (
-		msg.includes('unauthorized_client') ||
-		msg.includes('launcher_client_key_missing')
-	) {
+	if (msg.includes('unauthorized_client') || msg.includes('launcher_client_key_missing')) {
 		return new OwyxFriendsError('missing_client_key', status, raw || fallback)
 	}
 	if (status === 401 || msg.includes('unauthorized') || msg.includes('no_session')) {

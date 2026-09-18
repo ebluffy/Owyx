@@ -642,19 +642,19 @@
     "message": "Доступ к {name}"
   },
   "app.instance.share.locked.empty-description-prefix": {
-    "message": "Необходимо войти как"
+    "message": "Для совместных сборок нужен аккаунт Modrinth. Войдите как"
   },
   "app.instance.share.locked.empty-description-suffix": {
-    "message": "для доступа к этой странице."
+    "message": "чтобы открыть эту вкладку. Входа в Owyx недостаточно."
   },
   "app.instance.share.locked.linked-account-fallback": {
-    "message": "связанный аккаунт"
+    "message": "связанный аккаунт Modrinth"
   },
   "app.instance.share.locked.signed-out-heading": {
-    "message": "Вход не выполнен"
+    "message": "Нужен вход через Modrinth"
   },
   "app.instance.share.locked.switch-account-button": {
-    "message": "Сменить аккаунт"
+    "message": "Сменить аккаунт Modrinth"
   },
   "app.instance.share.locked.wrong-account-heading": {
     "message": "Неверный аккаунт"
@@ -693,7 +693,7 @@
     "message": "Если вы отзовете доступ пользователя {username} к этому общему экземпляру, вам потребуется снова пригласить его, прежде чем он сможет получать обновления."
   },
   "app.instance.share.sign-in.button": {
-    "message": "Войти"
+    "message": "Войти через Modrinth"
   },
   "app.instance.share.unable-to-connect.description": {
     "message": "Сервис сборок недоступен, попробуйте позже"
@@ -4774,5 +4774,71 @@
   },
   "owyx.settings.social.signed-in-as": {
     "message": "Вы вошли как {nick}"
+  },
+  "app.instance.share.invite-modal.user-limit-reached": {
+    "message": "У этой сборки достигнут лимит в {limit} пользователей."
+  },
+  "owyx.servers.add-server-title": {
+    "message": "Опубликовать сервер + сборку из библиотеки"
+  },
+  "owyx.servers.bind-instance": {
+    "message": "Привязать инстанс из библиотеки (экспорт → pack)"
+  },
+  "owyx.servers.bind-instance-placeholder": {
+    "message": "Выберите инстанс"
+  },
+  "owyx.servers.bind-instance-search": {
+    "message": "Поиск инстанса…"
+  },
+  "owyx.servers.bind-none": {
+    "message": "— без сборки —"
+  },
+  "owyx.servers.create-server": {
+    "message": "Опубликовать сервер"
+  },
+  "owyx.servers.creating": {
+    "message": "Публикация…"
+  },
+  "owyx.servers.hide-snapshots": {
+    "message": "Скрыть снапшоты"
+  },
+  "owyx.servers.show-snapshots": {
+    "message": "Показать все версии"
+  },
+  "owyx.servers.local-fallback-toggle": {
+    "message": "Также пробовать http://127.0.0.1:3001 (только для разработки)"
+  },
+  "owyx.servers.server-address": {
+    "message": "Адрес / IP"
+  },
+  "owyx.servers.server-desc": {
+    "message": "Заметки (локально)"
+  },
+  "owyx.servers.server-loader": {
+    "message": "Загрузчик"
+  },
+  "owyx.servers.server-loader-placeholder": {
+    "message": "Выберите загрузчик"
+  },
+  "owyx.servers.server-loader-search": {
+    "message": "Поиск загрузчика…"
+  },
+  "owyx.servers.server-mc": {
+    "message": "Версия Minecraft"
+  },
+  "owyx.servers.server-mc-placeholder": {
+    "message": "Выберите версию игры"
+  },
+  "owyx.servers.server-mc-search": {
+    "message": "Поиск версии…"
+  },
+  "owyx.servers.server-name": {
+    "message": "Название"
+  },
+  "owyx.servers.server-port": {
+    "message": "Порт"
+  },
+  "owyx.servers.settings": {
+    "message": "Настройки"
   }
 }

@@ -29,10 +29,16 @@ serversAdmin.use((req, res, next) => {
   return requireRole(['admin'])(req, res, next);
 });
 
-function publicBase(req) {
-  const fromEnv = (process.env.API_PUBLIC_URL || '').trim();
+function publicBase(_req) {
+  const fromEnv = (
+    process.env.API_PUBLIC_URL ||
+    process.env.SITE_PUBLIC_URL ||
+    process.env.PUBLIC_SITE_URL ||
+    ''
+  ).trim();
   if (fromEnv) return fromEnv.replace(/\/+$/, '');
-  return `${req.protocol}://${req.get('host')}`;
+  // Never fall back to req Host (poisonable). Prefer api host for pack downloads.
+  return process.env.NODE_ENV === 'production' ? 'https://api.owyx.site' : 'http://127.0.0.1:3001';
 }
 
 function absoluteAsset(req, value) {

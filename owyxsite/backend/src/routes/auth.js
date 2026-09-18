@@ -897,12 +897,6 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
             });
         }
 
-        await db.query(`
-            UPDATE users
-            SET discord_username = $1
-            WHERE id = $2
-        `, [discordData.username, req.user.id]);
-
         // Link without storing OAuth tokens; never reassign discord_id to another user.
         const linked = await db.query(`
             INSERT INTO discord_oauth (
@@ -931,6 +925,12 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
                 error: 'Этот Discord аккаунт уже привязан к другому пользователю'
             });
         }
+
+        await db.query(`
+            UPDATE users
+            SET discord_username = $1
+            WHERE id = $2
+        `, [discordData.username, req.user.id]);
 
         await logUserActivity(req.user.id, 'discord_linked', 'Discord привязан', {
             req,

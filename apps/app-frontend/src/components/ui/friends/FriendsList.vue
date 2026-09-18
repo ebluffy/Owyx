@@ -409,15 +409,16 @@ const messages = defineMessages({
 	addingAFriend: { id: 'friends.add-friend.title', defaultMessage: 'Adding a friend' },
 	usernameTitle: {
 		id: 'friends.add-friend.username.title',
-		defaultMessage: "What's your friend's Owyx nickname?",
+		defaultMessage: 'Find a friend on Owyx',
 	},
 	usernameDescription: {
 		id: 'friends.add-friend.username.description',
-		defaultMessage: 'Search by nickname or type it exactly (3–16 characters).',
+		defaultMessage:
+			'Search by login or display name. Requests use the unique login nick (pick a result or type @login).',
 	},
 	usernamePlaceholder: {
 		id: 'friends.add-friend.username.placeholder',
-		defaultMessage: 'Search Owyx nickname…',
+		defaultMessage: 'Search login or display name…',
 	},
 	sendFriendRequest: {
 		id: 'friends.add-friend.submit',
