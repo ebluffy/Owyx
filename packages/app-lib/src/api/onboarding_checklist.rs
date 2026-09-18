@@ -1,8 +1,8 @@
 use crate::State;
 use crate::event::emit::emit_onboarding_checklist;
 use crate::state::{
-    OnboardingChecklist, OnboardingChecklistItem, get_onboarding_checklist,
-    mark_onboarding_checklist_item,
+    OnboardingChecklist, OnboardingChecklistItem, dismiss_onboarding_checklist,
+    get_onboarding_checklist, mark_onboarding_checklist_item,
 };
 
 #[tracing::instrument]
@@ -21,6 +21,14 @@ pub(crate) async fn mark_logged_into_minecraft() -> crate::Result<()> {
 
 pub async fn mark_logged_into_modrinth() -> crate::Result<()> {
     mark(OnboardingChecklistItem::LoggedIntoModrinth).await
+}
+
+#[tracing::instrument]
+pub async fn dismiss() -> crate::Result<()> {
+    let state = State::get().await?;
+    let checklist = dismiss_onboarding_checklist(&state.pool).await?;
+    emit_onboarding_checklist(checklist).await?;
+    Ok(())
 }
 
 async fn mark(item: OnboardingChecklistItem) -> crate::Result<()> {

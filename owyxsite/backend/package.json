@@ -1,7 +1,7 @@
 {
   "name": "owyx-backend",
   "version": "1.0.0",
-  "description": "Owyx API — Express + Socket.io (ported from chiwawasite)",
+  "description": "Owyx API — Express + Socket.io",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

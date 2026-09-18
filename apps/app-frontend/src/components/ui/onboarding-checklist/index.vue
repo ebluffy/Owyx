@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { CheckIcon, RadioButtonIcon } from '@modrinth/assets'
-import { Accordion, defineMessages, useVIntl } from '@modrinth/ui'
+import { CheckIcon, RadioButtonIcon, XIcon } from '@modrinth/assets'
+import { Accordion, defineMessages, IconButton, useVIntl } from '@modrinth/ui'
 import { computed, onUnmounted, ref } from 'vue'
 
+import { dismissOnboardingChecklist } from '@/helpers/onboarding-checklist'
 import { injectOnboardingChecklist } from '@/providers/onboarding-checklist'
 
 const emit = defineEmits<{
@@ -38,6 +39,10 @@ const messages = defineMessages({
 	loginModrinth: {
 		id: 'onboarding-checklist.login-modrinth',
 		defaultMessage: 'Sign in to Owyx',
+	},
+	hide: {
+		id: 'onboarding-checklist.hide',
+		defaultMessage: 'Hide getting started',
 	},
 })
 
@@ -80,6 +85,20 @@ function handleAccordionClose() {
 }
 
 onUnmounted(() => clearTimeout(collapseTimer))
+
+const dismissing = ref(false)
+
+async function hideChecklist() {
+	if (dismissing.value) return
+	dismissing.value = true
+	try {
+		await dismissOnboardingChecklist()
+	} catch (e) {
+		console.warn('Could not hide getting started panel', e)
+	} finally {
+		dismissing.value = false
+	}
+}
 </script>
 
 <template>
@@ -97,6 +116,16 @@ onUnmounted(() => clearTimeout(collapseTimer))
 		>
 			<template #title>
 				<span class="font-semibold leading-6">{{ formatMessage(messages.title) }}</span>
+				<IconButton
+					v-tooltip="formatMessage(messages.hide)"
+					type="quiet"
+					class="ml-auto shrink-0"
+					:label="formatMessage(messages.hide)"
+					:disabled="dismissing"
+					@click.stop="hideChecklist()"
+				>
+					<XIcon />
+				</IconButton>
 			</template>
 			<button
 				v-for="step in steps"

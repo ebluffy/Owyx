@@ -47,8 +47,6 @@ router.get('/settings', authenticateToken, requireRole(['admin']), async (req, r
             settings: {
                 server: config.server,
                 applications: config.applications,
-                trustLevel: config.trustLevel,
-                reputation: config.reputation,
                 security: config.security,
                 email: config.email
             }
@@ -100,24 +98,6 @@ router.post('/settings', authenticateToken, requireRole(['admin']), async (req, 
             });
         }
         
-        if (settings.trustLevel && settings.trustLevel.requirements) {
-            Object.keys(settings.trustLevel.requirements).forEach(level => {
-                const requirements = settings.trustLevel.requirements[level];
-                if (requirements.hoursRequired !== undefined) {
-                    const regex = new RegExp(`(${level}:\\s*{[^}]*hoursRequired:\\s*parseInt\\(process\\.env\\.[A-Z_]+\\)\\s*\\|\\|\\s*)\\d+`);
-                    if (configContent.match(regex)) {
-                        configContent = configContent.replace(regex, `$1${requirements.hoursRequired}`);
-                    }
-                }
-                if (requirements.reputationRequired !== undefined) {
-                    const regex = new RegExp(`(${level}:\\s*{[^}]*reputationRequired:\\s*parseInt\\(process\\.env\\.[A-Z_]+\\)\\s*\\|\\|\\s*)\\d+`);
-                    if (configContent.match(regex)) {
-                        configContent = configContent.replace(regex, `$1${requirements.reputationRequired}`);
-                    }
-                }
-            });
-        }
-        
         // Сохраняем обновленный файл
         await fs.writeFile(configPath, configContent, 'utf-8');
         
@@ -125,7 +105,7 @@ router.post('/settings', authenticateToken, requireRole(['admin']), async (req, 
         delete require.cache[require.resolve('../config/settings')];
         
         // Логируем действие
-        await req.db.query(
+        await db.query(
             'INSERT INTO admin_logs (admin_id, action, details) VALUES ($1, $2, $3)',
             [req.user.id, 'settings_update', `Обновлены настройки сервера`]
         );
@@ -149,7 +129,7 @@ router.post('/settings/reset', authenticateToken, requireRole(['admin']), async 
         // Здесь можно реализовать сброс определенной секции настроек
         // к значениям по умолчанию
         
-        await req.db.query(
+        await db.query(
             'INSERT INTO admin_logs (admin_id, action, details) VALUES ($1, $2, $3)',
             [req.user.id, 'settings_reset', `Сброшена секция настроек: ${section}`]
         );

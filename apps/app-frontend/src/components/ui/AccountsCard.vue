@@ -462,6 +462,19 @@ async function logout(id: string) {
 	await refreshValues()
 	if (!selectedAccount.value && accounts.value.length > 0) {
 		await setAccount(accounts.value[0])
+	} else if (accounts.value.length === 0) {
+		// Removing the last Microsoft account must not leave the sidebar dead —
+		// re-seed an Owyx offline profile from the site display nick when signed in.
+		const nick = siteDisplayNick()
+		if (nick && /^[A-Za-z0-9_]{3,16}$/.test(nick)) {
+			try {
+				await login_offline_flow(nick, true)
+				await refreshValues()
+			} catch (e) {
+				console.warn('Could not restore Owyx offline profile after Microsoft logout', e)
+			}
+		}
+		emit('change')
 	} else {
 		emit('change')
 	}

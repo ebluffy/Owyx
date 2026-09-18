@@ -107,7 +107,7 @@ import {
 	should_show_ads_consent_popup,
 	take_ads_window_hold,
 } from '@/helpers/ads.js'
-import { debugAnalytics, initAnalytics, trackEvent } from '@/helpers/analytics'
+import { trackEvent } from '@/helpers/analytics'
 import { check_reachable, login_offline, remove_user } from '@/helpers/auth.js'
 import { get_user, get_version } from '@/helpers/cache.js'
 import { gameSettingsQueryOptions } from '@/helpers/game-options'
@@ -862,11 +862,7 @@ async function setupApp() {
 		}),
 	)
 
-	if (telemetry) {
-		initAnalytics()
-		if (dev) debugAnalytics()
-		trackEvent('Launched', { version, dev })
-	}
+	// Telemetry opt-in is Owyx site ingest only — never PostHog / modrinth.com analytics.
 
 	const osType = await traceStartupStep('Read operating system type', async () => type())
 	if (osType === 'macos') {
@@ -1425,7 +1421,12 @@ async function refreshOwyxSiteSession() {
 				const offlineAccounts = accounts.filter(isOwyxOffline)
 				const match = offlineAccounts.find((a) => a?.profile?.name === nick)
 				if (!match) {
-					for (const stale of offlineAccounts) {
+					// Remove inactive offline profiles first so remove_user does not
+					// promote Microsoft to active before the new Owyx nick exists.
+					const staleSorted = [...offlineAccounts].sort(
+						(a, b) => Number(Boolean(a?.active)) - Number(Boolean(b?.active)),
+					)
+					for (const stale of staleSorted) {
 						const id = stale?.profile?.id
 						if (id) {
 							try {
@@ -1435,7 +1436,7 @@ async function refreshOwyxSiteSession() {
 							}
 						}
 					}
-					await login_offline(nick, false)
+					await login_offline(nick, true)
 				}
 			} catch (e) {
 				console.warn('Could not sync Owyx display nickname to play profile', e)
@@ -2343,7 +2344,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				<div id="sidebar-teleport-target" class="sidebar-teleport-content"></div>
 				<div class="sidebar-default-content" :class="{ 'sidebar-enabled': sidebarVisible }">
 					<div
-						v-show="hasLoggedIntoMinecraft"
+						v-show="hasLoggedIntoMinecraft || !!owyxSiteSession?.token"
 						class="p-4 border-0 border-b-[1px] border-[--brand-gradient-border] border-solid"
 					>
 						<h3 class="text-base text-primary font-medium m-0">

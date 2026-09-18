@@ -6,7 +6,8 @@ pub fn init<R: tauri::Runtime>() -> TauriPlugin<R> {
     tauri::plugin::Builder::new("onboarding-checklist")
         .invoke_handler(tauri::generate_handler![
             get_onboarding_checklist,
-            mark_logged_into_owyx_site
+            mark_logged_into_owyx_site,
+            dismiss_onboarding_checklist
         ])
         .build()
 }
@@ -20,4 +21,9 @@ pub async fn get_onboarding_checklist() -> Result<OnboardingChecklist> {
 #[tauri::command]
 pub async fn mark_logged_into_owyx_site() -> Result<()> {
     Ok(onboarding_checklist::mark_logged_into_modrinth().await?)
+}
+
+#[tauri::command]
+pub async fn dismiss_onboarding_checklist() -> Result<()> {
+    Ok(onboarding_checklist::dismiss().await?)
 }

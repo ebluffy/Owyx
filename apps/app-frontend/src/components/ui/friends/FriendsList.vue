@@ -171,7 +171,7 @@ onMounted(() => {
 	void loadCatalogQuiet()
 	pollTimer = setInterval(() => {
 		void quietRefresh()
-	}, 20_000)
+	}, 5_000)
 })
 onUnmounted(() => {
 	window.removeEventListener('offline', onOffline)

@@ -104,3 +104,19 @@ pub(crate) async fn mark_onboarding_checklist_item(
 
     Ok(Some(get_onboarding_checklist(pool).await?))
 }
+
+pub(crate) async fn dismiss_onboarding_checklist(
+    pool: &sqlx::SqlitePool,
+) -> crate::Result<OnboardingChecklist> {
+    sqlx::query!(
+        "
+        UPDATE onboarding_checklist
+        SET show_checklist = FALSE
+        WHERE id = 0
+        ",
+    )
+    .execute(pool)
+    .await?;
+
+    get_onboarding_checklist(pool).await
+}
