@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" role="img" aria-label="placeholder">
+  <rect width="800" height="450" fill="#0a0a0f"/>
+  <rect x="1" y="1" width="798" height="448" fill="none" stroke="#1a1a22" stroke-width="2"/>
+  <text x="400" y="230" text-anchor="middle" fill="#4a5568" font-family="system-ui,sans-serif" font-size="28">Owyx</text>
+</svg>

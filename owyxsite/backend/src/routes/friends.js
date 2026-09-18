@@ -326,14 +326,14 @@ router.get('/search', async (req, res) => {
   }
 });
 
-// POST /api/friends/request { nickname } — unique login nickname only (not display nick)
+// POST /api/friends/request { nickname } — login nick preferred; unique display ok
 router.post('/request', async (req, res) => {
   try {
     const nickname = String(req.body.nickname || '').trim();
-    if (!NICK_RE.test(nickname)) {
-      return res.status(400).json({ error: 'nickname: 3–16 letters, digits, or _' });
+    if (!nickname || nickname.length > 32) {
+      return res.status(400).json({ error: 'nickname required' });
     }
-    const target = await db.query(
+    let target = await db.query(
       `SELECT id, nickname, COALESCE(display_nickname, nickname) AS display_nickname, avatar_url
        FROM users
        WHERE LOWER(nickname) = LOWER($1)
@@ -342,6 +342,23 @@ router.post('/request', async (req, res) => {
        LIMIT 1`,
       [nickname]
     );
+    if (!target.rows[0]) {
+      const byDisplay = await db.query(
+        `SELECT id, nickname, COALESCE(display_nickname, nickname) AS display_nickname, avatar_url
+         FROM users
+         WHERE LOWER(COALESCE(display_nickname, nickname)) = LOWER($1)
+           AND is_active IS DISTINCT FROM false
+           AND is_banned IS DISTINCT FROM true
+         LIMIT 2`,
+        [nickname]
+      );
+      if (byDisplay.rows.length > 1) {
+        return res.status(409).json({
+          error: 'display nickname is not unique — use the login nick',
+        });
+      }
+      if (byDisplay.rows.length === 1) target = byDisplay;
+    }
     if (!target.rows[0]) {
       return res.status(404).json({ error: 'user not found' });
     }

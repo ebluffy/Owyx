@@ -142,17 +142,7 @@ router.put('/', authenticateToken, async (req, res) => {
             params.push(name || null);
             changed.push('имя');
         }
-        if (
-            Object.prototype.hasOwnProperty.call(body, 'discord_username') ||
-            Object.prototype.hasOwnProperty.call(body, 'discord')
-        ) {
-            const discord = String(body.discord_username ?? body.discord ?? '')
-                .trim()
-                .slice(0, 64);
-            updates.push(`discord_username = $${i++}`);
-            params.push(discord || null);
-            changed.push('Discord');
-        }
+        // discord_username is set only via POST /api/auth/link-discord (OAuth).
 
         const currentPassword = body.current_password ? String(body.current_password) : '';
         const newPassword = body.new_password ? String(body.new_password) : '';
@@ -313,8 +303,8 @@ router.post('/update-stats', (_req, res) => {
 // GET /api/profile/activity - Получение расширенной активности
 router.get('/activity', authenticateToken, async (req, res) => {
     try {
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
         const offset = (page - 1) * limit;
 
         const result = await db.query(`
@@ -867,7 +857,8 @@ router.put('/nickname', authenticateToken, async (req, res) => {
     }
 });
 
-// PUT /api/profile/display-nickname — visible / in-game nick (MC format, 5/min).
+// PUT /api/profile/display-nickname — visible UI label only (MC format, 5/min).
+// Does not change offline play UUID / CSL paths (those use unique login nickname).
 // Duplicates across accounts are allowed; only login + email stay unique.
 router.put('/display-nickname', authenticateToken, async (req, res) => {
     try {

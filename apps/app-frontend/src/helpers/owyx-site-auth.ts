@@ -276,7 +276,7 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 			return null
 		}
 		persistSession(session.token, user)
-		const playNick = user.displayNickname || user.nickname
+		const playNick = user.nickname
 		void syncOwyxCosmeticsToDisk(playNick, cosmetics).catch(() => undefined)
 		return { token: session.token, user }
 	} catch {
@@ -284,7 +284,7 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 	}
 }
 
-/** Change visible / in-game nickname on the site API, then refresh session. */
+/** Change visible UI display nickname on the site API, then refresh session. */
 export async function updateOwyxDisplayNickname(displayNickname: string): Promise<OwyxSiteSession> {
 	const session = getStoredOwyxSiteSession()
 	if (!session?.token) throw new Error('Not signed in to Owyx')
