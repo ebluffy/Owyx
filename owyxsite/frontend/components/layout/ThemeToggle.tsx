@@ -51,7 +51,7 @@ export default function ThemeToggle() {
           style={{ background: "var(--accent)" }}
           aria-hidden="true"
         />
-        <span className="text-[10px] font-bold tracking-wide">{labels[accent]}</span>
+        <span className="hidden lg:inline text-[10px] font-bold tracking-wide">{labels[accent]}</span>
         <span className="text-[9px] opacity-70" aria-hidden="true">
           ▾
         </span>

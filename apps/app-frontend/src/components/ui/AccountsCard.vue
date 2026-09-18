@@ -33,11 +33,7 @@
 			<div class="flex gap-2 w-full min-w-0">
 				<Avatar
 					size="36px"
-					:src="
-						selectedAccount
-							? avatarUrl
-							: 'https://launcher-files.modrinth.com/assets/steve_head.png'
-					"
+					:src="selectedAccount ? avatarUrl : resolveOwyxAvatarUrl(null)"
 				/>
 				<div class="flex flex-col items-start w-full min-w-0">
 					<span class="truncate w-full text-left">{{
@@ -331,6 +327,11 @@ const selectedAccount = computed(() =>
 	accounts.value.find((account) => account.profile.id === defaultUser.value),
 )
 
+function siteLoginNick(): string {
+	const u = owyxSite.session.value?.user
+	return (u?.nickname || '').trim()
+}
+
 function siteDisplayNick(): string {
 	const u = owyxSite.session.value?.user
 	return (u?.displayNickname || u?.nickname || '').trim()
@@ -339,7 +340,7 @@ function siteDisplayNick(): string {
 function getAccountAvatarUrl(account: MinecraftCredential) {
 	if (isOwyxPlayAccount(account)) {
 		const site = owyxSite.session.value?.user
-		const playNick = siteDisplayNick()
+		const playNick = siteLoginNick()
 		if (playNick && playNick.toLowerCase() === account.profile.name.toLowerCase()) {
 			return resolveOwyxAvatarUrl(site?.avatarUrl)
 		}
@@ -394,7 +395,7 @@ async function loginMicrosoft() {
 }
 
 /**
- * Sign in to Owyx site (friends/skins) and ensure a play profile for the display nickname.
+ * Sign in to Owyx site (friends/skins) and ensure a play profile for the login nickname.
  * Does not steal an active Microsoft account when other profiles already exist.
  */
 async function signInOwyxSite() {
@@ -402,7 +403,7 @@ async function signInOwyxSite() {
 	loginDisabled.value = true
 	try {
 		await owyxSite.signIn()
-		const nick = siteDisplayNick()
+		const nick = siteLoginNick()
 		if (!nick) return
 		if (nick.length < 3 || nick.length > 16 || !/^[A-Za-z0-9_]+$/.test(nick)) {
 			handleError(new Error(formatMessage(messages.owyxNickTooLong)))
@@ -464,8 +465,8 @@ async function logout(id: string) {
 		await setAccount(accounts.value[0])
 	} else if (accounts.value.length === 0) {
 		// Removing the last Microsoft account must not leave the sidebar dead —
-		// re-seed an Owyx offline profile from the site display nick when signed in.
-		const nick = siteDisplayNick()
+		// re-seed an Owyx offline profile from the unique login nick when signed in.
+		const nick = siteLoginNick()
 		if (nick && /^[A-Za-z0-9_]{3,16}$/.test(nick)) {
 			try {
 				await login_offline_flow(nick, true)

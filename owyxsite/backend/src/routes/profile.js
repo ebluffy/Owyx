@@ -6,6 +6,8 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { revokeOtherUserSessions } = require('../utils/authSecurity');
 const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
+const { consumeIp } = require('../utils/ipRateLimit');
+const { verifyTurnstile } = require('../utils/turnstile');
 const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
 const { authenticateToken } = require('./auth');
@@ -935,6 +937,22 @@ router.post('/email/request', authenticateToken, async (req, res) => {
         const email = String(req.body.email || '').trim().toLowerCase();
         if (!EMAIL_RE.test(email) || email.length > 255) {
             return res.status(400).json({ error: 'Некорректный email' });
+        }
+
+        const ip = req.clientIp || req.ip || req.connection?.remoteAddress || 'unknown';
+        const rate = consumeIp(`email-change:${ip}`, { windowMs: 60 * 60 * 1000, max: 5 });
+        if (!rate.allowed) {
+            return res.status(429).json({
+                error: 'Слишком много попыток смены почты. Попробуйте позже.',
+                retryAfterSec: rate.retryAfterSec,
+            });
+        }
+
+        const turnstileResult = await verifyTurnstile(req.body.turnstileToken, ip);
+        if (!turnstileResult.success) {
+            return res.status(400).json({
+                error: turnstileResult.message || 'Проверка капчи не пройдена',
+            });
         }
 
         const current = await db.query(

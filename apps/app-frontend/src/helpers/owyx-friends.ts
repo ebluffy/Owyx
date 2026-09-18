@@ -26,6 +26,9 @@ export type OwyxFriend = {
 	updatedAt?: string
 	presence?: OwyxFriendPresence
 	instanceName?: string | null
+	/** Catalog server id when friend is on an Owyx server pack (optional API field). */
+	serverId?: string | null
+	instanceId?: string | null
 	presenceUpdatedAt?: string | null
 }
 

@@ -1,12 +1,88 @@
 const express = require('express');
 const router = express.Router();
-const fs = require('fs').promises;
-const path = require('path');
 const {
     authenticateToken,
     requireRole
 } = require('./auth');
 const db = require('../database/connection');
+
+const KEY_RE = /^[a-z0-9_-]+$/i;
+
+function sanitizeKey(key) {
+    const k = String(key || '').trim().toLowerCase();
+    if (!k || k.length > 100 || !KEY_RE.test(k)) return null;
+    return k;
+}
+
+function serializeValue(value) {
+    if (value === undefined) return null;
+    if (typeof value === 'string') return value;
+    return JSON.stringify(value);
+}
+
+function parseStoredValue(raw) {
+    if (raw == null) return raw;
+    if (typeof raw !== 'string') return raw;
+    try {
+        return JSON.parse(raw);
+    } catch {
+        return raw;
+    }
+}
+
+/** Flatten nested settings into sanitized DB keys: server.name → server_name */
+function flattenSettings(obj, prefix = '', out = {}) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+    for (const [k, v] of Object.entries(obj)) {
+        const part = sanitizeKey(k);
+        if (!part) continue;
+        const key = prefix ? `${prefix}_${part}` : part;
+        if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+            flattenSettings(v, key, out);
+        } else {
+            out[key] = v;
+        }
+    }
+    return out;
+}
+
+/** Apply flat keys like server_name back onto defaults.server.name when possible */
+function applyFlatOverrides(defaults, flat) {
+    const result = JSON.parse(JSON.stringify(defaults));
+    for (const [key, raw] of Object.entries(flat)) {
+        const value = parseStoredValue(raw);
+        const parts = key.split('_');
+        if (parts.length >= 2 && result[parts[0]] && typeof result[parts[0]] === 'object') {
+            let cursor = result[parts[0]];
+            for (let i = 1; i < parts.length - 1; i++) {
+                if (!cursor[parts[i]] || typeof cursor[parts[i]] !== 'object') {
+                    cursor[parts[i]] = {};
+                }
+                cursor = cursor[parts[i]];
+            }
+            cursor[parts[parts.length - 1]] = value;
+        } else {
+            result[key] = value;
+        }
+    }
+    return result;
+}
+
+async function loadDbOverrides() {
+    const result = await db.query(
+        `SELECT setting_key, setting_value FROM server_settings
+         WHERE category = 'config' OR setting_key LIKE 'server_%'
+            OR setting_key LIKE 'applications_%'
+            OR setting_key LIKE 'security_%'
+            OR setting_key LIKE 'email_%'`
+    );
+    const flat = {};
+    for (const row of result.rows) {
+        const key = sanitizeKey(row.setting_key);
+        if (key) flat[key] = row.setting_value;
+    }
+    return flat;
+}
 
 // Public site settings — no game-server IP (product is site + launcher).
 router.get('/settings/public', async (req, res) => {
@@ -35,20 +111,17 @@ router.get('/settings/public', async (req, res) => {
 
 router.get('/settings', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
-        // Читаем текущий файл конфигурации
-        const configPath = path.join(__dirname, '../config/settings.js');
-        const configContent = await fs.readFile(configPath, 'utf-8');
-        
-        // Извлекаем текущие значения из config
-        const config = require('../config/settings');
-        
+        const defaults = require('../config/settings');
+        const flat = await loadDbOverrides();
+        const settings = applyFlatOverrides(defaults, flat);
+
         res.json({
             success: true,
             settings: {
-                server: config.server,
-                applications: config.applications,
-                security: config.security,
-                email: config.email
+                server: settings.server,
+                applications: settings.applications,
+                security: settings.security,
+                email: settings.email
             }
         });
     } catch (error) {
@@ -57,88 +130,86 @@ router.get('/settings', authenticateToken, requireRole(['admin']), async (req, r
     }
 });
 
-// Обновление настроек
+// Обновление настроек — persist to server_settings (never rewrite settings.js)
 router.post('/settings', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
         const { settings } = req.body;
-        
+
         if (!settings) {
             return res.status(400).json({ error: 'Настройки не предоставлены' });
         }
-        
-        // Читаем текущий файл
-        const configPath = path.join(__dirname, '../config/settings.js');
-        let configContent = await fs.readFile(configPath, 'utf-8');
-        
-        // Обновляем значения в файле конфигурации
-        if (settings.server) {
-            Object.keys(settings.server).forEach(key => {
-                const value = settings.server[key];
-                const regex = new RegExp(`(${key}:\\s*process\\.env\\.[A-Z_]+\\s*\\|\\|\\s*['"])[^'"]*(['"])`);
-                if (configContent.match(regex)) {
-                    configContent = configContent.replace(regex, `$1${value}$2`);
-                }
-            });
+
+        const flat = flattenSettings(settings);
+        const keys = Object.keys(flat);
+        if (keys.length === 0) {
+            return res.status(400).json({ error: 'Нет допустимых ключей настроек' });
         }
-        
-        if (settings.applications) {
-            Object.keys(settings.applications).forEach(key => {
-                const value = settings.applications[key];
-                if (typeof value === 'number') {
-                    const regex = new RegExp(`(${key}:\\s*parseInt\\(process\\.env\\.[A-Z_]+\\)\\s*\\|\\|\\s*)\\d+`);
-                    if (configContent.match(regex)) {
-                        configContent = configContent.replace(regex, `$1${value}`);
-                    }
-                } else if (typeof value === 'boolean') {
-                    const regex = new RegExp(`(${key}:\\s*process\\.env\\.[A-Z_]+\\s*===\\s*'true'\\s*\\|\\|\\s*)(true|false)`);
-                    if (configContent.match(regex)) {
-                        configContent = configContent.replace(regex, `$1${value}`);
-                    }
-                }
-            });
+
+        for (const [key, value] of Object.entries(flat)) {
+            const serialized = serializeValue(value);
+            if (serialized == null) continue;
+            const settingType =
+                typeof value === 'boolean' ? 'boolean' :
+                typeof value === 'number' ? 'integer' : 'string';
+
+            await db.query(
+                `INSERT INTO server_settings (setting_key, setting_value, setting_type, category, description, updated_by)
+                 VALUES ($1, $2, $3, 'config', $4, $5)
+                 ON CONFLICT (setting_key)
+                 DO UPDATE SET
+                    setting_value = EXCLUDED.setting_value,
+                    setting_type = EXCLUDED.setting_type,
+                    category = 'config',
+                    updated_at = CURRENT_TIMESTAMP,
+                    updated_by = EXCLUDED.updated_by`,
+                [key, serialized, settingType, `config override: ${key}`, req.user.id]
+            );
         }
-        
-        // Сохраняем обновленный файл
-        await fs.writeFile(configPath, configContent, 'utf-8');
-        
-        // Очищаем кеш модуля, чтобы изменения вступили в силу
-        delete require.cache[require.resolve('../config/settings')];
-        
-        // Логируем действие
+
         await db.query(
             'INSERT INTO admin_logs (admin_id, action, details) VALUES ($1, $2, $3)',
-            [req.user.id, 'settings_update', `Обновлены настройки сервера`]
+            [req.user.id, 'settings_update', `Обновлены настройки сервера (${keys.length} ключей)`]
         );
-        
+
         res.json({
             success: true,
             message: 'Настройки успешно обновлены'
         });
-        
+
     } catch (error) {
         console.error('Ошибка обновления настроек:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
     }
 });
 
-// Сброс настроек к значениям по умолчанию
+// Сброс настроек к значениям по умолчанию — clear DB overrides (do not rewrite settings.js)
 router.post('/settings/reset', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
         const { section } = req.body;
-        
-        // Здесь можно реализовать сброс определенной секции настроек
-        // к значениям по умолчанию
-        
+
+        if (section && typeof section === 'string') {
+            const prefix = sanitizeKey(section);
+            if (prefix) {
+                await db.query(
+                    `DELETE FROM server_settings
+                     WHERE category = 'config' AND setting_key LIKE $1`,
+                    [`${prefix}_%`]
+                );
+            }
+        } else {
+            await db.query(`DELETE FROM server_settings WHERE category = 'config'`);
+        }
+
         await db.query(
             'INSERT INTO admin_logs (admin_id, action, details) VALUES ($1, $2, $3)',
-            [req.user.id, 'settings_reset', `Сброшена секция настроек: ${section}`]
+            [req.user.id, 'settings_reset', `Сброшена секция настроек: ${section || 'all'}`]
         );
-        
+
         res.json({
             success: true,
             message: 'Настройки сброшены к значениям по умолчанию'
         });
-        
+
     } catch (error) {
         console.error('Ошибка сброса настроек:', error);
         res.status(500).json({ error: 'Ошибка сервера' });
