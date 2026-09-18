@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { CogIcon, PlayIcon, ServerStackIcon } from '@modrinth/assets'
+import { PlayIcon, ServerStackIcon } from '@modrinth/assets'
 import { Button, defineMessages, injectNotificationManager, useVIntl } from '@modrinth/ui'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -19,13 +19,13 @@ import {
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
 } from '@/helpers/owyx-server-instances'
-import { ensureManagedServerWorldExists, start_join_server } from '@/helpers/worlds'
+import { ensureManagedServerWorldExists, get_server_status, start_join_server } from '@/helpers/worlds'
 import { injectAppEvents } from '@/providers/app-events'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 
 const { formatMessage } = useVIntl()
-const { handleError, addNotification } = injectNotificationManager()
+const { handleError } = injectNotificationManager()
 const router = useRouter()
 const owyx = injectOwyxSiteSession()
 const appEvents = injectAppEvents()
@@ -50,25 +50,19 @@ const messages = defineMessages({
 		defaultMessage: 'Loading servers…',
 	},
 	play: { id: 'owyx.servers.play', defaultMessage: 'Play' },
-	settings: { id: 'owyx.servers.settings', defaultMessage: 'Settings' },
-	copyAddress: { id: 'owyx.servers.copy-address', defaultMessage: 'Copy address' },
 	refresh: { id: 'owyx.servers.refresh', defaultMessage: 'Refresh' },
 	version: { id: 'owyx.servers.version', defaultMessage: 'MC {version}' },
 	demoBadge: { id: 'owyx.servers.demo-badge', defaultMessage: 'demo' },
 	playing: { id: 'owyx.servers.playing', defaultMessage: 'Preparing…' },
-	downloadPack: { id: 'owyx.servers.download-pack', defaultMessage: 'Pack' },
-	installPackFirst: {
-		id: 'owyx.servers.install-pack-first',
-		defaultMessage: 'Install the pack first (Pack or Play).',
-	},
 	noPackUrl: {
 		id: 'owyx.servers.no-pack-url',
 		defaultMessage: 'No installable pack is published for this server yet.',
 	},
-	packInstalled: {
-		id: 'owyx.servers.pack-installed',
-		defaultMessage: 'Pack installed for {name}.',
-	},
+	copyAddress: { id: 'owyx.servers.copy-address', defaultMessage: 'Copy address' },
+	statusOnline: { id: 'owyx.servers.status.online', defaultMessage: 'Online' },
+	statusOffline: { id: 'owyx.servers.status.offline', defaultMessage: 'Offline' },
+	statusChecking: { id: 'owyx.servers.status.checking', defaultMessage: 'Checking…' },
+	statusPing: { id: 'owyx.servers.status.ping', defaultMessage: '{ms} ms' },
 })
 
 useRootBreadcrumb({
@@ -79,12 +73,21 @@ useRootBreadcrumb({
 	visual: { type: 'icon', component: ServerStackIcon },
 })
 
+type ServerLiveStatus = {
+	online: boolean
+	ping?: number
+	players?: string
+	checking?: boolean
+}
+
 const servers = ref<OwyxServerEntry[]>([])
 const loading = ref(false)
 const loadError = ref('')
 const busyId = ref<string | null>(null)
 const apiBase = ref(getStoredOwyxApiBase())
 const copiedId = ref<string | null>(null)
+const liveStatus = ref<Record<string, ServerLiveStatus>>({})
+let statusTimer: ReturnType<typeof setInterval> | null = null
 
 const hasServers = computed(() => servers.value.length > 0)
 
@@ -104,6 +107,7 @@ async function loadCatalog() {
 		if (result.fromFallback && result.servers.length === 0) {
 			loadError.value = formatMessage(messages.unreachable)
 		}
+		void refreshAllStatuses()
 	} catch (e) {
 		servers.value = []
 		loadError.value = e instanceof Error ? e.message : String(e)
@@ -129,30 +133,42 @@ function hasPack(server: OwyxServerEntry): boolean {
 	return Boolean(resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase.value)))
 }
 
-async function openServerSettings(server: OwyxServerEntry) {
-	try {
-		const linked = await findLinkedOwyxServerInstance(server)
-		if (!linked) {
-			addNotification({
-				type: 'warning',
-				title: formatMessage(messages.settings),
-				text: formatMessage(messages.installPackFirst),
-			})
-			return
-		}
-		await router.push(`/instance/${encodeURIComponent(linked.id)}/options`)
-	} catch (e) {
-		handleError(e)
+async function pingOne(server: OwyxServerEntry) {
+	liveStatus.value = {
+		...liveStatus.value,
+		[server.id]: { ...(liveStatus.value[server.id] ?? { online: false }), checking: true },
 	}
+	try {
+		const status = await get_server_status(server.address)
+		const online = Boolean(status)
+		const players =
+			status?.players?.online != null && status?.players?.max != null
+				? `${status.players.online}/${status.players.max}`
+				: undefined
+		liveStatus.value = {
+			...liveStatus.value,
+			[server.id]: {
+				online,
+				ping: typeof status?.ping === 'number' ? Math.round(status.ping) : undefined,
+				players,
+				checking: false,
+			},
+		}
+	} catch {
+		liveStatus.value = {
+			...liveStatus.value,
+			[server.id]: { online: false, checking: false },
+		}
+	}
+}
+
+async function refreshAllStatuses() {
+	await Promise.all(servers.value.map((s) => pingOne(s)))
 }
 
 async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | null> {
 	if (!hasPack(server)) {
-		addNotification({
-			type: 'warning',
-			title: formatMessage(messages.downloadPack),
-			text: formatMessage(messages.noPackUrl),
-		})
+		handleError(new Error(formatMessage(messages.noPackUrl)))
 		return null
 	}
 	const existing = await findLinkedOwyxServerInstance(server)
@@ -165,23 +181,6 @@ async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | nu
 		appEvents,
 	)
 	return instanceId
-}
-
-async function openPack(server: OwyxServerEntry) {
-	busyId.value = server.id
-	try {
-		const instanceId = await ensurePackInstalled(server)
-		if (!instanceId) return
-		addNotification({
-			type: 'success',
-			title: formatMessage(messages.downloadPack),
-			text: formatMessage(messages.packInstalled, { name: server.name }),
-		})
-	} catch (e) {
-		handleError(e)
-	} finally {
-		busyId.value = null
-	}
 }
 
 async function playServer(server: OwyxServerEntry) {
@@ -209,6 +208,13 @@ async function playServer(server: OwyxServerEntry) {
 
 onMounted(() => {
 	void loadCatalog()
+	statusTimer = setInterval(() => {
+		void refreshAllStatuses()
+	}, 15_000)
+})
+
+onUnmounted(() => {
+	if (statusTimer) clearInterval(statusTimer)
 })
 </script>
 
@@ -280,8 +286,55 @@ onMounted(() => {
 							</span>
 						</div>
 						<p class="m-0 mt-1 text-sm text-secondary">{{ server.description }}</p>
-						<p class="m-0 mt-1 font-mono text-xs text-secondary">
-							{{ server.address }}
+						<p class="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-secondary">
+							<button
+								type="button"
+								class="cursor-pointer border-0 bg-transparent p-0 font-inherit text-inherit underline decoration-dotted underline-offset-2 hover:text-primary"
+								:title="formatMessage(messages.copyAddress)"
+								@click="copyAddress(server)"
+							>
+								{{ server.address }}
+								<span v-if="copiedId === server.id" class="text-brand no-underline"> ✓</span>
+							</button>
+							<span
+								class="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] font-sans"
+								:class="
+									liveStatus[server.id]?.online
+										? 'bg-green/15 text-green'
+										: liveStatus[server.id]?.checking
+											? 'bg-surface-3 text-secondary'
+											: 'bg-red/15 text-red'
+								"
+							>
+								<span
+									class="size-1.5 rounded-full"
+									:class="
+										liveStatus[server.id]?.online
+											? 'bg-green'
+											: liveStatus[server.id]?.checking
+												? 'bg-secondary'
+												: 'bg-red'
+									"
+								/>
+								<template v-if="liveStatus[server.id]?.checking">
+									{{ formatMessage(messages.statusChecking) }}
+								</template>
+								<template v-else-if="liveStatus[server.id]?.online">
+									{{ formatMessage(messages.statusOnline) }}
+									<span v-if="liveStatus[server.id]?.ping != null">
+										·
+										{{
+											formatMessage(messages.statusPing, { ms: liveStatus[server.id].ping })
+										}}
+									</span>
+									<span v-if="liveStatus[server.id]?.players">
+										· {{ liveStatus[server.id].players }}
+									</span>
+								</template>
+								<template v-else>
+									{{ formatMessage(messages.statusOffline) }}
+								</template>
+							</span>
 							<span v-if="server.mcVersion">
 								· {{ formatMessage(messages.version, { version: server.mcVersion }) }}
 							</span>
@@ -289,25 +342,6 @@ onMounted(() => {
 					</div>
 				</div>
 				<div class="flex shrink-0 flex-wrap gap-2">
-					<Button class="!bg-button-bg" @click="copyAddress(server)">
-						{{ copiedId === server.id ? '✓' : formatMessage(messages.copyAddress) }}
-					</Button>
-					<Button
-						v-if="hasPack(server)"
-						class="!bg-button-bg"
-						:disabled="busyId === server.id"
-						@click="openPack(server)"
-					>
-						{{ formatMessage(messages.downloadPack) }}
-					</Button>
-					<Button
-						class="!bg-button-bg"
-						:disabled="busyId === server.id"
-						@click="openServerSettings(server)"
-					>
-						<CogIcon class="h-4 w-4" />
-						{{ formatMessage(messages.settings) }}
-					</Button>
 					<Button
 						type="colored"
 						color="brand"

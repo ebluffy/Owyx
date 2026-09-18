@@ -2333,7 +2333,7 @@ router.post('/test-email-with-template', [
 
         // Отправляем письмо (используем user как from для совместимости с Yandex)
         await transporter.sendMail({
-            from: `"${emailConfig.senderName || 'ChiwawaMine'}" <${emailConfig.user}>`,
+            from: `"${emailConfig.senderName || 'Owyx'}" <${emailConfig.user}>`,
             to: finalEmail,
             subject: processedSubject,
             html: processedHtml
@@ -2890,7 +2890,7 @@ router.post('/test-email', authenticateToken, requireRole(['admin']), async (req
         
         // Отправляем письмо
         const info = await transporter.sendMail({
-            from: `"${settings.senderName || 'ChiwawaMine'}" <${settings.from || settings.user}>`,
+            from: `"${settings.senderName || 'Owyx'}" <${settings.from || settings.user}>`,
             to: recipient,
             subject: subject,
             html: html

@@ -150,6 +150,7 @@ fn main() {
                     .commands(&[
                         "get_onboarding_checklist",
                         "mark_logged_into_owyx_site",
+                        "dismiss_onboarding_checklist",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

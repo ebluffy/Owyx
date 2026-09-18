@@ -53,12 +53,22 @@ pub async fn login_offline(
     make_active: bool,
 ) -> crate::Result<Credentials> {
     let state = State::get().await?;
-    crate::state::Credentials::create_offline(
+    let credentials = crate::state::Credentials::create_offline(
         username,
         &state.pool,
         make_active,
     )
-    .await
+    .await?;
+
+    if let Err(error) =
+        crate::onboarding_checklist::mark_logged_into_minecraft().await
+    {
+        tracing::warn!(
+            "Failed to mark Minecraft login in onboarding checklist: {error}"
+        );
+    }
+
+    Ok(credentials)
 }
 
 #[tracing::instrument]

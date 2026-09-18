@@ -1,6 +1,6 @@
 # Owyx Backend API
 
-Express + Socket.io TypeScript service ported from `chiwawasite`.
+Express + Socket.io TypeScript service for the Owyx site and launcher.
 
 ## Endpoints
 
@@ -12,8 +12,6 @@ Express + Socket.io TypeScript service ported from `chiwawasite`.
 | `/api/profile/*` | Profile, avatar, stats |
 | `/api/admin/*` | Admin users, logs, settings, tokens |
 | `/api/settings/*` | Public/server settings |
-| `/api/reputation/*` | Reputation votes |
-| `/api/trust-level/*` | Trust level applications |
 | `/api/forum/*` | Forum categories/topics/posts |
 | `/api/chat/*` | Chat rooms/messages REST |
 | `/socket.io` | Realtime chat |

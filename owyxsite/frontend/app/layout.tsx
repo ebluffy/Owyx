@@ -33,7 +33,13 @@ export const metadata: Metadata = {
   keywords: ["owyx", "minecraft", "launcher", "owyx.site"],
   authors: [{ name: "ebluffy" }],
   icons: {
-    icon: "/favicon-owyx.svg",
+    icon: [
+      { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/icon-192.png", type: "image/png", sizes: "192x192" },
+      { url: "/favicon-owyx.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/favicon.png",
+    apple: [{ url: "/icon-192.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     title: "Owyx™",

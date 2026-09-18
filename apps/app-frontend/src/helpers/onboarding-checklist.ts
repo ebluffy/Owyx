@@ -12,3 +12,7 @@ export async function getOnboardingChecklist(): Promise<OnboardingChecklist> {
 export async function markLoggedIntoOwyxSite(): Promise<void> {
 	await invoke('plugin:onboarding-checklist|mark_logged_into_owyx_site')
 }
+
+export async function dismissOnboardingChecklist(): Promise<void> {
+	await invoke('plugin:onboarding-checklist|dismiss_onboarding_checklist')
+}

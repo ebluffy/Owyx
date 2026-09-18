@@ -11,7 +11,6 @@ import {
 import { ref, watch } from 'vue'
 
 import { open_ads_consent_preferences } from '@/helpers/ads.js'
-import { optInAnalytics, optOutAnalytics } from '@/helpers/analytics'
 import { get, set } from '@/helpers/settings.ts'
 
 const { formatMessage } = useVIntl()
@@ -60,12 +59,6 @@ async function manageAdsPreferences() {
 watch(
 	settings,
 	async () => {
-		if (settings.value.telemetry) {
-			optInAnalytics()
-		} else {
-			optOutAnalytics()
-		}
-
 		await set(settings.value)
 	},
 	{ deep: true },
