@@ -1516,22 +1516,40 @@ router.get('/server-status', authenticateToken, requireRole(['admin', 'moderator
     }
 });
 
-// POST /api/admin/test/email - Простое тестирование почты (для технического раздела)
+// POST /api/admin/test/email — send a real welcome test to the signed-in admin
 router.post('/test/email', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
-        const testEmail = req.user.email;
-        
-        console.log(`📧 Тестовое письмо отправлено на: ${testEmail}`);
-        
+        const emailService = require('../utils/emailService');
+        const testEmail = (req.body?.email || req.user.email || '').trim();
+        if (!testEmail) {
+            return res.status(400).json({ error: 'не указан email получателя' });
+        }
+
+        const result = await emailService.sendTemplate(testEmail, 'welcome', {
+            nickname: req.user.nickname || req.user.display_nickname || 'admin',
+        });
+
+        await db.query(
+            `INSERT INTO admin_logs (admin_id, action, details) VALUES ($1, $2, $3)`,
+            [
+                req.user.id,
+                'email_test',
+                `Тестовое письмо (welcome) на ${testEmail}${result.simulated ? ' [simulated]' : ''}`,
+            ]
+        );
+
         res.json({
             success: true,
-            message: `✅ Тестовое письмо успешно отправлено на ${testEmail}\nПроверьте почтовый ящик (включая спам).`
+            simulated: Boolean(result.simulated),
+            message: result.simulated
+                ? `SMTP не настроен — письмо симулировано (лог). Получатель: ${testEmail}`
+                : `Тестовое письмо отправлено на ${testEmail}. Проверьте входящие и спам.`,
         });
     } catch (error) {
         console.error('Ошибка тестирования почты:', error);
         res.status(500).json({
             success: false,
-            error: 'Ошибка при отправке тестового письма: ' + error.message
+            error: 'не удалось отправить тестовое письмо: ' + (error.message || 'unknown'),
         });
     }
 });
