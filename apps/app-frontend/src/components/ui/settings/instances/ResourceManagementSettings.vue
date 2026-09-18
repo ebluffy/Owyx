@@ -114,7 +114,7 @@ const messages = defineMessages({
 	diagnosticsDescription: {
 		id: 'app.settings.resource-management.diagnostics.description',
 		defaultMessage:
-			'Export a text report with API base (client key redacted) and open launcher logs for Discord support.',
+			'Export a zip with a redacted API report and recent launcher logs for Discord support.',
 	},
 	exportDiagnostics: {
 		id: 'app.settings.resource-management.diagnostics.export',

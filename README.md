@@ -1,6 +1,6 @@
 # Owyx
 
-**Owyx** is a desktop Minecraft launcher (and small control-plane site) for private / friends servers: dark UI, cyan brand, curated **Owyx Servers**, offline nickname login, and Microsoft login for licensed play.
+**Owyx** is a desktop Minecraft launcher (and small control-plane site) for private / friends servers: dark UI, cyan brand, curated **Owyx Servers**, **Owyx site account** sign-in (offline play uses your unique login nick), and Microsoft login for licensed play.
 
 ## Fork notice (please read)
 

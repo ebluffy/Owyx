@@ -11632,6 +11632,7 @@ dependencies = [
  "webview2-com",
  "windows",
  "windows-core 0.61.2",
+ "zip 6.0.0",
 ]
 
 [[package]]

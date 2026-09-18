@@ -46,8 +46,12 @@ function clientKeyGate(req, res, next) {
   if (path === '/api/csl' || path.startsWith('/api/csl/')) {
     return next();
   }
-  // Public uploads (avatars/skins/capes) — browsers may load via api.* or site.
-  if (path === '/uploads' || path.startsWith('/uploads/')) {
+  // Public cosmetic uploads only — packs stay behind the launcher key on api.*.
+  if (
+    path.startsWith('/uploads/skins/') ||
+    path.startsWith('/uploads/capes/') ||
+    path.startsWith('/uploads/avatars/')
+  ) {
     return next();
   }
 

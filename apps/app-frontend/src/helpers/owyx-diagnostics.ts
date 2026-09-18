@@ -1,10 +1,8 @@
 /**
- * Export a Discord-support diagnostics text file (API base + redacted key + env).
- * Opens the launcher logs folder so the user can attach recent session logs.
+ * Export a Discord-support diagnostics zip (report + recent launcher logs).
  */
 
 import { save } from '@tauri-apps/plugin-dialog'
-import { writeTextFile } from '@tauri-apps/plugin-fs'
 
 import {
 	getOwyxClientKey,
@@ -12,7 +10,7 @@ import {
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { get } from '@/helpers/settings'
-import { getOS, showLauncherLogsFolder } from '@/helpers/utils.js'
+import { exportOwyxDiagnosticsZip, getOS, highlightInFolder } from '@/helpers/utils.js'
 
 function redactClientKey(key: string): string {
 	const trimmed = key.trim()
@@ -39,17 +37,17 @@ export async function exportOwyxDiagnosticsReport(): Promise<string | null> {
 		`- Base URL: ${apiBase}`,
 		`- Client key: ${redactClientKey(key)}`,
 		'',
-		'Attach recent files from the launcher_logs folder (opened after save).',
+		'This zip includes owyx-diagnostics.txt plus recent launcher_logs files.',
 		'Do not paste real client keys into Discord.',
 		'',
 	].join('\n')
 
 	const path = await save({
-		defaultPath: `owyx-diagnostics-${stamp}.txt`,
-		filters: [{ name: 'Text', extensions: ['txt'] }],
+		defaultPath: `owyx-diagnostics-${stamp}.zip`,
+		filters: [{ name: 'Zip archive', extensions: ['zip'] }],
 	})
 	if (!path) return null
-	await writeTextFile(path, body)
-	await showLauncherLogsFolder().catch(() => undefined)
+	await exportOwyxDiagnosticsZip(path, body)
+	await highlightInFolder(path).catch(() => undefined)
 	return path
 }

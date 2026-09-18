@@ -28,6 +28,22 @@ function resolveSkinDownloadUrl(skinUrl: string): string | null {
 	return trimmed
 }
 
+async function downloadCosmeticPng(url: string | null): Promise<Uint8Array | null> {
+	if (!url) return null
+	const absolute = resolveSkinDownloadUrl(url)
+	if (!absolute) return null
+	let res: Response
+	try {
+		res = await tauriFetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
+	} catch {
+		res = await fetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
+	}
+	if (!res.ok) return null
+	const buf = new Uint8Array(await res.arrayBuffer())
+	if (buf.byteLength < 64) return null
+	return buf
+}
+
 export async function syncOwyxCosmeticsToDisk(
 	nickname: string,
 	cosmetics: Record<string, unknown> | null | undefined,
@@ -38,23 +54,26 @@ export async function syncOwyxCosmeticsToDisk(
 		: cosmetics.skin_url
 			? String(cosmetics.skin_url)
 			: null
-	if (!skinUrl) return
-	const absolute = resolveSkinDownloadUrl(skinUrl)
-	if (!absolute) return
-
-	let res: Response
-	try {
-		res = await tauriFetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
-	} catch {
-		res = await fetch(absolute, { method: 'GET', signal: AbortSignal.timeout(15000) })
-	}
-	if (!res.ok) return
-	const buf = new Uint8Array(await res.arrayBuffer())
-	if (buf.byteLength < 64) return
+	const capeUrl = cosmetics.capeUrl
+		? String(cosmetics.capeUrl)
+		: cosmetics.cape_url
+			? String(cosmetics.cape_url)
+			: null
 
 	const home = await homeDir()
-	const dir = await join(home, 'owyx', 'skins')
-	await mkdir(dir, { recursive: true })
-	const file = await join(dir, `${sanitizeNick(nickname)}.png`)
-	await writeFile(file, buf)
+	const nick = sanitizeNick(nickname)
+
+	const skinBuf = await downloadCosmeticPng(skinUrl)
+	if (skinBuf) {
+		const dir = await join(home, 'owyx', 'skins')
+		await mkdir(dir, { recursive: true })
+		await writeFile(await join(dir, `${nick}.png`), skinBuf)
+	}
+
+	const capeBuf = await downloadCosmeticPng(capeUrl)
+	if (capeBuf) {
+		const dir = await join(home, 'owyx', 'capes')
+		await mkdir(dir, { recursive: true })
+		await writeFile(await join(dir, `${nick}.png`), capeBuf)
+	}
 }

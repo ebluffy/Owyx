@@ -214,13 +214,13 @@ function AvatarSection({ currentUrl }: { currentUrl?: string | null }) {
   const [toast, setToast] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [cropFile, setCropFile] = useState<File | null>(null);
 
-  async function uploadWithCrop(file: File, cropData: import("@/components/profile/AvatarCropModal").AvatarCropData) {
+  async function uploadWithCrop(cropped: File) {
     setBusy(true);
     setToast(null);
     try {
       const fd = new FormData();
-      fd.append("avatar", file);
-      fd.append("cropData", JSON.stringify(cropData));
+      fd.append("avatar", cropped);
+      fd.append("preCropped", "true");
       const res = await fetch("/api/profile/avatar", {
         method: "POST",
         headers: authHeader(),
@@ -299,7 +299,7 @@ function AvatarSection({ currentUrl }: { currentUrl?: string | null }) {
         <AvatarCropModal
           file={cropFile}
           onCancel={() => setCropFile(null)}
-          onConfirm={(crop) => void uploadWithCrop(cropFile, crop)}
+          onConfirm={(cropped) => void uploadWithCrop(cropped)}
         />
       )}
     </SettingsSection>

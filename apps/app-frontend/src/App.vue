@@ -83,7 +83,6 @@ import OnboardingChecklist from '@/components/ui/onboarding-checklist/index.vue'
 import QuickInstanceSwitcher from '@/components/ui/QuickInstanceSwitcher.vue'
 import SharedInstanceInviteHandler from '@/components/ui/shared-instances/shared-instance-invite-handler/index.vue'
 import SplashScreen from '@/components/ui/SplashScreen.vue'
-import SurveyPopup from '@/components/ui/SurveyPopup.vue'
 import SyncInstancesUpdateModal from '@/components/ui/sync-instances-update-modal/index.vue'
 import {
 	markSyncInstancesUpdateNotificationShown,
@@ -311,13 +310,19 @@ useAppEvent(
 			setOwyxPresencePlaying(name)
 			if (event.instance_id) {
 				try {
-					const { writeOwyxCslConfigForInstance, mirrorLocalOwyxSkinToInstance } =
-						await import('@/helpers/owyx-csl')
+					const {
+						writeOwyxCslConfigForInstance,
+						mirrorLocalOwyxSkinToInstance,
+						mirrorLocalOwyxCapeToInstance,
+					} = await import('@/helpers/owyx-csl')
 					await writeOwyxCslConfigForInstance(event.instance_id)
 					const nick =
 						owyxSiteSession.value?.user?.displayNickname ||
 						owyxSiteSession.value?.user?.nickname
-					if (nick) await mirrorLocalOwyxSkinToInstance(event.instance_id, nick)
+					if (nick) {
+						await mirrorLocalOwyxSkinToInstance(event.instance_id, nick)
+						await mirrorLocalOwyxCapeToInstance(event.instance_id, nick)
+					}
 				} catch {
 					/* best-effort skin wiring */
 				}
@@ -872,18 +877,7 @@ async function setupApp() {
 		document.getElementsByTagName('html')[0].classList.add('windows')
 	}
 
-	fetch(`https://api.modrinth.com/appCriticalAnnouncement.json?version=${version}`)
-		.then((response) => response.json())
-		.then((res) => {
-			if (res && res.header && res.body) {
-				criticalErrorMessage.value = res
-			}
-		})
-		.catch(() => {
-			console.log(
-				`No critical announcement found at https://api.modrinth.com/appCriticalAnnouncement.json?version=${version}`,
-			)
-		})
+	// Owyx: no Modrinth critical announcements or surveys (site-controlled messaging only).
 
 	// Owyx: Modrinth news feed removed from sidebar
 
@@ -1411,8 +1405,8 @@ async function refreshOwyxSiteSession() {
 		} catch {
 			/* checklist mark is best-effort */
 		}
-		// Sync site display nickname → offline play profile (rename replaces stale offline UUID)
-		const nick = (fresh.user?.displayNickname || fresh.user?.nickname)?.trim() ?? ''
+		// Sync unique login nickname → offline play profile (display nick is label-only)
+		const nick = fresh.user?.nickname?.trim() ?? ''
 		const nickOk = /^[A-Za-z0-9_]{3,16}$/.test(nick)
 		if (nickOk) {
 			try {
@@ -1444,7 +1438,7 @@ async function refreshOwyxSiteSession() {
 					await login_offline(nick, true)
 				}
 			} catch (e) {
-				console.warn('Could not sync Owyx display nickname to play profile', e)
+				console.warn('Could not sync Owyx login nickname to play profile', e)
 			}
 		}
 	} else {
@@ -2280,7 +2274,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		}"
 	>
 		<div class="app-viewport flex-grow router-view">
-			<SurveyPopup />
 			<div
 				class="loading-indicator-container h-8 fixed z-50 pointer-events-none"
 				:style="{

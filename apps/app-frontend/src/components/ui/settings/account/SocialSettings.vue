@@ -148,6 +148,9 @@
 					{{ formatMessage(messages.skinsModLink) }}
 				</a>
 			</div>
+			<p class="m-0 mt-2 text-xs text-secondary leading-relaxed">
+				{{ formatMessage(messages.skinsCapesNote) }}
+			</p>
 		</section>
 
 		<p v-if="saveError" class="m-0 text-sm text-red">{{ saveError }}</p>
@@ -389,6 +392,11 @@ const messages = defineMessages({
 	skinsModLink: {
 		id: 'owyx.settings.social.skins-mod-link',
 		defaultMessage: 'CustomSkinLoader project page',
+	},
+	skinsCapesNote: {
+		id: 'owyx.settings.social.capes-note',
+		defaultMessage:
+			'Capes: CSL reads cape URLs from your Owyx account when set. Profile cape upload on owyx.site is planned next.',
 	},
 	saved: {
 		id: 'owyx.settings.social.saved',

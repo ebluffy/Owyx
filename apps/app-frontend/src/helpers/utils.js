@@ -48,6 +48,13 @@ export async function showLauncherLogsFolder() {
 	return await invoke('plugin:utils|show_launcher_logs_folder', {})
 }
 
+export async function exportOwyxDiagnosticsZip(destPath, report) {
+	return await invoke('plugin:utils|export_owyx_diagnostics_zip', {
+		dest: destPath,
+		report,
+	})
+}
+
 export async function createInstanceShortcut(instanceName, instanceId, options = {}) {
 	const outputPath = await save({
 		defaultPath: `Owyx - ${instanceName}`,

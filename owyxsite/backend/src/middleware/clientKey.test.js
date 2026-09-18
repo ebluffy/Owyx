@@ -118,4 +118,27 @@ describe('clientKeyGate', () => {
 		)
 		assert.equal(result.nextCalled, true)
 	})
+
+	it('allows public avatar uploads on api host without key', async () => {
+		const result = await runGate(
+			mockReq({
+				host: 'api.owyx.site',
+				hostname: 'api.owyx.site',
+				path: '/uploads/avatars/user-1.png',
+			}),
+		)
+		assert.equal(result.nextCalled, true)
+	})
+
+	it('requires key for pack uploads on api host', async () => {
+		const result = await runGate(
+			mockReq({
+				host: 'api.owyx.site',
+				hostname: 'api.owyx.site',
+				path: '/uploads/packs/demo-vanilla.zip',
+			}),
+		)
+		assert.equal(result.nextCalled, false)
+		assert.equal(result.status, 401)
+	})
 })

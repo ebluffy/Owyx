@@ -1,37 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import AuthShell from "@/components/layout/AuthShell";
+import Turnstile from "@/components/ui/Turnstile";
 import { useLocale } from "@/hooks/useLocale";
+
+const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 
 export default function ForgotPasswordPage() {
   const { dict } = useLocale();
   const a = dict.auth;
+  const c = dict.common;
 
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileReset, setTurnstileReset] = useState(0);
+
+  const onToken = useCallback((t: string | null) => setTurnstileToken(t), []);
+
+  function refreshTurnstile() {
+    setTurnstileToken(null);
+    setTurnstileReset((n) => n + 1);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (SITE_KEY && !turnstileToken) {
+      setError(a.captchaRequired);
+      return;
+    }
     setLoading(true);
     try {
       const res = await fetch("/api/auth/forgot-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, turnstileToken: turnstileToken || undefined }),
       });
       if (res.ok) {
         setSent(true);
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.error || a.forgotFailed);
+        refreshTurnstile();
       }
     } catch {
-      setError(dict.common.networkError);
+      setError(c.networkError);
+      refreshTurnstile();
     } finally {
       setLoading(false);
     }
@@ -66,6 +85,9 @@ export default function ForgotPasswordPage() {
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
+          {SITE_KEY && (
+            <Turnstile siteKey={SITE_KEY} onToken={onToken} resetKey={turnstileReset} />
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <button type="submit" className="btn btn-primary w-full" disabled={loading}>
             {loading ? a.forgotSending : a.forgotSubmit}

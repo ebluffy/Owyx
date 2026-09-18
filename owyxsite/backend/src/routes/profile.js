@@ -4,6 +4,8 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const { revokeOtherUserSessions } = require('../utils/authSecurity');
+const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
 const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
 const { authenticateToken } = require('./auth');
@@ -156,6 +158,11 @@ router.put('/', authenticateToken, async (req, res) => {
             if (newPassword.length < 8) {
                 return res.status(400).json({ error: 'Новый пароль — минимум 8 символов' });
             }
+            if (passwordTooLong(newPassword)) {
+                return res.status(400).json({
+                    error: `Пароль не должен превышать ${BCRYPT_MAX_BYTES} байт`,
+                });
+            }
             if (!currentPassword) {
                 return res.status(400).json({ error: 'Укажите текущий пароль' });
             }
@@ -181,6 +188,10 @@ router.put('/', authenticateToken, async (req, res) => {
             `UPDATE users SET ${updates.join(', ')} WHERE id = $${i}`,
             params
         );
+
+        if (newPassword) {
+            await revokeOtherUserSessions(req.user.id, req.user.session_id);
+        }
 
         await logUserActivity(
             req.user.id,
@@ -374,9 +385,14 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 
         const originalPath = req.file.path;
         
-        // Получаем данные о кропе если они есть
+        const preCropped =
+            req.body.preCropped === true ||
+            req.body.preCropped === 'true' ||
+            req.body.preCropped === '1';
+
+        // Получаем данные о кропе если они есть (legacy path — prefer preCropped from browser canvas)
         let cropData = null;
-        if (req.body.cropData) {
+        if (!preCropped && req.body.cropData) {
             try {
                 cropData = JSON.parse(req.body.cropData);
             } catch (e) {
@@ -392,9 +408,13 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
         const finalPath = path.join(path.dirname(originalPath), finalFileName);
         
         let sharpInstance = sharp(originalPath);
-        
-        // Если есть данные кропа, применяем их
-        if (cropData) {
+
+        if (preCropped) {
+            sharpInstance = sharpInstance.resize(512, 512, {
+                fit: 'cover',
+                position: 'centre',
+            });
+        } else if (cropData) {
             const { scale, rotation, flipX, offsetX, offsetY, cropSize } = cropData;
             
             // Вычисляем размеры для кропа
@@ -419,12 +439,13 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
             // Вычисляем область кропа (256x256 из центра с учетом смещения)
             const centerX = Math.round(processedMetadata.width / 2);
             const centerY = Math.round(processedMetadata.height / 2);
-            const cropRadius = 128; // половина от 256
+            const size = Math.max(32, Math.min(1024, Number(cropSize) || 256));
+            const cropRadius = Math.floor(size / 2);
             
             const cropLeft = Math.max(0, centerX - cropRadius - Math.round(offsetX));
             const cropTop = Math.max(0, centerY - cropRadius - Math.round(offsetY));
-            const cropWidth = Math.min(256, processedMetadata.width - cropLeft);
-            const cropHeight = Math.min(256, processedMetadata.height - cropTop);
+            const cropWidth = Math.min(size, processedMetadata.width - cropLeft);
+            const cropHeight = Math.min(size, processedMetadata.height - cropTop);
             
             // Применяем кроп и финальный ресайз до 512x512
             sharpInstance = sharp(processedBuffer)
@@ -1030,6 +1051,8 @@ router.post('/email/confirm', authenticateToken, async (req, res) => {
              WHERE id = $2`,
             [row.pending_email, req.user.id]
         );
+
+        await revokeOtherUserSessions(req.user.id, req.user.session_id);
 
         await logUserActivity(req.user.id, 'email_change', 'Адрес почты изменён', {
             req,

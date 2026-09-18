@@ -10,12 +10,15 @@ import {
 	install_create_modpack_instance,
 	install_pack_to_existing_instance,
 	installJobInstanceId,
-	wait_for_install_job,
 	type InstallJobSnapshot,
+	wait_for_install_job,
 } from '@/helpers/install'
 import { list } from '@/helpers/instance'
-import type { OwyxServerEntry } from '@/helpers/owyx-api'
-import { getOwyxClientKey, resolveOwyxPackUrl } from '@/helpers/owyx-api'
+import {
+	getOwyxClientKey,
+	type OwyxServerEntry,
+	resolveOwyxPackUrl,
+} from '@/helpers/owyx-api'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
 
@@ -71,8 +74,8 @@ export function rememberOwyxServerInstance(serverId: string, instanceId: string)
 
 export function forgetOwyxServerInstance(serverId: string) {
 	const map = readMap()
-	delete map[serverId]
-	writeMap(map)
+	const { [serverId]: _removed, ...rest } = map
+	writeMap(rest)
 }
 
 export async function findLinkedOwyxServerInstance(

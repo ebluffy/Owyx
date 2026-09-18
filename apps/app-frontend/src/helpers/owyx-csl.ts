@@ -6,7 +6,14 @@
 import { homeDir, join } from '@tauri-apps/api/path'
 import { exists, mkdir, writeFile } from '@tauri-apps/plugin-fs'
 
-import { get_full_path } from '@/helpers/instance'
+import { get_project_versions } from '@/helpers/cache.js'
+import {
+	get_installed_project_ids,
+	get_full_path,
+	install_project_with_dependencies,
+	list,
+} from '@/helpers/instance'
+import type { GameInstance } from '@/helpers/types'
 import {
 	DEFAULT_OWYX_API_BASE,
 	getStoredOwyxApiBase,
@@ -85,6 +92,94 @@ export async function writeOwyxCslConfigForInstance(instanceId: string): Promise
 }
 
 /** Mirror ~/owyx/skins/{nick}.png into instance LocalSkin for offline fallback. */
+function pickCustomSkinLoaderVersionId(
+	instance: GameInstance,
+	versions: Array<{
+		id: string
+		date_published: string
+		game_versions: string[]
+		loaders: string[]
+	}>,
+): string | null {
+	if (!versions.length) return null
+	const sorted = [...versions].sort(
+		(a, b) => new Date(b.date_published).getTime() - new Date(a.date_published).getTime(),
+	)
+	const loader = instance.loader
+	const gameVersion = instance.game_version
+	const exact = sorted.find(
+		(v) => v.game_versions.includes(gameVersion) && v.loaders.includes(loader),
+	)
+	if (exact) return exact.id
+	if (loader !== 'vanilla') {
+		const gvOnly = sorted.find((v) => v.game_versions.includes(gameVersion))
+		if (gvOnly) return gvOnly.id
+	}
+	return null
+}
+
+export type InstallCustomSkinLoaderResult = 'installed' | 'already' | 'unsupported'
+
+/** Install CustomSkinLoader mod for this instance's MC version + loader, then write Owyx CSL config. */
+export async function installCustomSkinLoaderToInstance(
+	instanceId: string,
+): Promise<InstallCustomSkinLoaderResult> {
+	const instances = await list()
+	const instance = instances.find((item) => item.id === instanceId)
+	if (!instance) {
+		throw new Error('Instance not found')
+	}
+	if (instance.loader === 'vanilla') {
+		return 'unsupported'
+	}
+	const installedIds = await get_installed_project_ids(instanceId)
+	if (installedIds.includes(CUSTOM_SKIN_LOADER_PROJECT_ID)) {
+		await writeOwyxCslConfigForInstance(instanceId)
+		return 'already'
+	}
+	const versions = await get_project_versions(CUSTOM_SKIN_LOADER_PROJECT_ID, undefined)
+	const versionId = pickCustomSkinLoaderVersionId(
+		instance,
+		(versions ?? []) as Array<{
+			id: string
+			date_published: string
+			game_versions: string[]
+			loaders: string[]
+		}>,
+	)
+	if (!versionId) {
+		throw new Error(
+			'No CustomSkinLoader build matches this instance Minecraft version and mod loader.',
+		)
+	}
+	await install_project_with_dependencies(instanceId, {
+		project_id: CUSTOM_SKIN_LOADER_PROJECT_ID,
+		version_id: versionId,
+		content_type: 'mod',
+	})
+	await writeOwyxCslConfigForInstance(instanceId)
+	return 'installed'
+}
+
+export async function mirrorLocalOwyxCapeToInstance(
+	instanceId: string,
+	nickname: string,
+): Promise<boolean> {
+	const nick = nickname.replace(/[^A-Za-z0-9_\-.]/g, '_').slice(0, 32)
+	if (!nick) return false
+	const home = await homeDir()
+	const src = await join(home, 'owyx', 'capes', `${nick}.png`)
+	if (!(await exists(src))) return false
+	const instancePath = await get_full_path(instanceId)
+	const destDir = await join(instancePath, 'CustomSkinLoader', 'LocalSkin', 'capes')
+	await mkdir(destDir, { recursive: true })
+	const dest = await join(destDir, `${nick}.png`)
+	const { readFile } = await import('@tauri-apps/plugin-fs')
+	const bytes = await readFile(src)
+	await writeFile(dest, bytes)
+	return true
+}
+
 export async function mirrorLocalOwyxSkinToInstance(
 	instanceId: string,
 	nickname: string,
