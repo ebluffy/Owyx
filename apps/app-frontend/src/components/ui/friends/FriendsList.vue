@@ -22,6 +22,7 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import ModalWrapper from '@/components/ui/modal/ModalWrapper.vue'
 import type { ModrinthCredentials } from '@/helpers/mr_auth'
@@ -32,6 +33,7 @@ import {
 	getOwyxLocalApiFallback,
 	getStoredOwyxApiBase,
 	type OwyxServerEntry,
+	resolveOwyxPackUrl,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { resolveOwyxAvatarUrl } from '@/helpers/owyx-avatar'
@@ -50,7 +52,7 @@ import {
 	installOwyxServerPack,
 } from '@/helpers/owyx-server-instances'
 import { playOwyxUiSound } from '@/helpers/owyx-ui-sound'
-import { start_join_server } from '@/helpers/worlds'
+import { ensureManagedServerWorldExists, start_join_server } from '@/helpers/worlds'
 import { injectAppEvents } from '@/providers/app-events'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 
@@ -58,6 +60,7 @@ const { formatMessage } = useVIntl()
 const { handleError, addNotification } = injectNotificationManager()
 const owyx = injectOwyxSiteSession()
 const appEvents = injectAppEvents()
+const router = useRouter()
 
 const props = defineProps<{
 	credentials: ModrinthCredentials | null
@@ -352,9 +355,19 @@ function handleFriendsError(e: unknown) {
 	handleError(e)
 }
 
+const busyJoinId = ref<string | null>(null)
+
 async function joinFriendServer(friend: OwyxFriend) {
 	const server = matchCatalogServer(friend)
 	if (!server) return
+	if (!resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(getStoredOwyxApiBase()))) {
+		addNotification({
+			type: 'warning',
+			title: formatMessage(messages.joinServer),
+			text: formatMessage(messages.errNoPack),
+		})
+		return
+	}
 	try {
 		busyJoinId.value = friend.id
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
@@ -363,7 +376,12 @@ async function joinFriendServer(friend: OwyxFriend) {
 			sanitizeOwyxApiBase(getStoredOwyxApiBase()),
 			appEvents,
 		)
-		await start_join_server(instanceId, server.address)
+		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
+		try {
+			await start_join_server(instanceId, server.address)
+		} catch {
+			await router.push(`/instance/${encodeURIComponent(instanceId)}`)
+		}
 		playOwyxUiSound('success')
 	} catch (e) {
 		handleFriendsError(e)
@@ -371,8 +389,6 @@ async function joinFriendServer(friend: OwyxFriend) {
 		busyJoinId.value = null
 	}
 }
-
-const busyJoinId = ref<string | null>(null)
 
 const messages = defineMessages({
 	addFriend: { id: 'friends.action.add-friend', defaultMessage: 'Add a friend' },
@@ -488,6 +504,10 @@ const messages = defineMessages({
 	joinServer: {
 		id: 'friends.join-server',
 		defaultMessage: 'Join catalog server',
+	},
+	errNoPack: {
+		id: 'friends.error.no-pack',
+		defaultMessage: 'No installable pack is published for this server yet.',
 	},
 	copiedInstanceName: {
 		id: 'friends.copied-instance-name',

@@ -314,7 +314,9 @@ useAppEvent(
 					const { writeOwyxCslConfigForInstance, mirrorLocalOwyxSkinToInstance } =
 						await import('@/helpers/owyx-csl')
 					await writeOwyxCslConfigForInstance(event.instance_id)
-					const nick = owyxSiteSession.value?.user?.nickname
+					const nick =
+						owyxSiteSession.value?.user?.displayNickname ||
+						owyxSiteSession.value?.user?.nickname
 					if (nick) await mirrorLocalOwyxSkinToInstance(event.instance_id, nick)
 				} catch {
 					/* best-effort skin wiring */
@@ -864,16 +866,6 @@ async function setupApp() {
 		initAnalytics()
 		if (dev) debugAnalytics()
 		trackEvent('Launched', { version, dev })
-		void Promise.all([import('@/helpers/owyx-telemetry'), import('@/helpers/owyx-site-auth')])
-			.then(([{ reportOwyxLauncherSession }, { getStoredOwyxSiteSession }]) =>
-				reportOwyxLauncherSession({
-					dev,
-					authToken: getStoredOwyxSiteSession()?.token ?? null,
-				}),
-			)
-			.catch(() => {
-				/* telemetry must never block startup */
-			})
 	}
 
 	const osType = await traceStartupStep('Read operating system type', async () => type())
@@ -903,6 +895,18 @@ async function setupApp() {
 	traceStartupStep('Hydrate Owyx site session', async () => {
 		await hydrateOwyxSiteSession()
 		await refreshOwyxSiteSession()
+		if (telemetry) {
+			void import('@/helpers/owyx-telemetry')
+				.then(({ reportOwyxLauncherSession }) =>
+					reportOwyxLauncherSession({
+						dev,
+						authToken: getStoredOwyxSiteSession()?.token ?? null,
+					}),
+				)
+				.catch(() => {
+					/* telemetry must never block startup */
+				})
+		}
 	})
 
 	if (pending_update_toast_for_version !== null) {
@@ -1437,6 +1441,9 @@ async function refreshOwyxSiteSession() {
 				console.warn('Could not sync Owyx display nickname to play profile', e)
 			}
 		}
+	} else {
+		stopOwyxPresenceHeartbeat()
+		resetOwyxSharePresencePreference()
 	}
 }
 

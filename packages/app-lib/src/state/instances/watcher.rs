@@ -19,6 +19,54 @@ use tokio::sync::{RwLock, mpsc::channel};
 
 use super::adapters::sqlite::instance_rows;
 
+/// Resolve a nested instance path under `profiles/` (e.g. `servers/MyPack`) via
+/// longest-prefix match against registered watcher keys.
+fn resolve_watched_instance(
+    event_path: &std::path::Path,
+    instance_ids: &HashMap<String, String>,
+) -> Option<(String, String)> {
+    let mut parts = Vec::new();
+    let mut found = false;
+    for component in event_path.components() {
+        if found {
+            parts.push(component.as_os_str().to_string_lossy().into_owned());
+        } else if component.as_os_str()
+            == crate::state::dirs::INSTANCES_FOLDER_NAME
+        {
+            found = true;
+        }
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    for len in (1..=parts.len()).rev() {
+        let key = parts[..len].join("/");
+        if let Some(id) = instance_ids.get(&key) {
+            return Some((key, id.clone()));
+        }
+    }
+    None
+}
+
+fn first_child_under_instance<'a>(
+    event_path: &'a std::path::Path,
+    instance_path: &str,
+) -> Option<&'a std::ffi::OsStr> {
+    let mut parts = Vec::new();
+    let mut found = false;
+    for component in event_path.components() {
+        if found {
+            parts.push(component);
+        } else if component.as_os_str()
+            == crate::state::dirs::INSTANCES_FOLDER_NAME
+        {
+            found = true;
+        }
+    }
+    let depth = instance_path.split('/').filter(|p| !p.is_empty()).count();
+    parts.get(depth).map(|c| c.as_os_str())
+}
+
 pub struct FileWatcher {
     watcher: RwLock<Debouncer<RecommendedWatcher>>,
     instance_ids: Arc<RwLock<HashMap<String, String>>>,
@@ -120,121 +168,95 @@ pub async fn init_watcher() -> crate::Result<FileWatcher> {
                         HashMap::<String, HashSet<String>>::new();
 
                     for e in &events {
-                        let mut instance_path = None;
-
-                        let mut found = false;
-                        for component in e.path.components() {
-                            if found {
-                                instance_path = Some(component.as_os_str());
-                                break;
-                            }
-
-                            if component.as_os_str()
-                                == crate::state::dirs::INSTANCES_FOLDER_NAME
-                            {
-                                found = true;
+                        let Some((instance_path_str, instance_id)) =
+                            resolve_watched_instance(&e.path, &instance_ids)
+                        else {
+                            continue;
+                        };
+                        let first_file_name = first_child_under_instance(
+                            &e.path,
+                            &instance_path_str,
+                        );
+                        if first_file_name.as_ref().is_some_and(|name| {
+                            *name == "resourcepacks" || *name == "datapacks"
+                        }) {
+                            pack_instances.insert(instance_id.clone());
+                        }
+                        let is_screenshot_event = first_file_name
+                            .as_ref()
+                            .is_some_and(|name| *name == "screenshots");
+                        if let Some(file_name) = first_file_name
+                            .as_ref()
+                            .and_then(|name| name.to_str())
+                            .filter(|name| {
+                                matches!(
+                                    *name,
+                                    "command_history.txt"
+                                        | "hotbar.nbt"
+                                        | "options.txt"
+                                        | "servers.dat"
+                                )
+                            })
+                        {
+                            synced_option_files
+                                .entry(instance_id.clone())
+                                .or_default()
+                                .insert(file_name.to_owned());
+                            if file_name == "options.txt" {
+                                crate::api::instance::queue_game_locale_index();
                             }
                         }
-
-                        if let Some(instance_path) = instance_path {
-                            let instance_path_str =
-                                instance_path.to_string_lossy().to_string();
-                            let Some(instance_id) =
-                                instance_ids.get(&instance_path_str).cloned()
-                            else {
-                                continue;
-                            };
-                            let first_file_name = e
-                                .path
-                                .components()
-                                .skip_while(|x| x.as_os_str() != instance_path)
-                                .nth(1)
-                                .map(|x| x.as_os_str());
-                            if first_file_name.as_ref().is_some_and(|name| {
-                                *name == "resourcepacks" || *name == "datapacks"
-                            }) {
-                                pack_instances.insert(instance_id.clone());
-                            }
-                            let is_screenshot_event = first_file_name
+                        if first_file_name
+                            .as_ref()
+                            .is_some_and(|x| *x == "crash-reports")
+                            && e.path
+                                .extension()
                                 .as_ref()
-                                .is_some_and(|name| *name == "screenshots");
-                            if let Some(file_name) = first_file_name
+                                .is_some_and(|x| *x == "txt")
+                        {
+                            crash_task(instance_id);
+                        } else if (is_screenshot_event
+                            && !visited_screenshot_instances
+                                .contains(&instance_id))
+                            || (!is_screenshot_event
+                                && !visited_instances.contains(&instance_id))
+                        {
+                            let event = if first_file_name
                                 .as_ref()
-                                .and_then(|name| name.to_str())
-                                .filter(|name| {
-                                    matches!(
-                                        *name,
-                                        "command_history.txt"
-                                            | "hotbar.nbt"
-                                            | "options.txt"
-                                            | "servers.dat"
-                                    )
-                                })
+                                .is_some_and(|x| *x == "servers.dat")
                             {
-                                synced_option_files
-                                    .entry(instance_id.clone())
-                                    .or_default()
-                                    .insert(file_name.to_owned());
-                                if file_name == "options.txt" {
-                                    crate::api::instance::queue_game_locale_index();
-                                }
-                            }
-                            if first_file_name
+                                Some(InstancePayloadType::ServersUpdated)
+                            } else if first_file_name
                                 .as_ref()
-                                .is_some_and(|x| *x == "crash-reports")
-                                && e.path
-                                    .extension()
-                                    .as_ref()
-                                    .is_some_and(|x| *x == "txt")
+                                .is_some_and(|x| *x == "screenshots")
                             {
-                                crash_task(instance_id);
-                            } else if (is_screenshot_event
-                                && !visited_screenshot_instances
-                                    .contains(&instance_id))
-                                || (!is_screenshot_event
-                                    && !visited_instances
-                                        .contains(&instance_id))
-                            {
-                                let event = if first_file_name
-                                    .as_ref()
-                                    .is_some_and(|x| *x == "servers.dat")
-                                {
-                                    Some(InstancePayloadType::ServersUpdated)
-                                } else if first_file_name
-                                    .as_ref()
-                                    .is_some_and(|x| *x == "screenshots")
-                                {
-                                    Some(
-                                        InstancePayloadType::ScreenshotsUpdated,
-                                    )
-                                } else if first_file_name.as_ref().is_some_and(
-                                    |x| {
-                                        *x == "saves"
-                                            && e.path
-                                                .file_name()
-                                                .as_ref()
-                                                .is_some_and(|x| {
-                                                    *x == "level.dat"
-                                                })
-                                    },
-                                ) {
-                                    tracing::info!(
-                                        "World updated: {}",
-                                        e.path.display()
-                                    );
-                                    let world = e
-                                        .path
-                                        .parent()
-                                        .unwrap()
-                                        .file_name()
-                                        .unwrap()
-                                        .to_string_lossy()
-                                        .to_string();
-                                    if !e.path.is_file() {
-                                        let instance_id = instance_id.clone();
-                                        let world = world.clone();
-                                        tokio::spawn(async move {
-                                            if let Ok(state) = State::get().await
+                                Some(InstancePayloadType::ScreenshotsUpdated)
+                            } else if first_file_name.as_ref().is_some_and(
+                                |x| {
+                                    *x == "saves"
+                                        && e.path
+                                            .file_name()
+                                            .as_ref()
+                                            .is_some_and(|x| *x == "level.dat")
+                                },
+                            ) {
+                                tracing::info!(
+                                    "World updated: {}",
+                                    e.path.display()
+                                );
+                                let world = e
+                                    .path
+                                    .parent()
+                                    .unwrap()
+                                    .file_name()
+                                    .unwrap()
+                                    .to_string_lossy()
+                                    .to_string();
+                                if !e.path.is_file() {
+                                    let instance_id = instance_id.clone();
+                                    let world = world.clone();
+                                    tokio::spawn(async move {
+                                        if let Ok(state) = State::get().await
 												&& let Err(e) = attached_world_data::AttachedWorldData::remove_for_world(
 													&instance_id,
 													WorldType::Singleplayer,
@@ -243,40 +265,39 @@ pub async fn init_watcher() -> crate::Result<FileWatcher> {
 												).await {
 													tracing::warn!("Failed to remove AttachedWorldData for '{world}': {e}")
 												}
-                                        });
-                                    }
-                                    Some(InstancePayloadType::WorldUpdated {
-                                        world,
-                                    })
-                                } else if first_file_name.as_ref().is_none_or(
-                                    |x| *x != "saves" && *x != CONFIG_DIRECTORY,
-                                ) {
-                                    Some(InstancePayloadType::Synced)
+                                    });
+                                }
+                                Some(InstancePayloadType::WorldUpdated {
+                                    world,
+                                })
+                            } else if first_file_name.as_ref().is_none_or(|x| {
+                                *x != "saves" && *x != CONFIG_DIRECTORY
+                            }) {
+                                Some(InstancePayloadType::Synced)
+                            } else {
+                                None
+                            };
+                            if let Some(event) = event {
+                                let emit_instance_id = instance_id.clone();
+                                let reconcile_screenshots = matches!(
+                                    &event,
+                                    InstancePayloadType::ScreenshotsUpdated
+                                );
+                                let sync_content = first_file_name
+                                    .as_ref()
+                                    .is_some_and(|name| {
+                                        ProjectType::iterator().any(
+                                            |project_type| {
+                                                *name
+                                                    == project_type.get_folder()
+                                            },
+                                        )
+                                    });
+                                if sync_content {
+                                    queue_content_sync(emit_instance_id);
                                 } else {
-                                    None
-                                };
-                                if let Some(event) = event {
-                                    let emit_instance_id = instance_id.clone();
-                                    let reconcile_screenshots = matches!(
-                                        &event,
-                                        InstancePayloadType::ScreenshotsUpdated
-                                    );
-                                    let sync_content = first_file_name
-                                        .as_ref()
-                                        .is_some_and(|name| {
-                                            ProjectType::iterator().any(
-                                                |project_type| {
-                                                    *name
-                                                        == project_type
-                                                            .get_folder()
-                                                },
-                                            )
-                                        });
-                                    if sync_content {
-                                        queue_content_sync(emit_instance_id);
-                                    } else {
-                                        tokio::spawn(async move {
-                                            if reconcile_screenshots
+                                    tokio::spawn(async move {
+                                        if reconcile_screenshots
 												&& let Err(error) =
 													crate::api::instance::reconcile_screenshots(
 														&emit_instance_id,
@@ -287,19 +308,18 @@ pub async fn init_watcher() -> crate::Result<FileWatcher> {
 													"Failed to reconcile screenshots after filesystem change: {error}"
 												);
 											}
-                                            let _ = emit_instance(
-                                                &emit_instance_id,
-                                                event,
-                                            )
-                                            .await;
-                                        });
-                                    }
-                                    if is_screenshot_event {
-                                        visited_screenshot_instances
-                                            .push(instance_id);
-                                    } else {
-                                        visited_instances.push(instance_id);
-                                    }
+                                        let _ = emit_instance(
+                                            &emit_instance_id,
+                                            event,
+                                        )
+                                        .await;
+                                    });
+                                }
+                                if is_screenshot_event {
+                                    visited_screenshot_instances
+                                        .push(instance_id);
+                                } else {
+                                    visited_instances.push(instance_id);
                                 }
                             }
                         }

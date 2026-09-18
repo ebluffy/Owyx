@@ -19,7 +19,7 @@ import {
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
 } from '@/helpers/owyx-server-instances'
-import { start_join_server } from '@/helpers/worlds'
+import { ensureManagedServerWorldExists, start_join_server } from '@/helpers/worlds'
 import { injectAppEvents } from '@/providers/app-events'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
@@ -101,6 +101,9 @@ async function loadCatalog() {
 		})
 		servers.value = result.servers
 		apiBase.value = getStoredOwyxApiBase()
+		if (result.fromFallback && result.servers.length === 0) {
+			loadError.value = formatMessage(messages.unreachable)
+		}
 	} catch (e) {
 		servers.value = []
 		loadError.value = e instanceof Error ? e.message : String(e)
@@ -176,8 +179,6 @@ async function openPack(server: OwyxServerEntry) {
 		})
 	} catch (e) {
 		handleError(e)
-		const url = resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(apiBase.value))
-		if (url) window.open(url, '_blank', 'noopener,noreferrer')
 	} finally {
 		busyId.value = null
 	}
@@ -193,6 +194,7 @@ async function playServer(server: OwyxServerEntry) {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
 		const instanceId = await ensurePackInstalled(server)
 		if (!instanceId) return
+		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
 		try {
 			await start_join_server(instanceId, server.address)
 		} catch {
@@ -309,7 +311,7 @@ onMounted(() => {
 					<Button
 						type="colored"
 						color="brand"
-						:disabled="busyId === server.id"
+						:disabled="busyId === server.id || !hasPack(server)"
 						@click="playServer(server)"
 					>
 						<PlayIcon class="h-4 w-4" />

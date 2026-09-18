@@ -38,13 +38,19 @@ use uuid::Uuid;
 
 const OWYX_SERVER_LINK_PREFIX: &str = "owyx-server:";
 
-fn owyx_server_path_for_link(link: &InstanceLink, name: &str) -> Option<String> {
+fn owyx_server_path_for_link(
+    link: &InstanceLink,
+    _name: &str,
+) -> Option<String> {
     match link {
         InstanceLink::ImportedModpack {
             project_id: Some(project_id),
             ..
         } if project_id.starts_with(OWYX_SERVER_LINK_PREFIX) => {
-            Some(owyx_server_instance_path(name))
+            let server_id = project_id
+                .strip_prefix(OWYX_SERVER_LINK_PREFIX)
+                .unwrap_or(project_id);
+            Some(owyx_server_instance_path(server_id))
         }
         _ => None,
     }
@@ -503,6 +509,7 @@ async fn prepare_initial_instance(
             icon_config,
             link,
         } => {
+            let path = owyx_server_path_for_link(&link, &name);
             let metadata = Box::pin(crate::api::instance::create(
                 name,
                 game_version,
@@ -511,7 +518,7 @@ async fn prepare_initial_instance(
                 icon_path,
                 icon_config,
                 link,
-                None,
+                path,
             ))
             .await?;
             set_display(
@@ -650,7 +657,10 @@ async fn prepare_initial_instance(
                             "Unknown instance".to_string(),
                         )
                     })?;
-            let path = owyx_server_path_for_link(&metadata.link, &metadata.instance.name);
+            let path = owyx_server_path_for_link(
+                &metadata.link,
+                &metadata.instance.name,
+            );
             let created = Box::pin(crate::api::instance::create(
                 metadata.instance.name,
                 metadata.applied_content_set.game_version,

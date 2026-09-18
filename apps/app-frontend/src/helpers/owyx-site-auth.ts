@@ -29,6 +29,11 @@ async function owyxFetch(input: string, init?: RequestInit): Promise<Response> {
 const LEGACY_STORAGE_TOKEN = 'owyx.siteToken'
 const LEGACY_STORAGE_USER = 'owyx.siteUser'
 
+/** Bumped on clear so in-flight hydrate /me cannot resurrect a wiped session. */
+let sessionEpoch = 0
+let memorySession: OwyxSiteSession | null = null
+let hydratePromise: Promise<OwyxSiteSession | null> | null = null
+
 export type OwyxSiteUser = {
 	id: number | string
 	nickname: string
@@ -43,10 +48,6 @@ export type OwyxSiteSession = {
 	token: string
 	user: OwyxSiteUser
 }
-
-/** In-memory cache; never write JWT to localStorage. */
-let memorySession: OwyxSiteSession | null = null
-let hydratePromise: Promise<OwyxSiteSession | null> | null = null
 
 function authHeaders(token?: string): Record<string, string> {
 	const headers: Record<string, string> = {
@@ -121,12 +122,14 @@ export function getStoredOwyxSiteSession(): OwyxSiteSession | null {
 /** Load JWT from OS app-data; migrate legacy localStorage once. */
 export async function hydrateOwyxSiteSession(): Promise<OwyxSiteSession | null> {
 	if (!hydratePromise) {
+		const epoch = sessionEpoch
 		hydratePromise = (async () => {
 			try {
 				const raw = await invoke<string | null>('plugin:utils|owyx_site_session_get')
 				if (raw) {
 					const parsed = parseSessionPayload(raw)
 					if (parsed) {
+						if (epoch !== sessionEpoch) return null
 						memorySession = parsed
 						clearLegacyLocalStorage()
 						return memorySession
@@ -136,14 +139,18 @@ export async function hydrateOwyxSiteSession(): Promise<OwyxSiteSession | null> 
 				/* Tauri unavailable (tests) — fall through */
 			}
 
+			if (epoch !== sessionEpoch) return null
+
 			const legacy = readLegacyLocalStorage()
 			if (legacy) {
+				if (epoch !== sessionEpoch) return null
 				memorySession = legacy
 				clearLegacyLocalStorage()
 				await writeOsSession(legacy)
 				return memorySession
 			}
 
+			if (epoch !== sessionEpoch) return null
 			memorySession = null
 			return null
 		})()
@@ -152,8 +159,9 @@ export async function hydrateOwyxSiteSession(): Promise<OwyxSiteSession | null> 
 }
 
 export function clearOwyxSiteSession() {
+	sessionEpoch += 1
 	memorySession = null
-	hydratePromise = Promise.resolve(null)
+	hydratePromise = null
 	clearLegacyLocalStorage()
 	void clearOsSession()
 }
@@ -179,7 +187,8 @@ function mapUser(
 					: null
 	let avatarUrl: string | null = avatarRaw
 	if (avatarRaw?.startsWith('/')) {
-		avatarUrl = `https://owyx.site${avatarRaw}`
+		const base = sanitizeOwyxApiBase(getStoredOwyxApiBase() || DEFAULT_OWYX_API_BASE)
+		avatarUrl = `${base.replace(/\/$/, '')}${avatarRaw}`
 	}
 	return {
 		id: (raw.id as number | string) ?? 0,
@@ -235,6 +244,8 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 		: getStoredOwyxSiteSession()
 	if (!session?.token) return null
 
+	const epoch = sessionEpoch
+	const tokenAtStart = session.token
 	const base = apiBase()
 	try {
 		const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/launcher/me`, {
@@ -247,6 +258,9 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 			return null
 		}
 		if (!res.ok) return session
+		if (epoch !== sessionEpoch || getStoredOwyxSiteSession()?.token !== tokenAtStart) {
+			return null
+		}
 		const data = (await res.json()) as Record<string, unknown>
 		const userRaw = (data.user && typeof data.user === 'object' ? data.user : data) as Record<
 			string,
@@ -258,6 +272,9 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 				: null
 		if (!userRaw.avatarUrl && data.avatarUrl) userRaw.avatarUrl = data.avatarUrl
 		const user = mapUser(userRaw, cosmetics)
+		if (epoch !== sessionEpoch || getStoredOwyxSiteSession()?.token !== tokenAtStart) {
+			return null
+		}
 		persistSession(session.token, user)
 		const playNick = user.displayNickname || user.nickname
 		void syncOwyxCosmeticsToDisk(playNick, cosmetics).catch(() => undefined)
