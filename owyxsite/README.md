@@ -14,12 +14,12 @@ Next.js        ← owyx/frontend (:3000, rewrites /api → backend)
 
 `chiwawasite/` remains in the repo as a behavior reference and is **not** required at runtime.
 
-**Design:** the site follows the launcher-aligned design system in the root `DESIGN.md`
-(dark space + cyan `#00e5ff`, DM Sans). Pre-redesign gold UI is snapshotted in `old.backup/`.
-Launcher integration spec: `LAUNCHER_SITE_CONTRACT.md` (Owyx-account login, `GET /api/launcher/me`).
+**Design:** the site follows the launcher-aligned design system in [`brand/DESIGN.md`](../brand/DESIGN.md)
+(dark space + cyan `#00e5ff`, **Onest** / **Unbounded**). Pre-redesign gold UI is snapshotted in `old.backup/`.
+Launcher integration spec: `LAUNCHER_SITE_CONTRACT.md` (Owyx site account + Microsoft in launcher, `GET /api/launcher/me`).
 
 **Versions:** Site UI **0.1** (аккаунт, download, auth, cosmetics, admin catalog) ·
-Launcher-facing API **v1.1** (`GET /api/launcher/v1/status` → `version 1.1.0`, `siteVersion 0.1.0`).
+Launcher-facing API **1.4.0** (`GET /api/launcher/v1/status` → `version 1.4.0`, `siteVersion 0.1.0`).
 Catalog: `GET /api/launcher/v1/servers|packs|news` are live rows, not empty stubs.
 Admin CRUD: `/api/admin/servers` + `/api/admin/packs`. See `LAUNCHER_SITE_CONTRACT.md`.
 

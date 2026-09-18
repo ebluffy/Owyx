@@ -1,7 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Modal from "@/components/ui/Modal";
+import { useLocale } from "@/hooks/useLocale";
+import {
+  AVATAR_CROP_PX,
+  AVATAR_VIEW_PX,
+  avatarCoverBase,
+  clampAvatarOffset,
+  renderAvatarCropPng,
+} from "@/lib/avatarCropCanvas";
 
 export type AvatarCropData = {
   scale: number;
@@ -15,19 +23,23 @@ export type AvatarCropData = {
 type Props = {
   file: File;
   onCancel: () => void;
-  onConfirm: (crop: AvatarCropData) => void;
+  onConfirm: (cropped: File) => void;
 };
 
-/** Preview frame size (px). Crop circle is 256×256 centered inside. */
-const VIEW = 288;
-const CROP = 256;
+const VIEW = AVATAR_VIEW_PX;
+const CROP = AVATAR_CROP_PX;
 const PAD = (VIEW - CROP) / 2;
+const RADIUS = CROP / 2;
 
 /**
- * Start with the full image visible (contain). User zooms in and pans so the
- * circle picks the region. Backend scale = fit × zoom (image-pixel multiplier).
+ * Pan/zoom are clamped so the uploaded photo always fills the crop circle
+ * (no empty black inside the circle). Outside the circle stays dimmed.
  */
 export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
+  const { dict } = useLocale();
+  const t = dict.profile;
+  const c = dict.common;
+
   const [url, setUrl] = useState<string | null>(null);
   const [nat, setNat] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState(1);
@@ -35,8 +47,12 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
   const [flipX, setFlipX] = useState(1);
   const [offsetX, setOffsetX] = useState(0);
   const [offsetY, setOffsetY] = useState(0);
+  const [saving, setSaving] = useState(false);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const offsetRef = useRef({ x: 0, y: 0 });
+  offsetRef.current = { x: offsetX, y: offsetY };
 
   useEffect(() => {
     const objectUrl = URL.createObjectURL(file);
@@ -50,9 +66,24 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     return () => URL.revokeObjectURL(objectUrl);
   }, [file]);
 
-  const fit =
-    nat.w > 0 && nat.h > 0 ? Math.min(VIEW / nat.w, VIEW / nat.h) : 1;
-  const displayScale = fit * zoom;
+  const displayScale = useMemo(
+    () => avatarCoverBase(nat.w, nat.h) * zoom,
+    [nat.w, nat.h, zoom],
+  );
+
+  const applyClamp = useCallback(
+    (ox: number, oy: number, nextZoom = zoom, nextRot = rotation) =>
+      clampAvatarOffset(ox, oy, nat.w, nat.h, nextZoom, nextRot),
+    [nat.w, nat.h, zoom, rotation],
+  );
+
+  useEffect(() => {
+    if (!nat.w) return;
+    const { x, y } = offsetRef.current;
+    const clamped = applyClamp(x, y);
+    if (clamped.x !== x) setOffsetX(clamped.x);
+    if (clamped.y !== y) setOffsetY(clamped.y);
+  }, [nat.w, nat.h, zoom, rotation, applyClamp]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -62,11 +93,18 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     [offsetX, offsetY],
   );
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!drag.current) return;
-    setOffsetX(drag.current.ox + (e.clientX - drag.current.x));
-    setOffsetY(drag.current.oy + (e.clientY - drag.current.y));
-  }, []);
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!drag.current) return;
+      const next = applyClamp(
+        drag.current.ox + (e.clientX - drag.current.x),
+        drag.current.oy + (e.clientY - drag.current.y),
+      );
+      setOffsetX(next.x);
+      setOffsetY(next.y);
+    },
+    [applyClamp],
+  );
 
   const onPointerUp = useCallback(() => {
     drag.current = null;
@@ -84,6 +122,21 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     return () => el.removeEventListener("wheel", onWheel);
   }, [url]);
 
+  function setZoomClamped(next: number) {
+    const z = Math.min(6, Math.max(1, next));
+    setZoom(z);
+    const clamped = applyClamp(offsetX, offsetY, z, rotation);
+    setOffsetX(clamped.x);
+    setOffsetY(clamped.y);
+  }
+
+  function setRotationClamped(next: number) {
+    setRotation(next);
+    const clamped = applyClamp(offsetX, offsetY, zoom, next);
+    setOffsetX(clamped.x);
+    setOffsetY(clamped.y);
+  }
+
   function reset() {
     setZoom(1);
     setRotation(0);
@@ -92,18 +145,41 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
     setOffsetY(0);
   }
 
+  async function handleSave() {
+    const img = imgRef.current;
+    if (!img || !nat.w) return;
+    setSaving(true);
+    try {
+      const clamped = applyClamp(offsetX, offsetY);
+      const blob = await renderAvatarCropPng(img, {
+        naturalWidth: nat.w,
+        naturalHeight: nat.h,
+        zoom,
+        rotation,
+        flipX,
+        offsetX: clamped.x,
+        offsetY: clamped.y,
+      });
+      const cropped = new File([blob], "avatar-cropped.png", { type: "image/png" });
+      onConfirm(cropped);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Modal
       onClose={onCancel}
-      title="Обрезка аватара"
-      description="Фото целиком в кадре. Приблизьте и сдвиньте — в круге то, что сохранится (256×256)."
+      title={t.cropTitle}
+      description={t.cropHint}
       size="md"
-      scrollable={false}
+      scrollable
+      panelClassName="max-h-[min(92vh,44rem)]"
     >
       <div className="space-y-3">
         <div
           ref={frameRef}
-          className="relative mx-auto overflow-hidden rounded-2xl border border-line bg-[#0a0a0f] touch-none select-none"
+          className="relative mx-auto overflow-hidden rounded-2xl border border-line bg-surface touch-none select-none"
           style={{ width: VIEW, height: VIEW }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -113,6 +189,7 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
           {url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              ref={imgRef}
               src={url}
               alt=""
               draggable={false}
@@ -123,15 +200,15 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
                 transform: `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px)) rotate(${rotation}deg) scale(${flipX * displayScale}, ${displayScale})`,
               }}
               onLoad={(e) => {
-                const img = e.currentTarget;
-                setNat({ w: img.naturalWidth, h: img.naturalHeight });
+                const image = e.currentTarget;
+                setNat({ w: image.naturalWidth, h: image.naturalHeight });
               }}
             />
           )}
           <div
             className="pointer-events-none absolute inset-0"
             style={{
-              background: `radial-gradient(circle ${CROP / 2}px at 50% 50%, transparent ${CROP / 2 - 1}px, rgba(0,0,0,0.65) ${CROP / 2}px)`,
+              background: `radial-gradient(circle ${RADIUS}px at 50% 50%, transparent ${RADIUS - 1}px, rgba(0,0,0,0.55) ${RADIUS}px)`,
             }}
           />
           <div
@@ -145,60 +222,51 @@ export default function AvatarCropModal({ file, onCancel, onConfirm }: Props) {
             }}
           />
           <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-white/55">
-            Перетащите · колесо = приблизить
+            {t.cropGestureHint}
           </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <CropSlider
-            label={`Приближение ${zoom.toFixed(2)}×`}
+            label={`${t.cropZoom} ${zoom.toFixed(2)}×`}
             min={1}
             max={6}
             step={0.01}
             value={zoom}
-            onChange={setZoom}
+            onChange={setZoomClamped}
           />
           <CropSlider
-            label={`Поворот ${rotation}°`}
+            label={`${t.cropRotate} ${rotation}°`}
             min={-180}
             max={180}
             step={1}
             value={rotation}
-            onChange={setRotation}
+            onChange={setRotationClamped}
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 pb-1">
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => setFlipX((f) => (f === 1 ? -1 : 1))}
           >
-            Отразить
+            {t.cropFlip}
           </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={reset}>
-            Сбросить
+            {t.cropReset}
           </button>
           <div className="ml-auto flex flex-wrap gap-2">
             <button type="button" className="btn btn-ghost" onClick={onCancel}>
-              Отмена
+              {c.cancel}
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={!nat.w}
-              onClick={() =>
-                onConfirm({
-                  scale: displayScale,
-                  rotation,
-                  flipX,
-                  offsetX,
-                  offsetY,
-                  cropSize: CROP,
-                })
-              }
+              disabled={!nat.w || saving}
+              onClick={() => void handleSave()}
             >
-              Сохранить
+              {saving ? c.saving : c.save}
             </button>
           </div>
         </div>

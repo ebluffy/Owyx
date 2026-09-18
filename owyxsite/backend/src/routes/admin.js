@@ -9,6 +9,22 @@ const bcrypt = require('bcryptjs');
 
 const router = express.Router();
 
+/** Prevent admin test endpoints from acting as an open SMTP relay. */
+function resolveAdminSelfTestEmail(req, requested) {
+    const adminEmail = String(req.user?.email || '').trim().toLowerCase();
+    const target = String(requested || adminEmail).trim().toLowerCase();
+    if (!adminEmail) {
+        return { ok: false, error: 'У аккаунта администратора не указан email' };
+    }
+    if (target !== adminEmail) {
+        return {
+            ok: false,
+            error: 'Тестовые письма можно отправлять только на email текущего администратора',
+        };
+    }
+    return { ok: true, email: adminEmail };
+}
+
 // ---- Compatibility aliases for Next.js admin UI ----
 
 // GET /api/admin/applications → same as /api/applications
@@ -1520,10 +1536,11 @@ router.get('/server-status', authenticateToken, requireRole(['admin', 'moderator
 router.post('/test/email', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
         const emailService = require('../utils/emailService');
-        const testEmail = (req.body?.email || req.user.email || '').trim();
-        if (!testEmail) {
-            return res.status(400).json({ error: 'не указан email получателя' });
+        const allowed = resolveAdminSelfTestEmail(req, req.body?.email);
+        if (!allowed.ok) {
+            return res.status(403).json({ error: allowed.error });
         }
+        const testEmail = allowed.email;
 
         const result = await emailService.sendTemplate(testEmail, 'welcome', {
             nickname: req.user.nickname || req.user.display_nickname || 'admin',
@@ -2113,33 +2130,19 @@ router.post('/test-email-with-template', [
             });
         }
 
-        const { templateKey, recipientEmail, userId } = req.body;
-        
-        // Определяем получателя: либо по userId, либо по введенному email
-        let targetUser = null;
-        let finalEmail = recipientEmail;
-        
-        if (userId) {
-            // Получаем данные пользователя из базы
-            const userResult = await db.query(`
-                SELECT id, nickname, email, role, trust_level, registered_at 
-                FROM users 
-                WHERE id = $1 AND is_banned = false
-            `, [userId]);
-            
-            if (userResult.rows.length === 0) {
-                return res.status(404).json({
-                    error: 'Пользователь не найден или заблокирован'
-                });
-            }
-            
-            targetUser = userResult.rows[0];
-            finalEmail = targetUser.email;
-        } else if (!recipientEmail) {
-            return res.status(400).json({
-                error: 'Необходимо выбрать пользователя или ввести email адрес'
-            });
+        const { templateKey } = req.body;
+
+        const allowed = resolveAdminSelfTestEmail(req, req.body.recipientEmail);
+        if (!allowed.ok) {
+            return res.status(403).json({ error: allowed.error });
         }
+        const finalEmail = allowed.email;
+        const targetUser = {
+            id: req.user.id,
+            nickname: req.user.nickname || req.user.display_nickname || 'admin',
+            email: finalEmail,
+            role: req.user.role,
+        };
         
         // Получаем шаблон из базы данных
         const templateIds = {
@@ -2800,32 +2803,46 @@ module.exports = ${JSON.stringify(currentConfig, null, 4)};
 // POST /api/admin/test-email - Тестирование email настроек
 router.post('/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
     try {
-        const { recipient, template, settings } = req.body;
-        
-        if (!recipient) {
-            return res.status(400).json({
-                error: 'Укажите email получателя'
-            });
+        const { template, settings } = req.body;
+
+        const allowed = resolveAdminSelfTestEmail(req, req.body.recipient);
+        if (!allowed.ok) {
+            return res.status(403).json({ error: allowed.error });
         }
-        
-        // Валидируем email
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(recipient)) {
-            return res.status(400).json({
-                error: 'Неверный формат email адреса'
-            });
-        }
+        const recipient = allowed.email;
         
         const nodemailer = require('nodemailer');
-        
-        // Создаем транспортер с переданными настройками
+
+        // Production: env-only SMTP (ignore client-supplied host). Dev may use form settings.
+        const smtpHost =
+            process.env.NODE_ENV === 'production'
+                ? process.env.SMTP_HOST || 'smtp.mailjet.com'
+                : settings?.host || process.env.SMTP_HOST || 'smtp.yandex.ru';
+        const smtpPort = Number(
+            process.env.NODE_ENV === 'production'
+                ? process.env.SMTP_PORT || 465
+                : settings?.port || process.env.SMTP_PORT || 465,
+        );
+        const smtpUser =
+            process.env.NODE_ENV === 'production'
+                ? process.env.SMTP_USER
+                : settings?.user || process.env.SMTP_USER;
+        const smtpPass =
+            process.env.NODE_ENV === 'production'
+                ? process.env.SMTP_PASS || process.env.SMTP_PASSWORD
+                : settings?.password || process.env.SMTP_PASS || process.env.SMTP_PASSWORD;
+        const smtpSecure =
+            process.env.NODE_ENV === 'production'
+                ? String(process.env.SMTP_SECURE || 'true') !== 'false'
+                : settings?.secure !== false;
+
         const transporter = nodemailer.createTransport({
-            host: settings.host || 'smtp.yandex.ru',
-            port: settings.port || 465,
-            secure: settings.secure !== false, // true для 465, false для других портов
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpSecure,
             auth: {
-                user: settings.user,
-                pass: settings.password
+                user: smtpUser,
+                pass: smtpPass,
             },
             timeout: 30000,
             connectionTimeout: 30000,

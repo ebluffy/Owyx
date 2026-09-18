@@ -2,6 +2,7 @@
 import {
 	MailIcon,
 	MoreVerticalIcon,
+	PlayIcon,
 	SearchIcon,
 	SendIcon,
 	TrashIcon,
@@ -42,8 +43,8 @@ import {
 	declineOwyxFriend,
 	listOwyxFriends,
 	type OwyxFriend,
-	OwyxFriendsError,
 	owyxFriendLabel,
+	OwyxFriendsError,
 	removeOwyxFriend,
 	requestOwyxFriend,
 	searchOwyxUsers,
@@ -761,7 +762,24 @@ const messages = defineMessages({
 										<span class="m-0 text-xs text-secondary">{{ friendStatusLabel(friend) }}</span>
 									</div>
 								</div>
-								<TeleportOverflowMenu
+								<div class="flex items-center gap-0.5">
+									<IconButton
+										v-if="
+											friend.presence === 'playing' &&
+											friend.instanceName &&
+											matchCatalogServer(friend)
+										"
+										v-tooltip="formatMessage(messages.joinServer)"
+										type="colored"
+										color="brand"
+										class="shrink-0"
+										:disabled="busyJoinId === friend.id"
+										:label="formatMessage(messages.joinServer)"
+										@click="joinFriendServer(friend)"
+									>
+										<PlayIcon />
+									</IconButton>
+									<TeleportOverflowMenu
 									type="quiet"
 									label="More options"
 									class="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -822,6 +840,7 @@ const messages = defineMessages({
 										{{ formatMessage(messages.removeFriend) }}
 									</template>
 								</TeleportOverflowMenu>
+								</div>
 							</div>
 						</div>
 					</template>

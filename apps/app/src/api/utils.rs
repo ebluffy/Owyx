@@ -8,9 +8,13 @@ use theseus::{
 
 use crate::api::{Result, TheseusSerializableError};
 use dashmap::DashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 use theseus::prelude::canonicalize;
 use url::Url;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipWriter};
 
 pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
     tauri::plugin::Builder::new("utils")
@@ -21,6 +25,7 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             highlight_in_folder,
             open_path,
             show_launcher_logs_folder,
+            export_owyx_diagnostics_zip,
             show_app_db_backups_folder,
             progress_bars_list,
             get_opening_command,
@@ -163,6 +168,96 @@ pub async fn show_launcher_logs_folder<R: Runtime>(app: tauri::AppHandle<R>) {
         // (ie: if in debug mode only and launcher_logs never created)
         open_path(app, path).await;
     }
+}
+
+const OWYX_DIAG_LOG_FILES: usize = 6;
+const OWYX_DIAG_LOG_MAX_BYTES: u64 = 512 * 1024;
+
+#[tauri::command]
+pub async fn export_owyx_diagnostics_zip(
+    dest: PathBuf,
+    report: String,
+) -> Result<()> {
+    let logs_dir = DirectoryInfo::global_handle_if_ready()
+        .and_then(|d| d.launcher_logs_dir());
+
+    if let Some(parent) = dest.parent() {
+        tokio::fs::create_dir_all(parent).await.ok();
+    }
+
+    tauri::async_runtime::spawn_blocking(move || -> std::result::Result<(), String> {
+        let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated);
+
+        zip.start_file("owyx-diagnostics.txt", options)
+            .map_err(|e| e.to_string())?;
+        zip.write_all(report.as_bytes())
+            .map_err(|e| e.to_string())?;
+
+        if let Some(logs_dir) = logs_dir {
+            let mut entries: Vec<(SystemTime, PathBuf)> = Vec::new();
+            if let Ok(read_dir) = std::fs::read_dir(&logs_dir) {
+                for entry in read_dir.flatten() {
+                    let path = entry.path();
+                    let Ok(metadata) = entry.metadata() else {
+                        continue;
+                    };
+                    if !metadata.is_file() {
+                        continue;
+                    }
+                    let modified = metadata
+                        .modified()
+                        .or_else(|_| metadata.created())
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    entries.push((modified, path));
+                }
+            }
+            entries.sort_by(|a, b| b.0.cmp(&a.0));
+            for (_, path) in entries.into_iter().take(OWYX_DIAG_LOG_FILES) {
+                let file_name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("launcher.log");
+                let archive_name = format!("launcher_logs/{file_name}");
+                let mut source = std::fs::File::open(&path).map_err(|e| e.to_string())?;
+                let len = source.metadata().map_err(|e| e.to_string())?.len();
+                zip.start_file(archive_name, options)
+                    .map_err(|e| e.to_string())?;
+                if len <= OWYX_DIAG_LOG_MAX_BYTES {
+                    std::io::copy(&mut source, &mut zip).map_err(|e| e.to_string())?;
+                } else {
+                    let start = len.saturating_sub(OWYX_DIAG_LOG_MAX_BYTES);
+                    use std::io::{Read, Seek, SeekFrom};
+                    source.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+                    let mut tail = Vec::new();
+                    source.read_to_end(&mut tail).map_err(|e| e.to_string())?;
+                    let header = format!("[first {start} bytes omitted]\n");
+                    zip.write_all(header.as_bytes())
+                        .map_err(|e| e.to_string())?;
+                    zip.write_all(&tail).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+
+        zip.finish().map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| {
+        TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(format!("diagnostics zip task failed: {error}"))
+                .into(),
+        )
+    })?
+    .map_err(|error| {
+        TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(error).into(),
+        )
+    })?;
+
+    Ok(())
 }
 
 #[tauri::command]

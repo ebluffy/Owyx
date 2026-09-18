@@ -3653,6 +3653,42 @@
   "friends.status.unknown-instance": {
     "message": "Minecraft"
   },
+  "friends.join-server": {
+    "message": "Join catalog server"
+  },
+  "friends.error.no-pack": {
+    "message": "No installable pack is published for this server yet."
+  },
+  "friends.error.unauthorized": {
+    "message": "Sign in to your Owyx account again, then retry."
+  },
+  "friends.error.not-accepting": {
+    "message": "This player is not accepting friend requests."
+  },
+  "friends.error.not-found": {
+    "message": "User not found. Check the nickname and try again."
+  },
+  "friends.error.already-friends": {
+    "message": "You are already friends or a request is pending."
+  },
+  "friends.error.missing-client-key": {
+    "message": "Missing client key. Set X-Owyx-Client-Key in Admin → API."
+  },
+  "friends.error.generic": {
+    "message": "Friends request failed. Try again."
+  },
+  "owyx.instance.csl.install-mod": {
+    "message": "Install CustomSkinLoader mod"
+  },
+  "owyx.instance.csl.install-mod-done": {
+    "message": "CustomSkinLoader installed and Owyx config written."
+  },
+  "owyx.instance.csl.install-unsupported": {
+    "message": "CustomSkinLoader needs a modded loader (Fabric, Forge, NeoForge, or Quilt)."
+  },
+  "owyx.instance.csl.capes-note": {
+    "message": "Capes: when your Owyx account has a cape URL, it is mirrored to LocalSkin/capes on launch. Site cape upload is coming soon."
+  },
   "installation-settings.shared-instance.linked-title": {
     "message": "Linked shared instance"
   },
@@ -4885,6 +4921,9 @@
   },
   "owyx.settings.social.allow-requests-hint": {
     "message": "When off, others cannot send new requests. Existing friends stay connected."
+  },
+  "owyx.settings.social.capes-note": {
+    "message": "Capes: CSL reads cape URLs from your Owyx account when set. Profile cape upload on owyx.site is planned next."
   },
   "owyx.settings.social.install-csl": {
     "message": "Install CustomSkinLoader to instance"

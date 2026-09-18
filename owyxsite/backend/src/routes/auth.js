@@ -13,9 +13,24 @@ const { verifyTurnstile } = require('../utils/turnstile');
 const {
     hashSessionToken,
     sessionTokenHashes,
-    publicUser
+    publicUser,
+    revokeOtherUserSessions,
 } = require('../utils/authSecurity');
 const { logUserActivity } = require('../utils/activityLog');
+const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
+const { consumeIp } = require('../utils/ipRateLimit');
+const {
+    setPendingCookie,
+    clearPendingCookie,
+    readPendingDiscord,
+} = require('../utils/discordPendingCookie');
+
+const passwordMaxBytesValidator = body('password').custom((value) => {
+    if (passwordTooLong(value)) {
+        throw new Error(`Пароль не должен превышать ${BCRYPT_MAX_BYTES} байт`);
+    }
+    return true;
+});
 
 const router = express.Router();
 
@@ -257,6 +272,7 @@ router.post('/register', [
     loginFieldValidator,
     legacyNickValidator,
     body('email').isEmail().normalizeEmail().withMessage('Некорректный email'),
+    passwordMaxBytesValidator,
     body('password')
         .isLength({ min: 8 })
         .withMessage('Пароль должен быть минимум 8 символов')
@@ -784,16 +800,16 @@ router.get('/discord/callback', async (req, res) => {
         const discordUsername = discordUser.username;
         
         // Временно сохраняем в сессии для связывания с пользователем
-        req.session.pendingDiscordLink = {
+        setPendingCookie(res, {
             id: discordUser.id,
             username: discordUsername,
             email: discordUser.email,
             avatar: discordUser.avatar,
             access_token: tokenData.access_token,
             refresh_token: tokenData.refresh_token,
-            expires_at: new Date(Date.now() + (tokenData.expires_in * 1000))
-        };
-        
+            expires_at: new Date(Date.now() + (tokenData.expires_in * 1000)).toISOString(),
+        });
+
         res.redirect(`/profile?discord_ready=true&username=${encodeURIComponent(discordUsername)}`);
 
     } catch (error) {
@@ -805,13 +821,12 @@ router.get('/discord/callback', async (req, res) => {
 // POST /api/auth/link-discord - Привязка Discord аккаунта к профилю
 router.post('/link-discord', authenticateToken, async (req, res) => {
     try {
-        if (!req.session.pendingDiscordLink) {
+        const discordData = readPendingDiscord(req);
+        if (!discordData) {
             return res.status(400).json({ 
                 error: 'Нет ожидающей привязки Discord аккаунта. Пройдите авторизацию через Discord заново.' 
             });
         }
-
-        const discordData = req.session.pendingDiscordLink;
 
         // Проверяем, не привязан ли этот Discord к другому пользователю
         const existingLink = await db.query(`
@@ -863,7 +878,7 @@ router.post('/link-discord', authenticateToken, async (req, res) => {
         });
 
         // Очищаем временные данные
-        delete req.session.pendingDiscordLink;
+        clearPendingCookie(res);
 
         res.json({
             success: true,
@@ -919,7 +934,22 @@ router.post('/forgot-password', [
             });
         }
 
-        const { email } = req.body;
+        const ip = req.clientIp || req.ip || 'unknown';
+        const rate = consumeIp(`forgot:${ip}`, { windowMs: 60 * 60 * 1000, max: 5 });
+        if (!rate.allowed) {
+            return res.status(429).json({
+                error: 'Слишком много запросов. Попробуйте позже.',
+                retryAfterSec: rate.retryAfterSec,
+            });
+        }
+
+        const { email, turnstileToken } = req.body;
+        const turnstileResult = await verifyTurnstile(turnstileToken, ip);
+        if (!turnstileResult.success) {
+            return res.status(400).json({
+                error: turnstileResult.message || 'Проверка капчи не пройдена',
+            });
+        }
 
         // Проверяем, существует ли пользователь
         const userResult = await db.query(
@@ -975,6 +1005,7 @@ router.post('/forgot-password', [
 // POST /api/auth/reset-password - Сброс пароля по токену
 router.post('/reset-password', [
     body('token').notEmpty(),
+    passwordMaxBytesValidator,
     body('password').isLength({ min: 8 })
 ], async (req, res) => {
     try {

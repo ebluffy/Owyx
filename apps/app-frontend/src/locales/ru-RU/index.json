@@ -4560,7 +4560,7 @@
     "message": "Аккаунт Owyx (друзья и скины) или Microsoft (лицензия Minecraft)."
   },
   "minecraft-account.sign-in-owyx-site": {
-    "message": "Войти аккаунтом Owyx"
+    "message": "Войти с аккаунтом Owyx"
   },
   "app.welcome-screen.account-paths": {
     "message": "Новичок? Карточка аккаунта слева: аккаунт Owyx или Microsoft."
@@ -4628,6 +4628,42 @@
   "friends.copied-server-address": {
     "message": "Адрес сервера скопирован"
   },
+  "friends.join-server": {
+    "message": "Присоединиться к серверу каталога"
+  },
+  "friends.error.no-pack": {
+    "message": "Для этого сервера пока нет устанавливаемого пака."
+  },
+  "friends.error.unauthorized": {
+    "message": "Войдите в аккаунт Owyx снова и повторите попытку."
+  },
+  "friends.error.not-accepting": {
+    "message": "Этот игрок не принимает заявки в друзья."
+  },
+  "friends.error.not-found": {
+    "message": "Пользователь не найден. Проверьте ник и попробуйте снова."
+  },
+  "friends.error.already-friends": {
+    "message": "Вы уже друзья или заявка уже отправлена."
+  },
+  "friends.error.missing-client-key": {
+    "message": "Нет client key. Укажите X-Owyx-Client-Key в Админ → API."
+  },
+  "friends.error.generic": {
+    "message": "Запрос к друзьям не выполнен. Попробуйте снова."
+  },
+  "owyx.instance.csl.install-mod": {
+    "message": "Установить мод CustomSkinLoader"
+  },
+  "owyx.instance.csl.install-mod-done": {
+    "message": "CustomSkinLoader установлен, конфиг Owyx записан."
+  },
+  "owyx.instance.csl.install-unsupported": {
+    "message": "CustomSkinLoader нужен модовый загрузчик (Fabric, Forge, NeoForge или Quilt)."
+  },
+  "owyx.instance.csl.capes-note": {
+    "message": "Плащи: если в аккаунте Owyx указан URL плаща, он копируется в LocalSkin/capes при запуске. Загрузка плаща на сайте — скоро."
+  },
   "minecraft-account.account-hint": {
     "message": "Owyx — друзья, скины и отображаемый ник в игре. Microsoft — лицензионный профиль и online-mode серверы."
   },
@@ -4654,6 +4690,9 @@
   },
   "owyx.settings.social.open-profile": {
     "message": "Профиль на сайте"
+  },
+  "owyx.settings.social.capes-note": {
+    "message": "Плащи: CSL подхватывает URL плаща из аккаунта Owyx, когда он задан. Загрузка плаща в профиле на owyx.site — в планах."
   },
   "owyx.settings.social.install-csl": {
     "message": "Установить CustomSkinLoader в сборку"

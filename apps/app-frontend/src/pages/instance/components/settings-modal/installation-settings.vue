@@ -34,6 +34,8 @@ import {
 import { get_loader_versions } from '@/helpers/metadata'
 import {
 	CUSTOM_SKIN_LOADER_MODRINTH,
+	installCustomSkinLoaderToInstance,
+	mirrorLocalOwyxCapeToInstance,
 	mirrorLocalOwyxSkinToInstance,
 	writeOwyxCslConfigForInstance,
 } from '@/helpers/owyx-csl'
@@ -48,7 +50,7 @@ import { instanceKeys } from '../../query-options.ts'
 import { injectInstanceSettings } from './instance-settings-context.ts'
 import SharedInstanceInstallationSettingsControls from './shared-instance-installation-settings-controls.vue'
 
-const { handleError } = injectNotificationManager()
+const { handleError, addNotification } = injectNotificationManager()
 const appEvents = injectAppEvents()
 const filePicker = injectFilePicker()
 const { formatMessage } = useVIntl()
@@ -497,20 +499,54 @@ provideInstallationSettings({
 const owyx = injectOwyxSiteSession()
 const cslBusy = ref(false)
 const cslDone = ref(false)
+const cslModBusy = ref(false)
+const cslModDone = ref(false)
 
 async function enableOwyxSkins() {
 	cslBusy.value = true
 	cslDone.value = false
 	try {
 		await writeOwyxCslConfigForInstance(instance.value.id)
-		const nick = owyx.session.value?.user?.nickname
-		if (nick) await mirrorLocalOwyxSkinToInstance(instance.value.id, nick)
+		const nick =
+			owyx.session.value?.user?.displayNickname || owyx.session.value?.user?.nickname
+		if (nick) {
+			await mirrorLocalOwyxSkinToInstance(instance.value.id, nick)
+			await mirrorLocalOwyxCapeToInstance(instance.value.id, nick)
+		}
 		cslDone.value = true
 		playOwyxUiSound('success')
 	} catch (e) {
 		handleError(e)
 	} finally {
 		cslBusy.value = false
+	}
+}
+
+async function installCslMod() {
+	cslModBusy.value = true
+	cslModDone.value = false
+	try {
+		const result = await installCustomSkinLoaderToInstance(instance.value.id)
+		if (result === 'unsupported') {
+			addNotification({
+				type: 'warning',
+				title: formatMessage(cslMessages.skinsInstallMod),
+				text: formatMessage(cslMessages.skinsInstallUnsupported),
+			})
+			return
+		}
+		const nick =
+			owyx.session.value?.user?.displayNickname || owyx.session.value?.user?.nickname
+		if (nick) {
+			await mirrorLocalOwyxSkinToInstance(instance.value.id, nick)
+			await mirrorLocalOwyxCapeToInstance(instance.value.id, nick)
+		}
+		cslModDone.value = true
+		playOwyxUiSound('success')
+	} catch (e) {
+		handleError(e)
+	} finally {
+		cslModBusy.value = false
 	}
 }
 
@@ -537,6 +573,23 @@ const cslMessages = defineMessages({
 		id: 'owyx.instance.csl.mod-link',
 		defaultMessage: 'Open CustomSkinLoader',
 	},
+	skinsInstallMod: {
+		id: 'owyx.instance.csl.install-mod',
+		defaultMessage: 'Install CustomSkinLoader mod',
+	},
+	skinsInstallModDone: {
+		id: 'owyx.instance.csl.install-mod-done',
+		defaultMessage: 'CustomSkinLoader installed and Owyx config written.',
+	},
+	skinsInstallUnsupported: {
+		id: 'owyx.instance.csl.install-unsupported',
+		defaultMessage: 'CustomSkinLoader needs a modded loader (Fabric, Forge, NeoForge, or Quilt).',
+	},
+	skinsCapesNote: {
+		id: 'owyx.instance.csl.capes-note',
+		defaultMessage:
+			'Capes: when your Owyx account has a cape URL, it is mirrored to LocalSkin/capes on launch. Site cape upload is coming soon.',
+	},
 })
 </script>
 
@@ -556,6 +609,14 @@ const cslMessages = defineMessages({
 					<button
 						type="button"
 						class="btn btn-primary cursor-pointer rounded-lg border-0 bg-brand px-3 py-1.5 text-sm text-inverted disabled:opacity-60"
+						:disabled="cslModBusy"
+						@click="installCslMod"
+					>
+						{{ formatMessage(cslMessages.skinsInstallMod) }}
+					</button>
+					<button
+						type="button"
+						class="cursor-pointer rounded-lg border border-solid border-surface-5 bg-button-bg px-3 py-1.5 text-sm text-primary disabled:opacity-60"
 						:disabled="cslBusy"
 						@click="enableOwyxSkins"
 					>
@@ -570,8 +631,14 @@ const cslMessages = defineMessages({
 						{{ formatMessage(cslMessages.skinsMod) }}
 					</a>
 				</div>
-				<p v-if="cslDone" class="m-0 text-xs text-secondary">
+				<p v-if="cslModDone" class="m-0 text-xs text-secondary">
+					{{ formatMessage(cslMessages.skinsInstallModDone) }}
+				</p>
+				<p v-else-if="cslDone" class="m-0 text-xs text-secondary">
 					{{ formatMessage(cslMessages.skinsDone) }}
+				</p>
+				<p class="m-0 text-xs text-secondary leading-relaxed">
+					{{ formatMessage(cslMessages.skinsCapesNote) }}
 				</p>
 			</div>
 			<SharedInstanceInstallationSettingsControls

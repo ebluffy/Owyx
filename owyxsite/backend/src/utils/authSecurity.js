@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const db = require('../database/connection');
 
 const PUBLIC_USER_FIELDS = [
   'id',
@@ -41,6 +42,21 @@ function sessionTokenHashes(token) {
   return [hashSessionToken(token), legacySessionTokenHash(token)];
 }
 
+/** Invalidate other device sessions; keep the current session row when provided. */
+async function revokeOtherUserSessions(userId, keepSessionId) {
+  if (keepSessionId) {
+    await db.query(
+      'UPDATE user_sessions SET is_active = false WHERE user_id = $1 AND id <> $2',
+      [userId, keepSessionId],
+    );
+  } else {
+    await db.query(
+      'UPDATE user_sessions SET is_active = false WHERE user_id = $1',
+      [userId],
+    );
+  }
+}
+
 function publicUser(user) {
   const safe = {};
   for (const field of PUBLIC_USER_FIELDS) {
@@ -58,4 +74,5 @@ module.exports = {
   legacySessionTokenHash,
   sessionTokenHashes,
   publicUser,
+  revokeOtherUserSessions,
 };

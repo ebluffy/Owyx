@@ -75,7 +75,7 @@ export default function Header() {
         </div>
 
         {/* Same width/padding as footer — Download + ЛК on the right green edge. */}
-        <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+        <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 sm:pr-28">
           <div className="flex min-w-0 items-center gap-7">
             <Link href="/" className="flex shrink-0 items-center" aria-label={dict.header.logoHome}>
               <Logo size={26} wordClassName="text-xl" />

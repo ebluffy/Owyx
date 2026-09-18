@@ -153,7 +153,7 @@ Also available as `GET /api/launcher/v1/me`.
 ```json
 {
   "api": "owyx-launcher",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "siteVersion": "0.1.0",
   "serverAccessModel": "open",
   "auth": { "login": "/api/auth/login", "me": "/api/launcher/me" },
@@ -412,14 +412,15 @@ migration `004_nickname_cooldown.sql`). Does **not** overwrite
 
 Display nickname: `PUT /api/profile/display-nickname`
 `{ displayNickname }` (or `display_nickname`) — MC format, 5/min; **not** globally
-unique (migration `011_display_nickname_nonunique.sql` after `010`).
+unique (migration `011_display_nickname_nonunique.sql` after `010`). Label only in
+UI — launcher offline play and friend requests use the **unique login** `nickname`.
 
 ---
 
 ## Versioning
 
 - Stable surface under `/api/launcher/v1/*`. `GET /v1/status.version` is the
-  contract version (`1.3.0`). Additive changes bump the minor; breaking changes
+  contract version (`1.4.0`). Additive changes bump the minor; breaking changes
   add `/v2/`.
 
 ## Launcher client (apps/app-frontend)
