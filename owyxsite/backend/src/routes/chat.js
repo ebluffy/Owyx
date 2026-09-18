@@ -57,7 +57,7 @@ router.get('/rooms', authenticateToken, async (req, res) => {
 router.get('/rooms/:id/messages', authenticateToken, async (req, res) => {
   try {
     const roomId = parseInt(req.params.id, 10);
-    const limit = Math.min(100, parseInt(req.query.limit, 10) || 50);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
     const before = req.query.before;
     if (!Number.isSafeInteger(roomId) || roomId < 1) {
       return res.status(400).json({ error: 'Некорректная комната' });

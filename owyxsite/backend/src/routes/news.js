@@ -23,7 +23,7 @@ function mapRow(r) {
 // GET /api/news — public list of published items (newest first).
 router.get('/', async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 12, 50);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 50);
     const result = await db.query(
       `SELECT id, title, tag, summary, published, created_at, updated_at
        FROM news WHERE published = true

@@ -185,70 +185,82 @@ pub async fn export_owyx_diagnostics_zip(
         tokio::fs::create_dir_all(parent).await.ok();
     }
 
-    tauri::async_runtime::spawn_blocking(move || -> std::result::Result<(), String> {
-        let file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
-        let mut zip = ZipWriter::new(file);
-        let options = SimpleFileOptions::default()
-            .compression_method(CompressionMethod::Deflated);
+    tauri::async_runtime::spawn_blocking(
+        move || -> std::result::Result<(), String> {
+            let file =
+                std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+            let mut zip = ZipWriter::new(file);
+            let options = SimpleFileOptions::default()
+                .compression_method(CompressionMethod::Deflated);
 
-        zip.start_file("owyx-diagnostics.txt", options)
-            .map_err(|e| e.to_string())?;
-        zip.write_all(report.as_bytes())
-            .map_err(|e| e.to_string())?;
+            zip.start_file("owyx-diagnostics.txt", options)
+                .map_err(|e| e.to_string())?;
+            zip.write_all(report.as_bytes())
+                .map_err(|e| e.to_string())?;
 
-        if let Some(logs_dir) = logs_dir {
-            let mut entries: Vec<(SystemTime, PathBuf)> = Vec::new();
-            if let Ok(read_dir) = std::fs::read_dir(&logs_dir) {
-                for entry in read_dir.flatten() {
-                    let path = entry.path();
-                    let Ok(metadata) = entry.metadata() else {
-                        continue;
-                    };
-                    if !metadata.is_file() {
-                        continue;
+            if let Some(logs_dir) = logs_dir {
+                let mut entries: Vec<(SystemTime, PathBuf)> = Vec::new();
+                if let Ok(read_dir) = std::fs::read_dir(&logs_dir) {
+                    for entry in read_dir.flatten() {
+                        let path = entry.path();
+                        let Ok(metadata) = entry.metadata() else {
+                            continue;
+                        };
+                        if !metadata.is_file() {
+                            continue;
+                        }
+                        let modified = metadata
+                            .modified()
+                            .or_else(|_| metadata.created())
+                            .unwrap_or(SystemTime::UNIX_EPOCH);
+                        entries.push((modified, path));
                     }
-                    let modified = metadata
-                        .modified()
-                        .or_else(|_| metadata.created())
-                        .unwrap_or(SystemTime::UNIX_EPOCH);
-                    entries.push((modified, path));
                 }
-            }
-            entries.sort_by(|a, b| b.0.cmp(&a.0));
-            for (_, path) in entries.into_iter().take(OWYX_DIAG_LOG_FILES) {
-                let file_name = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("launcher.log");
-                let archive_name = format!("launcher_logs/{file_name}");
-                let mut source = std::fs::File::open(&path).map_err(|e| e.to_string())?;
-                let len = source.metadata().map_err(|e| e.to_string())?.len();
-                zip.start_file(archive_name, options)
-                    .map_err(|e| e.to_string())?;
-                if len <= OWYX_DIAG_LOG_MAX_BYTES {
-                    std::io::copy(&mut source, &mut zip).map_err(|e| e.to_string())?;
-                } else {
-                    let start = len.saturating_sub(OWYX_DIAG_LOG_MAX_BYTES);
-                    use std::io::{Read, Seek, SeekFrom};
-                    source.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
-                    let mut tail = Vec::new();
-                    source.read_to_end(&mut tail).map_err(|e| e.to_string())?;
-                    let header = format!("[first {start} bytes omitted]\n");
-                    zip.write_all(header.as_bytes())
+                entries.sort_by(|a, b| b.0.cmp(&a.0));
+                for (_, path) in entries.into_iter().take(OWYX_DIAG_LOG_FILES) {
+                    let file_name = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("launcher.log");
+                    let archive_name = format!("launcher_logs/{file_name}");
+                    let mut source = std::fs::File::open(&path)
                         .map_err(|e| e.to_string())?;
-                    zip.write_all(&tail).map_err(|e| e.to_string())?;
+                    let len =
+                        source.metadata().map_err(|e| e.to_string())?.len();
+                    zip.start_file(archive_name, options)
+                        .map_err(|e| e.to_string())?;
+                    if len <= OWYX_DIAG_LOG_MAX_BYTES {
+                        std::io::copy(&mut source, &mut zip)
+                            .map_err(|e| e.to_string())?;
+                    } else {
+                        let start = len.saturating_sub(OWYX_DIAG_LOG_MAX_BYTES);
+                        use std::io::{Read, Seek, SeekFrom};
+                        source
+                            .seek(SeekFrom::Start(start))
+                            .map_err(|e| e.to_string())?;
+                        let mut tail = Vec::new();
+                        source
+                            .read_to_end(&mut tail)
+                            .map_err(|e| e.to_string())?;
+                        let header = format!("[first {start} bytes omitted]\n");
+                        zip.write_all(header.as_bytes())
+                            .map_err(|e| e.to_string())?;
+                        zip.write_all(&tail).map_err(|e| e.to_string())?;
+                    }
                 }
             }
-        }
 
-        zip.finish().map_err(|e| e.to_string())?;
-        Ok(())
-    })
+            zip.finish().map_err(|e| e.to_string())?;
+            Ok(())
+        },
+    )
     .await
     .map_err(|error| {
         TheseusSerializableError::Theseus(
-            theseus::ErrorKind::OtherError(format!("diagnostics zip task failed: {error}"))
-                .into(),
+            theseus::ErrorKind::OtherError(format!(
+                "diagnostics zip task failed: {error}"
+            ))
+            .into(),
         )
     })?
     .map_err(|error| {

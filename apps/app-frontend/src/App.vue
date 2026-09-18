@@ -621,7 +621,10 @@ const messages = defineMessages({
 	warning: { id: 'app.notification.warning', defaultMessage: 'Warning' },
 	goBack: { id: 'app.navigation.go-back', defaultMessage: 'Go back' },
 	goForward: { id: 'app.navigation.go-forward', defaultMessage: 'Go forward' },
-	nextImage: { id: 'app.navigation.next-image', defaultMessage: 'Next image' },
+	toggleSidebar: {
+		id: 'app.nav.toggle-sidebar',
+		defaultMessage: 'Toggle sidebar',
+	},
 	updateDownloadMissingVersion: {
 		id: 'app.update.download-error.missing-version',
 		defaultMessage: 'Failed to download update: no version available',
@@ -2271,7 +2274,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 				<IconButton
 					v-if="!forceSidebar && appSettings.toggleSidebar"
 					:type="sidebarToggled ? 'base' : 'quiet'"
-					:label="formatMessage(messages.nextImage)"
+					:label="formatMessage(messages.toggleSidebar)"
 					class="mr-3 transition-transform"
 					:class="{ 'rotate-180': !sidebarToggled }"
 					@click="sidebarToggled = !sidebarToggled"

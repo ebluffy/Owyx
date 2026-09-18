@@ -4,7 +4,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { revokeOtherUserSessions } = require('../utils/authSecurity');
+const { revokeUserCredentials } = require('../utils/authSecurity');
 const { passwordTooLong, BCRYPT_MAX_BYTES } = require('../utils/passwordPolicy');
 const { consumeIp } = require('../utils/ipRateLimit');
 const { verifyTurnstile } = require('../utils/turnstile');
@@ -182,7 +182,7 @@ router.put('/', authenticateToken, async (req, res) => {
         );
 
         if (newPassword) {
-            await revokeOtherUserSessions(req.user.id, req.user.session_id);
+            await revokeUserCredentials(req.user.id, req.user.session_id);
         }
 
         await logUserActivity(
@@ -1061,7 +1061,7 @@ router.post('/email/confirm', authenticateToken, async (req, res) => {
             [row.pending_email, req.user.id]
         );
 
-        await revokeOtherUserSessions(req.user.id, req.user.session_id);
+        await revokeUserCredentials(req.user.id, req.user.session_id);
 
         await logUserActivity(req.user.id, 'email_change', 'Адрес почты изменён', {
             req,

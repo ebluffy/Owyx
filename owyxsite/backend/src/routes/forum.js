@@ -35,7 +35,7 @@ router.get('/categories', async (_req, res) => {
 router.get('/categories/:slug/topics', async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-    const limit = Math.min(50, parseInt(req.query.limit, 10) || 20);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
     const offset = (page - 1) * limit;
 
     const cat = await db.query(

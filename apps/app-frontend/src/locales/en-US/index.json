@@ -1379,6 +1379,9 @@
   "app.nav.switch-account": {
     "message": "Switch account"
   },
+  "app.nav.toggle-sidebar": {
+    "message": "Toggle sidebar"
+  },
   "app.nav.view-profile": {
     "message": "View profile"
   },
@@ -4829,6 +4832,21 @@
   "owyx.servers.playing": {
     "message": "Preparing…"
   },
+  "owyx.servers.no-pack-url": {
+    "message": "No pack download URL for this server"
+  },
+  "owyx.servers.status.online": {
+    "message": "Online"
+  },
+  "owyx.servers.status.offline": {
+    "message": "Offline"
+  },
+  "owyx.servers.status.checking": {
+    "message": "Checking…"
+  },
+  "owyx.servers.status.ping": {
+    "message": "{ms} ms"
+  },
   "owyx.servers.refresh": {
     "message": "Refresh"
   },
@@ -4891,6 +4909,15 @@
   },
   "owyx.settings.profile.discord": {
     "message": "Discord username"
+  },
+  "owyx.settings.profile.discord-hint": {
+    "message": "Linked via Discord OAuth on the site only."
+  },
+  "owyx.settings.profile.display-nick": {
+    "message": "Display nickname"
+  },
+  "owyx.settings.profile.display-nick-hint": {
+    "message": "Shown to friends in the UI. Offline play uses your login nick."
   },
   "owyx.settings.profile.nick": {
     "message": "Nickname"

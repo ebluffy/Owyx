@@ -171,7 +171,7 @@ router.get('/v1/packs/:id/manifest', optionalAuthenticate, async (req, res) => {
 // GET /api/launcher/v1/news — same published news as the site home.
 router.get('/v1/news', async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 12, 50);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 12, 1), 50);
     const result = await db.query(
       `SELECT id, title, tag, summary, published, created_at, updated_at
        FROM news WHERE published = true
