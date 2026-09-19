@@ -10,15 +10,36 @@ export function setupErrorReporting(app: App, _router: Router): void {
 
 	const previousHandler = app.config.errorHandler
 	let queuedErrors = 0
+	const recentFingerprints = new Map<string, number>()
+	const DEDUPE_MS = 60_000
+	const MAX_UNIQUE_PER_MINUTE = 8
+
+	function isNoisy(message: string): boolean {
+		return /^The resource id \d+ is invalid\.?$/i.test(message.trim())
+	}
+
+	function shouldSkip(message: string): boolean {
+		if (isNoisy(message)) return true
+		const now = Date.now()
+		for (const [key, ts] of recentFingerprints) {
+			if (now - ts > DEDUPE_MS) recentFingerprints.delete(key)
+		}
+		if (recentFingerprints.has(message)) return true
+		if (recentFingerprints.size >= MAX_UNIQUE_PER_MINUTE) return true
+		recentFingerprints.set(message, now)
+		return false
+	}
 
 	function capture(error: unknown) {
 		if (queuedErrors >= 20) return
-		queuedErrors++
 		const message =
 			error instanceof Error ? error.message : typeof error === 'string' ? error : 'unknown_error'
+		const text = String(message).slice(0, 500)
+		if (shouldSkip(text)) return
+		queuedErrors++
 		void import('@/helpers/owyx-telemetry')
 			.then(({ reportOwyxLauncherError }) =>
-				reportOwyxLauncherError(String(message).slice(0, 500), {
+				reportOwyxLauncherError(text, {
 					metadata: { source: 'vue_error_handler' },
 				}),
 			)

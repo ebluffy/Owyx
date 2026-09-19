@@ -1913,7 +1913,13 @@ async function checkUpdates() {
 			scheduleDelayedUpdatePopup()
 		}
 
-		getUpdateSize(update.rid).then((size) => (updateSize.value = size))
+		getUpdateSize(update.rid)
+			.then((size) => {
+				if (size != null) updateSize.value = size
+			})
+			.catch(() => {
+				/* stale updater rid — ignore (#134) */
+			})
 	}
 
 	await performCheck()
