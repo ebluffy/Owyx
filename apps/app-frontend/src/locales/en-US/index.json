@@ -4823,6 +4823,12 @@
   "owyx.servers.play": {
     "message": "Play"
   },
+  "owyx.servers.settings": {
+    "message": "Settings"
+  },
+  "owyx.servers.settings-need-install": {
+    "message": "Download the pack first (Play), then open Settings."
+  },
   "owyx.servers.playing": {
     "message": "Preparing…"
   },

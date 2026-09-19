@@ -4385,6 +4385,12 @@
   "owyx.servers.play": {
     "message": "Играть / Зайти"
   },
+  "owyx.servers.settings": {
+    "message": "Настройки"
+  },
+  "owyx.servers.settings-need-install": {
+    "message": "Сначала скачайте пак (Играть), затем откройте Настройки."
+  },
   "owyx.servers.copy-address": {
     "message": "Копировать адрес"
   },
