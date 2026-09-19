@@ -52,7 +52,6 @@ import {
 	set_group_memberships as setInstanceGroupMemberships,
 	set_group_order as setInstanceGroupOrder,
 } from '@/helpers/instance-groups'
-import { isOwyxServerInstance } from '@/helpers/owyx-server-instances'
 import type { GameInstance, InstanceIconConfig } from '@/helpers/types'
 
 import { librarySearch } from './view-state'
@@ -414,7 +413,6 @@ function createLibraryState(instances: Ref<GameInstance[]>) {
 
 	const filteredInstances = computed(() =>
 		instances.value.filter((instance) => {
-			if (isOwyxServerInstance(instance)) return false
 			const instanceTypeMatches =
 				filters.value.instanceType.length === 0 ||
 				filters.value.instanceType.includes(getInstanceType(instance))
