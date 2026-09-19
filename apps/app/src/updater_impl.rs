@@ -75,13 +75,12 @@ pub async fn enqueue_update_for_installation<R: Runtime>(
 ) -> Result<()> {
     let pending_data = webview.state::<PendingUpdateData>().inner();
 
-    let update = match webview.resources_table().get::<Update>(rid) {
-        Ok(update) => update,
-        Err(err) => {
-            tracing::warn!("enqueue_update_for_installation: stale update rid: {err}");
-            return Ok(());
-        }
-    };
+    // Stale RIDs happen on repeat clicks / already-downloaded updates. Surface a
+    // clear error instead of silently pretending the download succeeded (#134).
+    let update = webview
+        .resources_table()
+        .get::<Update>(rid)
+        .map_err(|_| crate::api::TheseusSerializableError::UpdaterRidStale)?;
 
     let progress = init_loading(
         LoadingBarType::LauncherUpdate {

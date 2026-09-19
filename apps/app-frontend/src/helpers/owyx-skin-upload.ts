@@ -37,10 +37,15 @@ export async function uploadOwyxAccountSkin(opts: {
 	const fd = new FormData()
 	fd.append(
 		'skin',
-		new Blob([opts.pngBytes.buffer.slice(
-			opts.pngBytes.byteOffset,
-			opts.pngBytes.byteOffset + opts.pngBytes.byteLength,
-		) as ArrayBuffer], { type: 'image/png' }),
+		new Blob(
+			[
+				opts.pngBytes.buffer.slice(
+					opts.pngBytes.byteOffset,
+					opts.pngBytes.byteOffset + opts.pngBytes.byteLength,
+				) as ArrayBuffer,
+			],
+			{ type: 'image/png' },
+		),
 		'skin.png',
 	)
 	fd.append('model', opts.model === 'slim' ? 'slim' : 'classic')
@@ -67,15 +72,13 @@ export async function uploadOwyxAccountSkin(opts: {
 		throw new Error(data.error || `Skin upload failed (${res.status})`)
 	}
 	const nick = session.user.nickname
-	await syncOwyxCosmeticsToDisk(
-		{
-			skinUrl: data.skin_url,
-			skin_url: data.skin_url,
-			skinModel: data.skin_model,
-			skin_model: data.skin_model,
-		},
-		nick,
-	)
+	// Signature is (nickname, cosmetics) — see owyx-cosmetics.ts.
+	await syncOwyxCosmeticsToDisk(nick, {
+		skinUrl: data.skin_url,
+		skin_url: data.skin_url,
+		skinModel: data.skin_model,
+		skin_model: data.skin_model,
+	})
 	return {
 		skinUrl: String(data.skin_url || ''),
 		skinModel: String(data.skin_model || opts.model || 'classic'),
