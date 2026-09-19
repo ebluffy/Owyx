@@ -104,3 +104,10 @@ legacy/**/frpc.toml
 
 promt.md
 
+# Local agent review scratch (never commit Auto-Review dumps)
+.tmp-review/
+.tmp-review*.txt
+.tmp-rv.txt
+.pr-body-*.md
+pr1*_review.txt
+
