@@ -216,7 +216,8 @@ pub async fn export_owyx_diagnostics_zip(
                         entries.push((modified, path));
                     }
                 }
-                entries.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+                entries
+                    .sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
                 for (_, path) in entries.into_iter().take(OWYX_DIAG_LOG_FILES) {
                     let file_name = path
                         .file_name()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PlayIcon, ServerStackIcon, SettingsIcon } from '@modrinth/assets'
 import { Button, defineMessages, injectNotificationManager, useVIntl } from '@modrinth/ui'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -132,7 +132,8 @@ async function openServerSettings(server: OwyxServerEntry) {
 			return
 		}
 		settingsInstance.value = inst
-		await Promise.resolve()
+		// Wait for Vue to mount the settings modal with the new instance (#128 review).
+		await nextTick()
 		settingsModal.value?.show()
 	} catch (e) {
 		handleError(e)

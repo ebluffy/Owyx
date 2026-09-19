@@ -1906,20 +1906,20 @@ async function checkUpdates() {
 		metered.value = await isNetworkMetered()
 		if (!metered.value) {
 			console.log('Starting download of update')
+			// enqueue consumes this RID — do not call getUpdateSize on it (#134).
 			downloadUpdate(update)
 		} else {
 			console.log(`Metered connection detected, not auto-downloading update.`)
 			markAppUpdateActionable(update.version)
 			scheduleDelayedUpdatePopup()
+			getUpdateSize(update.rid)
+				.then((size) => {
+					if (size != null) updateSize.value = size
+				})
+				.catch(() => {
+					/* stale updater rid — ignore (#134) */
+				})
 		}
-
-		getUpdateSize(update.rid)
-			.then((size) => {
-				if (size != null) updateSize.value = size
-			})
-			.catch(() => {
-				/* stale updater rid — ignore (#134) */
-			})
 	}
 
 	await performCheck()

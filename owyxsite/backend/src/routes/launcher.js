@@ -310,7 +310,9 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
 
     const normalized = rawEvents.map(normalizeTelemetryEvent).filter(Boolean);
     if (!normalized.length) {
-      return res.status(400).json({ error: 'no valid events' });
+      // Events were understood but intentionally dropped (noise filter). This is
+      // a successful no-op — 400 made clients retry the same noise (#134).
+      return res.status(202).json({ ok: true, accepted: 0, skippedDup: 0, dropped: true });
     }
 
     const userId = req.user?.id || null;
