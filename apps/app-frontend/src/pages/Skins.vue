@@ -36,7 +36,9 @@ import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { handleSevereError } from '@/composables/use-error.js'
 import { trackEvent } from '@/helpers/analytics'
 import { check_reachable, get_default_user, login as login_flow, users } from '@/helpers/auth'
+import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 import { cleanupUnusedPreviews } from '@/helpers/rendering/skin-previews'
+import { uploadOwyxAccountSkin } from '@/helpers/owyx-skin-upload'
 import type { Cape, Skin, SkinTextureUrl } from '@/helpers/skins.ts'
 import {
 	equip_skin,
@@ -227,6 +229,7 @@ const notifications = injectNotificationManager()
 const { addNotification, handleError } = notifications
 const auth = injectAuth()
 const client = injectModrinthClient()
+const owyxSite = injectOwyxSiteSession()
 
 const appSettings = useAppSettings()
 const skins = ref<Skin[]>([])
@@ -237,10 +240,15 @@ const accountsCard = inject('accountsCard') as Ref<typeof AccountsCard>
 const currentUser = ref<MinecraftCredential | undefined>(undefined)
 const currentUserId = ref<string | undefined>(undefined)
 
+/** MS accounts use Mojang skins API; Owyx offline profiles use site PUT /api/profile/skin. */
+const canManageSkins = computed(() => {
+	if (!currentUser.value) return false
+	if (!isOfflineAccount(currentUser.value)) return true
+	return owyxSite.isSignedIn.value
+})
+
 /** Skins API needs a licensed Microsoft account — Owyx play profiles use site nick sync instead. */
-const needsMicrosoftAccount = computed(
-	() => !currentUser.value || isOfflineAccount(currentUser.value),
-)
+const needsMicrosoftAccount = computed(() => !canManageSkins.value)
 
 const username = computed(() => currentUser.value?.profile?.name ?? undefined)
 const selectedSkin = ref<Skin | null>(null)
@@ -776,16 +784,26 @@ async function applySelectedSkin() {
 	const skinToApply = selectedSkin.value
 	if (
 		!currentUser.value ||
-		isOfflineAccount(currentUser.value) ||
 		!skinToApply ||
 		!hasPendingSkinChange.value ||
 		isApplyingSkin.value ||
-		isSkinManagementReadOnly.value
+		isSkinManagementReadOnly.value ||
+		!canManageSkins.value
 	)
 		return
 
 	isApplyingSkin.value = true
 	try {
+		if (isOfflineAccount(currentUser.value) && owyxSite.isSignedIn.value) {
+			const pngBytes = await normalize_skin_texture(skinToApply.texture)
+			await uploadOwyxAccountSkin({
+				pngBytes,
+				model: skinToApply.variant === 'SLIM' ? 'slim' : 'classic',
+			})
+			setLocallyEquippedSkin(skinToApply)
+			await owyxSite.refresh()
+			return
+		}
 		await equip_skin(skinToApply)
 		setLocallyEquippedSkin(skinToApply)
 		schedulePendingSkinRefresh()
