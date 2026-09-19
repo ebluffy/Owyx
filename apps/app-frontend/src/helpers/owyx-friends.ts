@@ -283,9 +283,11 @@ export async function publishLibraryPackToCatalog(opts: {
 	}
 	const packId = createData.pack.id
 	const sizeMb = opts.file.size / (1024 * 1024)
-	if (sizeMb > 2048) {
+	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
+	const MAX_PACK_MB = 512
+	if (sizeMb > MAX_PACK_MB) {
 		throw new Error(
-			`pack is ${sizeMb.toFixed(0)} MB — max upload is 2 GB. Host a larger archive via HTTP URL instead.`,
+			`pack is ${sizeMb.toFixed(0)} MB — max upload is ${MAX_PACK_MB} MB. Host a larger archive via HTTP URL instead.`,
 		)
 	}
 	const fd = new FormData()
