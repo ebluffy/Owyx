@@ -21,7 +21,12 @@ pub async fn get_update_size<R: Runtime>(
     webview: Webview<R>,
     rid: ResourceId,
 ) -> Result<Option<u64>> {
-    let update = webview.resources_table().get::<Update>(rid)?;
+    // Stale updater RIDs (after download/enqueue) must not surface as hard errors —
+    // they were flooding opt-in telemetry as "The resource id … is invalid." (#134).
+    let update = match webview.resources_table().get::<Update>(rid) {
+        Ok(update) => update,
+        Err(_) => return Ok(None),
+    };
 
     let mut headers = update.headers.clone();
     if !headers.contains_key(ACCEPT) {
@@ -70,7 +75,13 @@ pub async fn enqueue_update_for_installation<R: Runtime>(
 ) -> Result<()> {
     let pending_data = webview.state::<PendingUpdateData>().inner();
 
-    let update = webview.resources_table().get::<Update>(rid)?;
+    let update = match webview.resources_table().get::<Update>(rid) {
+        Ok(update) => update,
+        Err(err) => {
+            tracing::warn!("enqueue_update_for_installation: stale update rid: {err}");
+            return Ok(());
+        }
+    };
 
     let progress = init_loading(
         LoadingBarType::LauncherUpdate {

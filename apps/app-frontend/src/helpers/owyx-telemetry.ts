@@ -12,6 +12,7 @@ import {
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import { formatOsDisplayLabel } from '@/helpers/owyx-os-label'
 import { get as getSettings } from '@/helpers/settings'
 
 const INSTALL_ID_KEY = 'owyx.telemetry.installId'
@@ -94,7 +95,7 @@ async function deviceSnapshot(appVersion: string) {
 
 	return {
 		appVersion,
-		os: osName,
+		os: formatOsDisplayLabel(osName, osVer),
 		osVersion: osVer,
 		arch: cpuArch,
 		cpuCores: nav?.hardwareConcurrency || undefined,
@@ -198,11 +199,13 @@ export async function reportOwyxLauncherError(
 	message: string,
 	opts?: { authToken?: string | null; metadata?: OwyxTelemetryEvent['metadata'] },
 ): Promise<void> {
+	const text = String(message).slice(0, 500)
+	if (/^The resource id \d+ is invalid\.?$/i.test(text.trim())) return
 	await postTelemetry(
 		[
 			{
 				kind: 'error',
-				message,
+				message: text,
 				metadata: opts?.metadata,
 			},
 		],
