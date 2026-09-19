@@ -248,11 +248,11 @@ function friendPlayingLabel(friend: OwyxFriend): string {
 	const catalog = matchCatalogServer(friend)
 	if (catalog?.name) return catalog.name
 	const raw = friend.instanceName?.trim() || ''
-	if (raw.toLowerCase().startsWith('owyx-server:')) {
-		const id = raw.slice('owyx-server:'.length).trim()
-		return id || formatMessage(messages.unknownInstance)
+	if (!raw || raw.toLowerCase().startsWith('owyx-server:')) {
+		// Never show a raw owyx-server:<id> slug as the game name (#136).
+		return formatMessage(messages.unknownInstance)
 	}
-	return raw || formatMessage(messages.unknownInstance)
+	return raw
 }
 
 function friendStatusLabel(friend: OwyxFriend) {
@@ -785,13 +785,11 @@ const messages = defineMessages({
 										<span class="m-0 text-xs text-secondary">{{ friendStatusLabel(friend) }}</span>
 									</div>
 								</div>
-								<div class="flex items-center gap-1 pr-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+								<div
+									class="flex items-center gap-1 pr-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+								>
 									<IconButton
-										v-if="
-											friend.presence === 'playing' &&
-											friend.instanceName &&
-											matchCatalogServer(friend)
-										"
+										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
 										v-tooltip="formatMessage(messages.joinServer)"
 										type="transparent"
 										color="brand"
