@@ -244,10 +244,21 @@ const incomingRequests = computed(() =>
 	friends.value.filter((f) => f.status === 'pending' && f.incoming),
 )
 
+function friendPlayingLabel(friend: OwyxFriend): string {
+	const catalog = matchCatalogServer(friend)
+	if (catalog?.name) return catalog.name
+	const raw = friend.instanceName?.trim() || ''
+	if (raw.toLowerCase().startsWith('owyx-server:')) {
+		const id = raw.slice('owyx-server:'.length).trim()
+		return id || formatMessage(messages.unknownInstance)
+	}
+	return raw || formatMessage(messages.unknownInstance)
+}
+
 function friendStatusLabel(friend: OwyxFriend) {
 	if (friend.presence === 'playing') {
 		return formatMessage(messages.playingStatus, {
-			name: friend.instanceName || formatMessage(messages.unknownInstance),
+			name: friendPlayingLabel(friend),
 		})
 	}
 	if (friend.presence === 'online') return formatMessage(messages.onlineStatus)
@@ -774,7 +785,7 @@ const messages = defineMessages({
 										<span class="m-0 text-xs text-secondary">{{ friendStatusLabel(friend) }}</span>
 									</div>
 								</div>
-								<div class="flex items-center gap-0.5">
+								<div class="flex items-center gap-1 pr-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
 									<IconButton
 										v-if="
 											friend.presence === 'playing' &&
@@ -782,19 +793,19 @@ const messages = defineMessages({
 											matchCatalogServer(friend)
 										"
 										v-tooltip="formatMessage(messages.joinServer)"
-										type="colored"
+										type="transparent"
 										color="brand"
-										class="shrink-0"
+										class="!size-8 shrink-0 rounded-full !bg-brand/15 text-brand hover:!bg-brand/25"
 										:disabled="busyJoinId === friend.id"
 										:label="formatMessage(messages.joinServer)"
 										@click="joinFriendServer(friend)"
 									>
-										<PlayIcon />
+										<PlayIcon class="size-4" />
 									</IconButton>
 									<TeleportOverflowMenu
-										type="quiet"
+										type="transparent"
 										label="More options"
-										class="opacity-0 group-hover:opacity-100 transition-opacity"
+										class="!size-8 rounded-full"
 										:options="[
 											...(friend.presence === 'playing' && friend.instanceName
 												? [
