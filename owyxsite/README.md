@@ -106,8 +106,9 @@ npm run dev:tauri
 The native window talks to Express on `:3001` (catalog, login, admin, skins).
 Vite-only `npm run dev` still proxies `/proxy/owyx` to the same base.
 
-Launcher overlay cap: **512 MB** (`MAX_PACK_BYTES`). Larger packs (Foreg ~2 GB)
-need a streaming download — not this stack.
+Launcher overlay / admin ingest cap: **512 MB** (`MAX_PACK_BYTES` in
+`backend/src/routes/catalog.js`). Larger packs need a remote `http_zip` URL —
+not buffered ingest on this stack.
 
 ## Email
 

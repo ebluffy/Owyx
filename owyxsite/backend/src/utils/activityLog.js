@@ -73,6 +73,12 @@ function normalizeTelemetryEvent(raw) {
   const kind = String(raw.kind || raw.event_kind || '').toLowerCase().slice(0, 40);
   if (!ALLOWED_TELEMETRY_KINDS.has(kind)) return null;
 
+  const message = sanitizeMessage(raw.message, 500);
+  // Tauri InvalidResourceId noise (#134) — drop at ingest, not just rate-limit.
+  if (/^The resource id \d+ is invalid\.?$/i.test(message)) {
+    return null;
+  }
+
   const cpu = Number(raw.cpuCores ?? raw.cpu_cores);
   const ram = Number(raw.ramMb ?? raw.ram_mb);
 
@@ -90,7 +96,7 @@ function normalizeTelemetryEvent(raw) {
 
   return {
     kind,
-    message: sanitizeMessage(raw.message, 500),
+    message,
     appVersion: raw.appVersion || raw.app_version
       ? String(raw.appVersion || raw.app_version).slice(0, 32)
       : null,
