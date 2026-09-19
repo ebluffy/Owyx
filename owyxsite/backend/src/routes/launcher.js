@@ -244,10 +244,14 @@ router.get('/v1/cosmetics', authenticateToken, async (req, res) => {
 const TELEMETRY_WINDOW_MS = 60_000;
 const TELEMETRY_MAX_PER_IP = 30;
 const TELEMETRY_MAX_PER_INSTALL = 60;
+/** Same error message from one install — keep at most one insert per window (#134). */
+const TELEMETRY_MAX_SAME_MESSAGE = 2;
 /** @type {Map<string, { windowStart: number, count: number }>} */
 const telemetryIpBuckets = new Map();
 /** @type {Map<string, { windowStart: number, count: number }>} */
 const telemetryInstallBuckets = new Map();
+/** @type {Map<string, { windowStart: number, count: number }>} */
+const telemetryMessageBuckets = new Map();
 let lastTelemetryBucketSweep = Date.now();
 
 function pruneTelemetryBuckets(map, now) {
@@ -262,6 +266,7 @@ function takeTelemetryToken(map, key, max) {
   if (now - lastTelemetryBucketSweep > TELEMETRY_WINDOW_MS) {
     pruneTelemetryBuckets(telemetryIpBuckets, now);
     pruneTelemetryBuckets(telemetryInstallBuckets, now);
+    pruneTelemetryBuckets(telemetryMessageBuckets, now);
     lastTelemetryBucketSweep = now;
   }
   let bucket = map.get(key);
@@ -310,8 +315,14 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
 
     const userId = req.user?.id || null;
     let inserted = 0;
+    let skippedDup = 0;
 
     for (const ev of normalized) {
+      const msgKey = `${installId.toLowerCase()}|${ev.kind}|${ev.message}`;
+      if (!takeTelemetryToken(telemetryMessageBuckets, msgKey, TELEMETRY_MAX_SAME_MESSAGE)) {
+        skippedDup += 1;
+        continue;
+      }
       await db.query(
         `INSERT INTO launcher_telemetry
            (install_id, user_id, event_kind, message, app_version,
@@ -336,7 +347,7 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
       inserted += 1;
     }
 
-    res.status(202).json({ ok: true, accepted: inserted });
+    res.status(202).json({ ok: true, accepted: inserted, skippedDup });
   } catch (error) {
     console.error('launcher/v1/telemetry error:', error);
     if (error.code === '42P01') {

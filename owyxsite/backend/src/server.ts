@@ -93,12 +93,16 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(clientKeyGate);
 
 // Pack archives are ACL-gated — do not serve /uploads/packs via anonymous static.
+// Never advertise Cache-Control: public (shared caches would bypass ACL later).
 app.use(
   '/uploads/packs',
   optionalAuthenticate,
   packUploadAcl,
   express.static(path.join(__dirname, '../uploads/packs'), {
-    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+    maxAge: 0,
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'private, no-store');
+    },
   })
 );
 app.use('/uploads', (req, res, next) => {

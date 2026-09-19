@@ -160,9 +160,22 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	if (!res.ok) {
 		throw new Error(`Pack download failed (${res.status})`)
 	}
+	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
+	const MAX_PACK_BYTES = 512 * 1024 * 1024
+	const contentLength = Number(res.headers.get('content-length') || 0)
+	if (Number.isFinite(contentLength) && contentLength > MAX_PACK_BYTES) {
+		throw new Error(
+			`Pack is too large (${Math.round(contentLength / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+		)
+	}
 	const buf = new Uint8Array(await res.arrayBuffer())
 	if (buf.byteLength < 32) {
 		throw new Error('Pack download was empty')
+	}
+	if (buf.byteLength > MAX_PACK_BYTES) {
+		throw new Error(
+			`Pack is too large (${Math.round(buf.byteLength / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+		)
 	}
 	const dir = await join(await appDataDir(), 'owyx-packs')
 	await mkdir(dir, { recursive: true })
