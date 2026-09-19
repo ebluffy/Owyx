@@ -134,7 +134,11 @@ async function openServerSettings(server: OwyxServerEntry) {
 		settingsInstance.value = inst
 		// Wait for Vue to mount the settings modal with the new instance (#128 review).
 		await nextTick()
-		settingsModal.value?.show()
+		if (!settingsModal.value) {
+			handleError(new Error(formatMessage(messages.settingsNeedInstall)))
+			return
+		}
+		settingsModal.value.show()
 	} catch (e) {
 		handleError(e)
 	}
@@ -243,7 +247,7 @@ async function playServer(server: OwyxServerEntry) {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
 		const instanceId = await ensurePackInstalled(server)
 		if (!instanceId) return
-		void refreshLinkedMap()
+		await refreshLinkedMap()
 		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
 		try {
 			await start_join_server(instanceId, server.address)

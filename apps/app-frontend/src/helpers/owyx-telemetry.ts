@@ -199,8 +199,9 @@ export async function reportOwyxLauncherError(
 	message: string,
 	opts?: { authToken?: string | null; metadata?: OwyxTelemetryEvent['metadata'] },
 ): Promise<void> {
-	const text = String(message).slice(0, 500)
-	if (/^The resource id \d+ is invalid\.?$/i.test(text.trim())) return
+	const text = String(message).slice(0, 500).trim()
+	// Tauri wraps the message; match anywhere, not just the whole string (#134).
+	if (/The resource id \d+ is invalid\.?/i.test(text)) return
 	await postTelemetry(
 		[
 			{

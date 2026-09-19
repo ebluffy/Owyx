@@ -244,8 +244,8 @@ router.get('/v1/cosmetics', authenticateToken, async (req, res) => {
 const TELEMETRY_WINDOW_MS = 60_000;
 const TELEMETRY_MAX_PER_IP = 30;
 const TELEMETRY_MAX_PER_INSTALL = 60;
-/** Same error message from one install — keep at most one insert per window (#134). */
-const TELEMETRY_MAX_SAME_MESSAGE = 2;
+/** Same error message from one install — keep at most this many per window (#134). */
+const TELEMETRY_MAX_SAME_MESSAGE = 1;
 /** @type {Map<string, { windowStart: number, count: number }>} */
 const telemetryIpBuckets = new Map();
 /** @type {Map<string, { windowStart: number, count: number }>} */
@@ -289,12 +289,6 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
     }
 
     const ip = clientIp(req) || 'unknown';
-    if (
-      !takeTelemetryToken(telemetryIpBuckets, ip, TELEMETRY_MAX_PER_IP) ||
-      !takeTelemetryToken(telemetryInstallBuckets, installId.toLowerCase(), TELEMETRY_MAX_PER_INSTALL)
-    ) {
-      return res.status(429).json({ error: 'Too many telemetry requests; try again later' });
-    }
 
     const rawEvents = Array.isArray(req.body?.events)
       ? req.body.events
@@ -308,6 +302,8 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
       return res.status(400).json({ error: 'max 20 events per request' });
     }
 
+    // Normalize + drop noise BEFORE consuming rate-limit quota: filtered batches
+    // (e.g. resource-id spam) must not burn IP/install slots (#134 review).
     const normalized = rawEvents.map(normalizeTelemetryEvent).filter(Boolean);
     if (!normalized.length) {
       // Events were understood but intentionally dropped (noise filter). This is
@@ -315,12 +311,19 @@ router.post('/v1/telemetry', optionalAuthenticate, async (req, res) => {
       return res.status(202).json({ ok: true, accepted: 0, skippedDup: 0, dropped: true });
     }
 
+    if (
+      !takeTelemetryToken(telemetryIpBuckets, ip, TELEMETRY_MAX_PER_IP) ||
+      !takeTelemetryToken(telemetryInstallBuckets, installId.toLowerCase(), TELEMETRY_MAX_PER_INSTALL)
+    ) {
+      return res.status(429).json({ error: 'Too many telemetry requests; try again later' });
+    }
+
     const userId = req.user?.id || null;
     let inserted = 0;
     let skippedDup = 0;
 
     for (const ev of normalized) {
-      const msgKey = `${installId.toLowerCase()}|${ev.kind}|${ev.message}`;
+      const msgKey = `${installId.toLowerCase()}|${ev.kind}|${ev.message || ''}`;
       if (!takeTelemetryToken(telemetryMessageBuckets, msgKey, TELEMETRY_MAX_SAME_MESSAGE)) {
         skippedDup += 1;
         continue;

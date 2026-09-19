@@ -13,8 +13,9 @@ export function formatOsDisplayLabel(
 
 	const isWindows = platform === 'windows' || platform.startsWith('win')
 	if (isWindows) {
-		const buildMatch = version.match(/(?:^|\.)(\d{5,})$/) || version.match(/\b(\d{5,})\b/)
-		const build = buildMatch ? Number(buildMatch[1]) : NaN
+		// Tauri reports e.g. "10.0.22631" or "10.0.22000.1037" — build is the 3rd part.
+		const parts = version.split('.')
+		const build = parts.length >= 3 ? Number(parts[2]) : NaN
 		if (Number.isFinite(build) && build >= 22000) {
 			return `Windows 11 (build ${build})`
 		}
