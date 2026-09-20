@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
 	CheckIcon,
+	CubeIcon,
 	EditIcon,
 	EyeIcon,
 	InfoIcon,
@@ -875,7 +876,9 @@ async function loadCurrentUser() {
 	}
 }
 
+// #129: accent + spinner for the Owyx path (not the Microsoft Windows icon).
 async function signInToOwyx() {
+	if (accountsCard.value) accountsCard.value.setLoginDisabled(true)
 	try {
 		await owyxSite.signIn()
 		if (owyxSite.isSignedIn.value) {
@@ -883,6 +886,8 @@ async function signInToOwyx() {
 		}
 	} catch (e) {
 		handleError(e as Error)
+	} finally {
+		if (accountsCard.value) accountsCard.value.setLoginDisabled(false)
 	}
 }
 
@@ -1363,7 +1368,8 @@ await loadSkins()
 				@click="needsOwyxSignIn ? signInToOwyx() : login()"
 			>
 				<SpinnerIcon v-if="accountsCard.loginDisabled" class="animate-spin" />
-				<WindowsIcon v-else />
+				<WindowsIcon v-else-if="!needsOwyxSignIn" />
+				<CubeIcon v-else class="size-5" />
 				{{ formatMessage(needsOwyxSignIn ? messages.owyxSignInButton : messages.signInButton) }}
 			</Button>
 		</div>
