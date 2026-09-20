@@ -15,7 +15,7 @@ export function setupErrorReporting(app: App, _router: Router): void {
 	const MAX_UNIQUE_PER_MINUTE = 8
 
 	function isNoisy(message: string): boolean {
-		return /^The resource id \d+ is invalid\.?$/i.test(message.trim())
+		return /The resource id \d+ is invalid\.?/i.test(message)
 	}
 
 	function shouldSkip(message: string): boolean {

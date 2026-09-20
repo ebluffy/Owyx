@@ -61,6 +61,10 @@ const messages = defineMessages({
 		id: 'owyx.servers.settings-need-install',
 		defaultMessage: 'Download the pack first (Play), then open Settings.',
 	},
+	settingsModalNotReady: {
+		id: 'owyx.servers.settings-modal-not-ready',
+		defaultMessage: 'Settings not ready yet — click Settings again in a moment.',
+	},
 	refresh: { id: 'owyx.servers.refresh', defaultMessage: 'Refresh' },
 	version: { id: 'owyx.servers.version', defaultMessage: 'MC {version}' },
 	demoBadge: { id: 'owyx.servers.demo-badge', defaultMessage: 'demo' },
@@ -135,7 +139,8 @@ async function openServerSettings(server: OwyxServerEntry) {
 		// Wait for Vue to mount the settings modal with the new instance (#128 review).
 		await nextTick()
 		if (!settingsModal.value) {
-			handleError(new Error(formatMessage(messages.settingsNeedInstall)))
+			// Instance just linked but the modal hasn't mounted yet — let the user retry.
+			handleError(new Error(formatMessage(messages.settingsModalNotReady)))
 			return
 		}
 		settingsModal.value.show()

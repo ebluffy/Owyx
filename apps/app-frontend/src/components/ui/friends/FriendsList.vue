@@ -785,9 +785,7 @@ const messages = defineMessages({
 										<span class="m-0 text-xs text-secondary">{{ friendStatusLabel(friend) }}</span>
 									</div>
 								</div>
-								<div
-									class="flex items-center gap-1 pr-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-								>
+								<div class="flex items-center gap-1 pr-1">
 									<IconButton
 										v-if="friend.presence === 'playing' && matchCatalogServer(friend)"
 										v-tooltip="formatMessage(messages.joinServer)"
@@ -803,7 +801,7 @@ const messages = defineMessages({
 									<TeleportOverflowMenu
 										type="transparent"
 										label="More options"
-										class="!size-8 rounded-full"
+										class="!size-8 rounded-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
 										:options="[
 											...(friend.presence === 'playing' && friend.instanceName
 												? [

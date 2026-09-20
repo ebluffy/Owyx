@@ -3167,6 +3167,18 @@
   "app.skins.demo.title": {
     "message": "Microsoft account required"
   },
+  "app.skins.owyx.title": {
+    "message": "Sign in to Owyx"
+  },
+  "app.skins.owyx.description": {
+    "message": "This offline profile uses your Owyx account skin. Sign in to Owyx to save and apply skins."
+  },
+  "app.skins.owyx.sign-in.button": {
+    "message": "Sign in to Owyx"
+  },
+  "app.skins.owyx.apply-tooltip": {
+    "message": "Sign in to Owyx to apply skins."
+  },
   "app.skins.dropped-file-error.text": {
     "message": "Failed to read the dropped file."
   },
@@ -4828,6 +4840,9 @@
   },
   "owyx.servers.settings-need-install": {
     "message": "Download the pack first (Play), then open Settings."
+  },
+  "owyx.servers.settings-modal-not-ready": {
+    "message": "Settings not ready yet — click Settings again in a moment."
   },
   "owyx.servers.playing": {
     "message": "Preparing…"
