@@ -75,7 +75,7 @@ function normalizeTelemetryEvent(raw) {
 
   const message = sanitizeMessage(raw.message, 500);
   // Tauri InvalidResourceId noise (#134) — drop at ingest, not just rate-limit.
-  if (/^The resource id \d+ is invalid\.?$/i.test(message)) {
+  if (/The resource id \d+ is invalid\.?/i.test(message)) {
     return null;
   }
 

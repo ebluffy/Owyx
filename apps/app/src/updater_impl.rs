@@ -23,9 +23,8 @@ pub async fn get_update_size<R: Runtime>(
 ) -> Result<Option<u64>> {
     // Stale updater RIDs (after download/enqueue) must not surface as hard errors —
     // they were flooding opt-in telemetry as "The resource id … is invalid." (#134).
-    let update = match webview.resources_table().get::<Update>(rid) {
-        Ok(update) => update,
-        Err(_) => return Ok(None),
+    let Ok(update) = webview.resources_table().get::<Update>(rid) else {
+        return Ok(None);
     };
 
     let mut headers = update.headers.clone();

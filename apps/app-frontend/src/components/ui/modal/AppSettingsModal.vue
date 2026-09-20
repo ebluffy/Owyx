@@ -28,8 +28,6 @@ import { getVersion } from '@tauri-apps/api/app'
 import { platform as getOsPlatform, version as getOsVersion } from '@tauri-apps/plugin-os'
 import { computed, provide, ref } from 'vue'
 
-import { formatOsDisplayLabel } from '@/helpers/owyx-os-label'
-
 import PrivacySettings from '@/components/ui/settings/account/PrivacySettings.vue'
 import ProfileSettings from '@/components/ui/settings/account/ProfileSettings.vue'
 import SocialSettings from '@/components/ui/settings/account/SocialSettings.vue'
@@ -42,6 +40,7 @@ import InstancesSyncedSettings from '@/components/ui/settings/instances/instance
 import JavaSettings from '@/components/ui/settings/instances/JavaSettings.vue'
 import ResourceManagementSettings from '@/components/ui/settings/instances/ResourceManagementSettings.vue'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
+import { formatOsDisplayLabel } from '@/helpers/owyx-os-label'
 import { appSettingsKeys, appSettingsQueryOptions, set } from '@/helpers/settings.ts'
 import {
 	appSettingsModalContextKey,

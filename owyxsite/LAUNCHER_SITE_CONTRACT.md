@@ -357,6 +357,13 @@ the password. Applications/whitelist stay gone. Ban still blocks `/me`.
 
 - Site profile → **Внешний вид**: upload a PNG skin (`64×64` or legacy `64×32`),
   choose model (`classic`/`slim`). Cape is reserved (soon).
+- **Launcher Skins page** (Owyx accounts): two paths —
+  - licensed **Microsoft** profile → Mojang skins API (`equip_skin`);
+  - **offline** Owyx profile with a site session → `PUT /api/profile/skin`
+    then `syncOwyxCosmeticsToDisk(nickname, cosmetics)` writes
+    `%USERPROFILE%/owyx/skins/{nick}.png` for the client skin addon.
+  - offline profile **without** an Owyx session → CTA signs in to Owyx
+    (`owyx.signIn()`), not Microsoft.
 - Storage: file under `backend/uploads/skins/`, meta in `users.skin_url` /
   `users.skin_model` (migration `postgres/migrations/003_cosmetics.sql`).
 - API (site, `Bearer` JWT):

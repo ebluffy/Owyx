@@ -2984,6 +2984,18 @@
   "app.skins.demo.title": {
     "message": "Нужен аккаунт Microsoft"
   },
+  "app.skins.owyx.title": {
+    "message": "Войдите в Owyx"
+  },
+  "app.skins.owyx.description": {
+    "message": "Этот оффлайн-профиль использует скин вашего аккаунта Owyx. Войдите в Owyx, чтобы сохранять и применять скины."
+  },
+  "app.skins.owyx.sign-in.button": {
+    "message": "Войти в Owyx"
+  },
+  "app.skins.owyx.apply-tooltip": {
+    "message": "Войдите в Owyx, чтобы применять скины."
+  },
   "app.skins.dropped-file-error.text": {
     "message": "Не удалось прочитать перетащенный файл."
   },
@@ -4391,6 +4403,9 @@
   "owyx.servers.settings-need-install": {
     "message": "Сначала скачайте пак (Играть), затем откройте Настройки."
   },
+  "owyx.servers.settings-modal-not-ready": {
+    "message": "Настройки ещё не готовы — нажмите «Настройки» ещё раз через мгновение."
+  },
   "owyx.servers.copy-address": {
     "message": "Копировать адрес"
   },
@@ -4479,7 +4494,7 @@
     "message": "Не в сети"
   },
   "friends.status.playing": {
-    "message": "Играет в {name}"
+    "message": "Играет на {name}"
   },
   "friends.status.unknown-instance": {
     "message": "Minecraft"
