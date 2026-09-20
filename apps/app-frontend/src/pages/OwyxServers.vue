@@ -106,6 +106,7 @@ const linkedInstanceIds = ref<Record<string, string>>({})
 const settingsInstance = ref<GameInstance | null>(null)
 const settingsModal = ref<InstanceType<typeof InstanceSettingsModal> | null>(null)
 let statusTimer: ReturnType<typeof setInterval> | null = null
+let unsubscribeInstanceEvents: (() => void) | null = null
 
 const hasServers = computed(() => servers.value.length > 0)
 
@@ -269,12 +270,27 @@ async function playServer(server: OwyxServerEntry) {
 onMounted(() => {
 	void loadCatalog()
 	statusTimer = setInterval(() => {
+		// Don't burn pings while the window is hidden (#128 review).
+		if (typeof document !== 'undefined' && document.hidden) return
 		void refreshAllStatuses()
 	}, 15_000)
+	document.addEventListener('visibilitychange', onVisibilityChange)
+	// Library changes (install/uninstall/delete) invalidate the linked-instance map.
+	unsubscribeInstanceEvents = appEvents.on('instance', () => {
+		void refreshLinkedMap()
+	})
 })
+
+function onVisibilityChange() {
+	if (document.hidden) return
+	// Refresh immediately when the user returns to the window.
+	void refreshAllStatuses()
+}
 
 onUnmounted(() => {
 	if (statusTimer) clearInterval(statusTimer)
+	document.removeEventListener('visibilitychange', onVisibilityChange)
+	unsubscribeInstanceEvents?.()
 })
 </script>
 
