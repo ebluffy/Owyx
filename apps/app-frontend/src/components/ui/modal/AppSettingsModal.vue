@@ -40,6 +40,7 @@ import InstancesSyncedSettings from '@/components/ui/settings/instances/instance
 import JavaSettings from '@/components/ui/settings/instances/JavaSettings.vue'
 import ResourceManagementSettings from '@/components/ui/settings/instances/ResourceManagementSettings.vue'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
+import { formatOsDisplayLabel } from '@/helpers/owyx-os-label'
 import { appSettingsKeys, appSettingsQueryOptions, set } from '@/helpers/settings.ts'
 import {
 	appSettingsModalContextKey,
@@ -262,11 +263,16 @@ const { progress, version: downloadingVersion } = injectAppUpdateDownloadProgres
 
 const { data: appInfo } = useQuery({
 	queryKey: ['app-info'],
-	queryFn: async () => ({
-		version: await getVersion(),
-		osPlatform: getOsPlatform(),
-		osVersion: getOsVersion(),
-	}),
+	queryFn: async () => {
+		const osPlatform = getOsPlatform()
+		const osVersion = getOsVersion()
+		return {
+			version: await getVersion(),
+			osPlatform,
+			osVersion,
+			osLabel: formatOsDisplayLabel(osPlatform, osVersion),
+		}
+	},
 	staleTime: Infinity,
 })
 
@@ -379,9 +385,7 @@ const messages = defineMessages({
 							{{ formatMessage(messages.appVersion, { version: appInfo.version }) }}
 						</p>
 						<p class="m-0">
-							<span v-if="appInfo.osPlatform === 'macos'">{{ formatMessage(messages.macos) }}</span>
-							<span v-else class="capitalize">{{ appInfo.osPlatform }}</span>
-							{{ appInfo.osVersion }}
+							{{ appInfo.osLabel }}
 						</p>
 					</div>
 				</div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
 	CheckIcon,
+	CubeIcon,
 	EditIcon,
 	EyeIcon,
 	InfoIcon,
@@ -36,6 +37,7 @@ import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { handleSevereError } from '@/composables/use-error.js'
 import { trackEvent } from '@/helpers/analytics'
 import { check_reachable, get_default_user, login as login_flow, users } from '@/helpers/auth'
+import { uploadOwyxAccountSkin } from '@/helpers/owyx-skin-upload'
 import { cleanupUnusedPreviews } from '@/helpers/rendering/skin-previews'
 import type { Cape, Skin, SkinTextureUrl } from '@/helpers/skins.ts'
 import {
@@ -55,6 +57,7 @@ import {
 } from '@/helpers/skins.ts'
 import { hasPride26Badge } from '@/helpers/user-campaigns.ts'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
+import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
 import { appMessages } from '@/utils/app-messages'
 
 useRootBreadcrumb({
@@ -201,6 +204,23 @@ const messages = defineMessages({
 		id: 'app.skins.sign-in.button',
 		defaultMessage: 'Sign in to Microsoft',
 	},
+	owyxTitle: {
+		id: 'app.skins.owyx.title',
+		defaultMessage: 'Sign in to Owyx',
+	},
+	owyxDescription: {
+		id: 'app.skins.owyx.description',
+		defaultMessage:
+			'This offline profile uses your Owyx account skin. Sign in to Owyx to save and apply skins.',
+	},
+	owyxSignInButton: {
+		id: 'app.skins.owyx.sign-in.button',
+		defaultMessage: 'Sign in to Owyx',
+	},
+	owyxApplyTooltip: {
+		id: 'app.skins.owyx.apply-tooltip',
+		defaultMessage: 'Sign in to Owyx to apply skins.',
+	},
 })
 
 type MinecraftCredential = {
@@ -227,6 +247,7 @@ const notifications = injectNotificationManager()
 const { addNotification, handleError } = notifications
 const auth = injectAuth()
 const client = injectModrinthClient()
+const owyxSite = injectOwyxSiteSession()
 
 const appSettings = useAppSettings()
 const skins = ref<Skin[]>([])
@@ -237,10 +258,20 @@ const accountsCard = inject('accountsCard') as Ref<typeof AccountsCard>
 const currentUser = ref<MinecraftCredential | undefined>(undefined)
 const currentUserId = ref<string | undefined>(undefined)
 
-/** Skins API needs a licensed Microsoft account — Owyx play profiles use site nick sync instead. */
-const needsMicrosoftAccount = computed(
-	() => !currentUser.value || isOfflineAccount(currentUser.value),
+/** MS accounts use Mojang skins API; Owyx offline profiles use site PUT /api/profile/skin. */
+const canManageSkins = computed(() => {
+	if (!currentUser.value) return false
+	if (!isOfflineAccount(currentUser.value)) return true
+	return owyxSite.isSignedIn.value
+})
+
+/** Offline profile without an Owyx session → sign in to Owyx, not Microsoft (#129). */
+const needsOwyxSignIn = computed(
+	() => isOfflineAccount(currentUser.value) && !owyxSite.isSignedIn.value,
 )
+
+/** Banner shows whenever no path can apply a skin. */
+const skinActionBlocked = computed(() => !canManageSkins.value)
 
 const username = computed(() => currentUser.value?.profile?.name ?? undefined)
 const selectedSkin = ref<Skin | null>(null)
@@ -776,16 +807,26 @@ async function applySelectedSkin() {
 	const skinToApply = selectedSkin.value
 	if (
 		!currentUser.value ||
-		isOfflineAccount(currentUser.value) ||
 		!skinToApply ||
 		!hasPendingSkinChange.value ||
 		isApplyingSkin.value ||
-		isSkinManagementReadOnly.value
+		isSkinManagementReadOnly.value ||
+		!canManageSkins.value
 	)
 		return
 
 	isApplyingSkin.value = true
 	try {
+		if (isOfflineAccount(currentUser.value) && owyxSite.isSignedIn.value) {
+			const pngBytes = await normalize_skin_texture(skinToApply.texture)
+			await uploadOwyxAccountSkin({
+				pngBytes,
+				model: skinToApply.variant === 'SLIM' ? 'slim' : 'classic',
+			})
+			setLocallyEquippedSkin(skinToApply)
+			await owyxSite.refresh()
+			return
+		}
 		await equip_skin(skinToApply)
 		setLocallyEquippedSkin(skinToApply)
 		schedulePendingSkinRefresh()
@@ -832,6 +873,21 @@ async function loadCurrentUser() {
 		handleError(e as Error)
 		currentUser.value = undefined
 		currentUserId.value = undefined
+	}
+}
+
+// #129: accent + spinner for the Owyx path (not the Microsoft Windows icon).
+async function signInToOwyx() {
+	if (accountsCard.value) accountsCard.value.setLoginDisabled(true)
+	try {
+		await owyxSite.signIn()
+		if (owyxSite.isSignedIn.value) {
+			await loadCurrentUser()
+		}
+	} catch (e) {
+		handleError(e as Error)
+	} finally {
+		if (accountsCard.value) accountsCard.value.setLoginDisabled(false)
 	}
 }
 
@@ -1087,7 +1143,7 @@ await loadSkins()
 	<EditSkinModal
 		ref="editSkinModal"
 		:capes="capes"
-		:demo="needsMicrosoftAccount"
+		:demo="skinActionBlocked"
 		@saved="onSkinSaved"
 		@deleted="() => loadSkins()"
 	/>
@@ -1106,7 +1162,7 @@ await loadSkins()
 		@proceed="deleteSkin"
 	/>
 
-	<div class="skin-layout box-border grow p-4" :class="{ 'pb-40': needsMicrosoftAccount }">
+	<div class="skin-layout box-border grow p-4" :class="{ 'pb-40': skinActionBlocked }">
 		<div class="sticky top-6 self-start p-2 pt-0">
 			<h1 class="m-0 text-2xl font-bold flex items-center gap-2">
 				{{ formatMessage(appMessages.skinSelectorLabel) }}
@@ -1162,8 +1218,10 @@ await loadSkins()
 								</Button>
 								<Button
 									v-tooltip="
-										needsMicrosoftAccount
-											? formatMessage(messages.demoApplyTooltip)
+										skinActionBlocked
+											? formatMessage(
+													needsOwyxSignIn ? messages.owyxApplyTooltip : messages.demoApplyTooltip,
+												)
 											: selectedSkinHasEarsFeatures
 												? formatMessage(messages.applyButton)
 												: undefined
@@ -1172,7 +1230,7 @@ await loadSkins()
 									color="brand"
 									size="lg"
 									class="skin-preview-action-button"
-									:disabled="needsMicrosoftAccount || isApplyingSkin || isSkinManagementReadOnly"
+									:disabled="skinActionBlocked || isApplyingSkin || isSkinManagementReadOnly"
 									:aria-label="formatMessage(messages.applyButton)"
 									@click="applySelectedSkin"
 								>
@@ -1285,7 +1343,7 @@ await loadSkins()
 		</div>
 	</div>
 
-	<div v-if="needsMicrosoftAccount" class="sticky w-full bottom-0 z-20 p-4 pt-0">
+	<div v-if="skinActionBlocked" class="sticky w-full bottom-0 z-20 p-4 pt-0">
 		<div
 			class="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 rounded-[20px] border border-solid border-surface-5 bg-surface-3 p-4"
 		>
@@ -1293,10 +1351,12 @@ await loadSkins()
 				<InfoIcon class="size-6 shrink-0 text-blue" />
 				<div class="flex min-w-0 flex-col gap-1">
 					<p class="m-0 text-lg font-semibold leading-6 text-contrast">
-						{{ formatMessage(messages.demoTitle) }}
+						{{ formatMessage(needsOwyxSignIn ? messages.owyxTitle : messages.demoTitle) }}
 					</p>
 					<p class="m-0 text-base leading-6 text-primary">
-						{{ formatMessage(messages.demoDescription) }}
+						{{
+							formatMessage(needsOwyxSignIn ? messages.owyxDescription : messages.demoDescription)
+						}}
 					</p>
 				</div>
 			</div>
@@ -1305,11 +1365,12 @@ await loadSkins()
 				type="colored"
 				color="brand"
 				:disabled="accountsCard.loginDisabled"
-				@click="login"
+				@click="needsOwyxSignIn ? signInToOwyx() : login()"
 			>
 				<SpinnerIcon v-if="accountsCard.loginDisabled" class="animate-spin" />
-				<WindowsIcon v-else />
-				{{ formatMessage(messages.signInButton) }}
+				<WindowsIcon v-else-if="!needsOwyxSignIn" />
+				<CubeIcon v-else class="size-5" />
+				{{ formatMessage(needsOwyxSignIn ? messages.owyxSignInButton : messages.signInButton) }}
 			</Button>
 		</div>
 	</div>

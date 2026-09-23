@@ -15,6 +15,8 @@ const KINDS = ['owyx', 'community'];
 const ACCESS_MODES = ['open', 'whitelist', 'blacklist'];
 const ID_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const ingestDir = path.join(__dirname, '../../uploads/packs');
+/** Shared ingest/download cap — keep in sync with LAUNCHER_SITE_CONTRACT.md */
+const MAX_PACK_BYTES = 512 * 1024 * 1024;
 
 const packsAdmin = express.Router();
 const serversAdmin = express.Router();
@@ -720,7 +722,7 @@ const ingestUpload = multer({
       cb(null, `${safe}-${Date.now()}.zip`);
     },
   }),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
+  limits: { fileSize: MAX_PACK_BYTES },
   fileFilter: (_req, file, cb) => {
     const name = String(file.originalname || '').toLowerCase();
     if (!name.endsWith('.zip') && !name.endsWith('.mrpack')) {
@@ -730,6 +732,16 @@ const ingestUpload = multer({
     cb(null, true);
   },
 });
+
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
+}
 
 packsAdmin.post(
   '/:id/ingest',
@@ -744,7 +756,7 @@ packsAdmin.post(
       if (!err) return next();
       if (err.code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({
-          error: 'archive too large (max 2 GB)',
+          error: `archive too large (max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB)`,
         });
       }
       return res.status(400).json({ error: err.message || 'upload failed' });
@@ -754,9 +766,13 @@ packsAdmin.post(
   try {
     const existing = await db.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
-    if (!req.file) return res.status(400).json({ error: 'Приложите zip (поле archive), до 2 ГБ' });
-    const bytes = await fs.promises.readFile(req.file.path);
-    const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+    if (!req.file) {
+      return res.status(400).json({
+        error: `Приложите zip (поле archive), до ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} МБ`,
+      });
+    }
+    const sha256 = await sha256File(req.file.path);
+    const size = req.file.size || (await fs.promises.stat(req.file.path)).size;
     const isMrpack = String(req.file.originalname || '').toLowerCase().endsWith('.mrpack');
     const finalName = `${req.params.id}.${isMrpack ? 'mrpack' : 'zip'}`;
     const finalPath = path.join(ingestDir, finalName);
@@ -768,7 +784,7 @@ packsAdmin.post(
       [
         req.params.id,
         isMrpack ? 'mrpack' : 'http_zip',
-        JSON.stringify({ url, sha256, size: bytes.length, ingest: 'local' }),
+        JSON.stringify({ url, sha256, size, ingest: 'local' }),
         `/api/launcher/v1/packs/${req.params.id}/manifest`,
       ]
     );
@@ -1049,4 +1065,5 @@ module.exports = {
   ensureCatalogSchema,
   publicBase,
   absoluteAsset,
+  MAX_PACK_BYTES,
 };

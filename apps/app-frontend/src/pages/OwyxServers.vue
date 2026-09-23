@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { PlayIcon, ServerStackIcon } from '@modrinth/assets'
+import { PlayIcon, ServerStackIcon, SettingsIcon } from '@modrinth/assets'
 import { Button, defineMessages, injectNotificationManager, useVIntl } from '@modrinth/ui'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -19,11 +19,13 @@ import {
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
 } from '@/helpers/owyx-server-instances'
+import type { GameInstance } from '@/helpers/types'
 import {
 	ensureManagedServerWorldExists,
 	get_server_status,
 	start_join_server,
 } from '@/helpers/worlds'
+import InstanceSettingsModal from '@/pages/instance/components/settings-modal/index.vue'
 import { injectAppEvents } from '@/providers/app-events'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
 import { injectOwyxSiteSession } from '@/providers/owyx-site-session'
@@ -54,6 +56,15 @@ const messages = defineMessages({
 		defaultMessage: 'Loading servers…',
 	},
 	play: { id: 'owyx.servers.play', defaultMessage: 'Play' },
+	settings: { id: 'owyx.servers.settings', defaultMessage: 'Settings' },
+	settingsNeedInstall: {
+		id: 'owyx.servers.settings-need-install',
+		defaultMessage: 'Download the pack first (Play), then open Settings.',
+	},
+	settingsModalNotReady: {
+		id: 'owyx.servers.settings-modal-not-ready',
+		defaultMessage: 'Settings not ready yet — click Settings again in a moment.',
+	},
 	refresh: { id: 'owyx.servers.refresh', defaultMessage: 'Refresh' },
 	version: { id: 'owyx.servers.version', defaultMessage: 'MC {version}' },
 	demoBadge: { id: 'owyx.servers.demo-badge', defaultMessage: 'demo' },
@@ -91,9 +102,53 @@ const busyId = ref<string | null>(null)
 const apiBase = ref(getStoredOwyxApiBase())
 const copiedId = ref<string | null>(null)
 const liveStatus = ref<Record<string, ServerLiveStatus>>({})
+const linkedInstanceIds = ref<Record<string, string>>({})
+const settingsInstance = ref<GameInstance | null>(null)
+const settingsModal = ref<InstanceType<typeof InstanceSettingsModal> | null>(null)
 let statusTimer: ReturnType<typeof setInterval> | null = null
+let unsubscribeInstanceEvents: (() => void) | null = null
 
 const hasServers = computed(() => servers.value.length > 0)
+
+async function refreshLinkedMap() {
+	const next: Record<string, string> = {}
+	await Promise.all(
+		servers.value.map(async (server) => {
+			try {
+				const inst = await findLinkedOwyxServerInstance(server)
+				if (inst) next[server.id] = inst.id
+			} catch {
+				/* ignore */
+			}
+		}),
+	)
+	linkedInstanceIds.value = next
+}
+
+function hasLinkedInstance(server: OwyxServerEntry): boolean {
+	return Boolean(linkedInstanceIds.value[server.id])
+}
+
+async function openServerSettings(server: OwyxServerEntry) {
+	try {
+		const inst = await findLinkedOwyxServerInstance(server)
+		if (!inst) {
+			handleError(new Error(formatMessage(messages.settingsNeedInstall)))
+			return
+		}
+		settingsInstance.value = inst
+		// Wait for Vue to mount the settings modal with the new instance (#128 review).
+		await nextTick()
+		if (!settingsModal.value) {
+			// Instance just linked but the modal hasn't mounted yet — let the user retry.
+			handleError(new Error(formatMessage(messages.settingsModalNotReady)))
+			return
+		}
+		settingsModal.value.show()
+	} catch (e) {
+		handleError(e)
+	}
+}
 
 async function loadCatalog() {
 	loading.value = true
@@ -112,6 +167,7 @@ async function loadCatalog() {
 			loadError.value = formatMessage(messages.unreachable)
 		}
 		void refreshAllStatuses()
+		void refreshLinkedMap()
 	} catch (e) {
 		servers.value = []
 		loadError.value = e instanceof Error ? e.message : String(e)
@@ -197,6 +253,7 @@ async function playServer(server: OwyxServerEntry) {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
 		const instanceId = await ensurePackInstalled(server)
 		if (!instanceId) return
+		await refreshLinkedMap()
 		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
 		try {
 			await start_join_server(instanceId, server.address)
@@ -213,12 +270,27 @@ async function playServer(server: OwyxServerEntry) {
 onMounted(() => {
 	void loadCatalog()
 	statusTimer = setInterval(() => {
+		// Don't burn pings while the window is hidden (#128 review).
+		if (typeof document !== 'undefined' && document.hidden) return
 		void refreshAllStatuses()
 	}, 15_000)
+	document.addEventListener('visibilitychange', onVisibilityChange)
+	// Library changes (install/uninstall/delete) invalidate the linked-instance map.
+	unsubscribeInstanceEvents = appEvents.on('instance', () => {
+		void refreshLinkedMap()
+	})
 })
+
+function onVisibilityChange() {
+	if (document.hidden) return
+	// Refresh immediately when the user returns to the window.
+	void refreshAllStatuses()
+}
 
 onUnmounted(() => {
 	if (statusTimer) clearInterval(statusTimer)
+	document.removeEventListener('visibilitychange', onVisibilityChange)
+	unsubscribeInstanceEvents?.()
 })
 </script>
 
@@ -347,6 +419,19 @@ onUnmounted(() => {
 				</div>
 				<div class="flex shrink-0 flex-wrap gap-2">
 					<Button
+						class="!bg-button-bg"
+						:disabled="busyId === server.id || !hasLinkedInstance(server)"
+						:title="
+							hasLinkedInstance(server)
+								? formatMessage(messages.settings)
+								: formatMessage(messages.settingsNeedInstall)
+						"
+						@click="openServerSettings(server)"
+					>
+						<SettingsIcon class="h-4 w-4" />
+						{{ formatMessage(messages.settings) }}
+					</Button>
+					<Button
 						type="colored"
 						color="brand"
 						:disabled="busyId === server.id || !hasPack(server)"
@@ -360,5 +445,12 @@ onUnmounted(() => {
 				</div>
 			</li>
 		</ul>
+
+		<InstanceSettingsModal
+			v-if="settingsInstance"
+			ref="settingsModal"
+			:instance="settingsInstance"
+			@unlinked="settingsInstance = null"
+		/>
 	</div>
 </template>
