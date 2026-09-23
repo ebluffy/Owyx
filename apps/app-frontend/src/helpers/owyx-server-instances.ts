@@ -3,7 +3,7 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { mkdir, writeFile } from '@tauri-apps/plugin-fs'
+import { mkdir } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
