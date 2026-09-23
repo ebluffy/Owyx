@@ -328,10 +328,11 @@ launcher — write through these routes.
 
 - `GET/POST /api/admin/packs` · `GET/PUT/DELETE /api/admin/packs/:id`
 - `POST /api/admin/packs/:id/ingest` — multipart field `archive` (`.zip` or
-  `.mrpack`, ≤50 MB) → `/uploads/packs/{id}.zip` or `{id}.mrpack`. `.zip`
-  becomes `http_zip` + sha256. `.mrpack` is stored but remains
-  `downloadAvailable: false` until a real mrpack parser exists. Deleting a
-  locally ingested pack also unlinks the file.
+  `.mrpack`, ≤**512 MB** / `MAX_PACK_BYTES`) → `/uploads/packs/{id}.zip` or
+  `{id}.mrpack`. Public `downloadUrl` is rewritten to
+  `/api/launcher/v1/packs/:id/download` (ACL). Local `.mrpack` uploads set
+  `downloadAvailable: true`. Larger archives: publish as remote `http_zip` URL.
+  Deleting a locally ingested pack also unlinks the file.
 - `GET/POST /api/admin/servers` · `GET/PUT/DELETE /api/admin/servers/:id`
 
 Create pack body (camelCase): `{ id?, name, minecraft, loader, iconUrl?,
@@ -344,7 +345,7 @@ description?, sourceType, source: { type, config }, published? }`.
 | `http_zip` / `local_ingest` | `{ url, sha256? }` | `downloadUrl` + `sha256` |
 | `http_manifest` | `{ manifestUrl, files? }` | `manifestUrl` |
 | `google_drive` | `{ url, directDownloadUrl?, note? }` | `downloadUrl` only if direct |
-| `mrpack` | `{ url }` | `downloadAvailable: false`, `ingest: "planned"` |
+| `mrpack` | `{ url }` | local upload → `downloadUrl` + `downloadAvailable: true`; remote schema-only → `downloadAvailable: false`, `ingest: "planned"` |
 | `sftp` | `{ host, port, user, path, password? }` | `downloadAvailable: false` only |
 
 Admin GET of an SFTP pack returns `source.config.hasPassword` and **never**
@@ -356,6 +357,13 @@ the password. Applications/whitelist stay gone. Ban still blocks `/me`.
 
 - Site profile → **Внешний вид**: upload a PNG skin (`64×64` or legacy `64×32`),
   choose model (`classic`/`slim`). Cape is reserved (soon).
+- **Launcher Skins page** (Owyx accounts): two paths —
+  - licensed **Microsoft** profile → Mojang skins API (`equip_skin`);
+  - **offline** Owyx profile with a site session → `PUT /api/profile/skin`
+    then `syncOwyxCosmeticsToDisk(nickname, cosmetics)` writes
+    `%USERPROFILE%/owyx/skins/{nick}.png` for the client skin addon.
+  - offline profile **without** an Owyx session → CTA signs in to Owyx
+    (`owyx.signIn()`), not Microsoft.
 - Storage: file under `backend/uploads/skins/`, meta in `users.skin_url` /
   `users.skin_model` (migration `postgres/migrations/003_cosmetics.sql`).
 - API (site, `Bearer` JWT):

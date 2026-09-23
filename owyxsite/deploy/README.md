@@ -22,7 +22,8 @@ cd ../Launcher/apps/launcher
 npm run dev:tauri
 ```
 
-Pack zip overlay is capped at **512 MB** in the launcher (`MAX_PACK_BYTES`).
+Pack zip overlay / admin ingest is capped at **512 MB** (`MAX_PACK_BYTES` in
+`backend/src/routes/catalog.js`).
 
 ## Dedicated Owyx VPS (recommended for OBT)
 

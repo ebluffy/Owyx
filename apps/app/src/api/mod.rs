@@ -59,6 +59,12 @@ pub enum TheseusSerializableError {
     #[error("Updater error: {0}")]
     Updater(#[from] tauri_plugin_updater::Error),
 
+    /// Update handle is stale (already downloaded or replaced). Not a crash —
+    /// the UI must not treat this as a successful install (#134).
+    #[cfg(feature = "updater")]
+    #[error("This update is no longer available — refresh the update check.")]
+    UpdaterRidStale,
+
     #[cfg(feature = "updater")]
     #[error("HTTP error: {0}")]
     Http(#[from] tauri_plugin_http::reqwest::Error),
@@ -84,6 +90,13 @@ macro_rules! impl_serialize {
                 S: Serializer,
             {
                 match self {
+                    #[cfg(feature = "updater")]
+                    TheseusSerializableError::UpdaterRidStale => {
+                        let mut state = serializer.serialize_struct("UpdaterRidStale", 2)?;
+                        state.serialize_field("field_name", "UpdaterRidStale")?;
+                        state.serialize_field("message", &self.to_string())?;
+                        state.end()
+                    }
                     TheseusSerializableError::Theseus(theseus_error) => {
                         let unavailable_reason = match theseus_error.raw.as_ref() {
                             theseus::ErrorKind::SharedInstanceUnavailable(reason) => Some(reason),

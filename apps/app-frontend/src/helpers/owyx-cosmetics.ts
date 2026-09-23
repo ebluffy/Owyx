@@ -13,6 +13,7 @@ import {
 	isAllowedOwyxAssetUrl,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import { assertOwyxCosmeticsArgs } from '@/helpers/owyx-cosmetics-args'
 
 function sanitizeNick(nick: string): string {
 	return nick.replace(/[^A-Za-z0-9_\-.]/g, '_').slice(0, 32) || 'player'
@@ -48,6 +49,8 @@ export async function syncOwyxCosmeticsToDisk(
 	nickname: string,
 	cosmetics: Record<string, unknown> | null | undefined,
 ): Promise<void> {
+	// Guard against swapped args (cosmetics, nickname) that silently no-op'd (#129 review).
+	assertOwyxCosmeticsArgs(nickname, cosmetics)
 	if (!cosmetics || !nickname) return
 	const skinUrl = cosmetics.skinUrl
 		? String(cosmetics.skinUrl)

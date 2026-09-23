@@ -3,7 +3,7 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { mkdir, writeFile } from '@tauri-apps/plugin-fs'
+import { mkdir, remove, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
@@ -160,16 +160,58 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	if (!res.ok) {
 		throw new Error(`Pack download failed (${res.status})`)
 	}
-	const buf = new Uint8Array(await res.arrayBuffer())
-	if (buf.byteLength < 32) {
-		throw new Error('Pack download was empty')
+	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
+	const MAX_PACK_BYTES = 512 * 1024 * 1024
+	const contentLength = Number(res.headers.get('content-length') || 0)
+	if (Number.isFinite(contentLength) && contentLength > MAX_PACK_BYTES) {
+		throw new Error(
+			`Pack is too large (${Math.round(contentLength / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+		)
 	}
+	const body = res.body
+	if (!body) throw new Error('Pack download returned no body')
+
 	const dir = await join(await appDataDir(), 'owyx-packs')
 	await mkdir(dir, { recursive: true })
 	const ext = packFileExtension(packUrl)
 	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
-	await writeFile(path, buf)
-	return path
+	let totalBytes = 0
+	try {
+		const reader = body.getReader()
+		const limitedBody = new ReadableStream<Uint8Array>({
+			async pull(controller) {
+				const { done, value } = await reader.read()
+				if (done) {
+					controller.close()
+					return
+				}
+				if (!value?.byteLength) return
+				totalBytes += value.byteLength
+				if (totalBytes > MAX_PACK_BYTES) {
+					controller.error(
+						new Error(
+							`Pack is too large (${Math.round(totalBytes / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+						),
+					)
+					return
+				}
+				controller.enqueue(value)
+			},
+			cancel(reason) {
+				return reader.cancel(reason)
+			},
+		})
+		try {
+			await writeFile(path, limitedBody)
+		} finally {
+			reader.releaseLock()
+		}
+		if (totalBytes < 32) throw new Error('Pack download was empty')
+		return path
+	} catch (error) {
+		await remove(path).catch(() => undefined)
+		throw error
+	}
 }
 
 export function owyxServerInstanceLink(

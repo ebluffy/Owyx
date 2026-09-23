@@ -283,9 +283,11 @@ export async function publishLibraryPackToCatalog(opts: {
 	}
 	const packId = createData.pack.id
 	const sizeMb = opts.file.size / (1024 * 1024)
-	if (sizeMb > 2048) {
+	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
+	const MAX_PACK_MB = 512
+	if (sizeMb > MAX_PACK_MB) {
 		throw new Error(
-			`pack is ${sizeMb.toFixed(0)} MB — max upload is 2 GB. Host a larger archive via HTTP URL instead.`,
+			`pack is ${sizeMb.toFixed(0)} MB — max upload is ${MAX_PACK_MB} MB. Host a larger archive via HTTP URL instead.`,
 		)
 	}
 	const fd = new FormData()
@@ -309,7 +311,7 @@ export async function publishLibraryPackToCatalog(opts: {
 		if (ingestRes.status === 413) {
 			throw new Error(
 				data.error ||
-					`ingest failed (413): archive too large for the API (max 2 GB, yours ~${sizeMb.toFixed(0)} MB)`,
+					`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
 			)
 		}
 		throw new Error(data.error || `Ingest failed (${ingestRes.status})`)
