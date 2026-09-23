@@ -3,7 +3,7 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { mkdir } from '@tauri-apps/plugin-fs'
+import { mkdir, remove, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
@@ -168,21 +168,44 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 			`Pack is too large (${Math.round(contentLength / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
 		)
 	}
-	const buf = new Uint8Array(await res.arrayBuffer())
-	if (buf.byteLength < 32) {
-		throw new Error('Pack download was empty')
-	}
-	if (buf.byteLength > MAX_PACK_BYTES) {
-		throw new Error(
-			`Pack is too large (${Math.round(buf.byteLength / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
-		)
-	}
+	const body = res.body
+	if (!body) throw new Error('Pack download returned no body')
+
 	const dir = await join(await appDataDir(), 'owyx-packs')
 	await mkdir(dir, { recursive: true })
 	const ext = packFileExtension(packUrl)
 	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
-	await writeFile(path, buf)
-	return path
+	let totalBytes = 0
+	let wroteBytes = false
+	try {
+		const reader = body.getReader()
+		try {
+			while (true) {
+				const { done, value } = await reader.read()
+				if (done) break
+				if (!value?.byteLength) continue
+				totalBytes += value.byteLength
+				if (totalBytes > MAX_PACK_BYTES) {
+					throw new Error(
+						`Pack is too large (${Math.round(totalBytes / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+					)
+				}
+				if (!wroteBytes) {
+					await writeFile(path, value)
+					wroteBytes = true
+				} else {
+					await writeFile(path, value, { append: true })
+				}
+			}
+		} finally {
+			reader.releaseLock()
+		}
+		if (totalBytes < 32) throw new Error('Pack download was empty')
+		return path
+	} catch (error) {
+		await remove(path).catch(() => undefined)
+		throw error
+	}
 }
 
 export function owyxServerInstanceLink(
