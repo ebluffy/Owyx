@@ -311,7 +311,7 @@ export async function publishLibraryPackToCatalog(opts: {
 		if (ingestRes.status === 413) {
 			throw new Error(
 				data.error ||
-					`ingest failed (413): archive too large for the API (max 2 GB, yours ~${sizeMb.toFixed(0)} MB)`,
+					`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
 			)
 		}
 		throw new Error(data.error || `Ingest failed (${ingestRes.status})`)

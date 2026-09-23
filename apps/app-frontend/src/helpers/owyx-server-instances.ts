@@ -176,27 +176,33 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	const ext = packFileExtension(packUrl)
 	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
 	let totalBytes = 0
-	let wroteBytes = false
 	try {
 		const reader = body.getReader()
-		try {
-			while (true) {
+		const limitedBody = new ReadableStream<Uint8Array>({
+			async pull(controller) {
 				const { done, value } = await reader.read()
-				if (done) break
-				if (!value?.byteLength) continue
+				if (done) {
+					controller.close()
+					return
+				}
+				if (!value?.byteLength) return
 				totalBytes += value.byteLength
 				if (totalBytes > MAX_PACK_BYTES) {
-					throw new Error(
-						`Pack is too large (${Math.round(totalBytes / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+					controller.error(
+						new Error(
+							`Pack is too large (${Math.round(totalBytes / (1024 * 1024))} MB). Max ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} MB.`,
+						),
 					)
+					return
 				}
-				if (!wroteBytes) {
-					await writeFile(path, value)
-					wroteBytes = true
-				} else {
-					await writeFile(path, value, { append: true })
-				}
-			}
+				controller.enqueue(value)
+			},
+			cancel(reason) {
+				return reader.cancel(reason)
+			},
+		})
+		try {
+			await writeFile(path, limitedBody)
 		} finally {
 			reader.releaseLock()
 		}
