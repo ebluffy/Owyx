@@ -272,10 +272,13 @@ fn content_source_kind(link: &InstanceLink) -> ContentSourceKind {
 }
 
 fn sanitize_instance_name(input: &str) -> String {
-    input.replace(
-        ['/', '\\', '?', '*', ':', '\'', '\"', '|', '<', '>', '!'],
-        "_",
-    )
+    input
+        .replace(
+            ['/', '\\', '?', '*', ':', '\'', '\"', '|', '<', '>', '!'],
+            "_",
+        )
+        .trim_end_matches(['.', ' '])
+        .to_string()
 }
 
 /// Relative path under `profiles/` for curated Owyx server packs.
