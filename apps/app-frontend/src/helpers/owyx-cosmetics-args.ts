@@ -7,7 +7,7 @@ export function assertOwyxCosmeticsArgs(
 	nickname: unknown,
 	cosmetics: unknown,
 ): asserts nickname is string {
-	if (typeof nickname !== 'string' || (nickname && typeof nickname === 'object')) {
+	if (typeof nickname !== 'string') {
 		throw new Error('syncOwyxCosmeticsToDisk(nickname, cosmetics): nickname must be a string')
 	}
 	if (cosmetics != null && typeof cosmetics !== 'object') {
