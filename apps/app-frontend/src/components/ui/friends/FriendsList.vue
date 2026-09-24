@@ -383,6 +383,14 @@ const busyJoinId = ref<string | null>(null)
 async function joinFriendServer(friend: OwyxFriend) {
 	const server = matchCatalogServer(friend)
 	if (!server) return
+	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
+		addNotification({
+			type: 'warning',
+			title: formatMessage(messages.joinServer),
+			text: owyx.session.value.user.accessReason || formatMessage(messages.errNoPack),
+		})
+		return
+	}
 	if (server.requiresAccount && !owyx.isSignedIn.value) {
 		await owyx.signIn()
 		if (!owyx.isSignedIn.value) return
