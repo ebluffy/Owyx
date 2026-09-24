@@ -62,10 +62,15 @@ cd owyxsite && docker compose up
 
 ## Upstream sync
 
+**Do not** merge `upstream/main` straight onto `main` and **never** reset `main` to Modrinth.
+
+Full playbook: [`docs/UPSTREAM_SYNC.md`](./docs/UPSTREAM_SYNC.md) — sync branch, Owyx-first conflict rules, high-risk paths, test checklist.
+
 ```bash
 git remote add upstream https://github.com/modrinth/code.git   # if missing
-git fetch upstream
-git merge upstream/main   # resolve brand / Owyx feature conflicts carefully
+git fetch origin main && git fetch upstream main
+git checkout -b sync/modrinth-YYYYMMDD origin/main
+git merge upstream/main   # resolve on the sync branch only; open a separate PR
 ```
 
 Do not mass-rename `@modrinth/*` packages in drive-by PRs (keeps merges sane). Do not unfork.
