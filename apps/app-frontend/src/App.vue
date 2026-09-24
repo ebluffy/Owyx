@@ -1890,7 +1890,7 @@ async function checkUpdates() {
 
 	async function performCheck() {
 		let update = null
-		let lastError: unknown = null
+		let lastError = null
 		for (let attempt = 1; attempt <= 3; attempt++) {
 			try {
 				update = await invoke('plugin:updater|check')
