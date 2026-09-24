@@ -1902,7 +1902,11 @@ async function checkUpdates() {
 			}
 		}
 		if (lastError && !update) {
-			handleError(new Error('Update check failed after retries'))
+			addNotification({
+				type: 'warning',
+				title: formatMessage(messages.updateCheckFailedTitle),
+				text: formatMessage(messages.updateCheckFailedText),
+			})
 			return
 		}
 		if (!update) {
