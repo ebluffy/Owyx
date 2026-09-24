@@ -90,7 +90,7 @@ app.use(
     stream: {
       write(message) {
         // Strip query strings so bearer tokens can never enter access logs.
-        process.stdout.write(message.replace(/(GET|POST|PUT|PATCH|DELETE) ([^ ]+)\?/g, '$1 $2'));
+        process.stdout.write(message.replace(/\?[^\s]*/g, ''));
       },
     },
   })
