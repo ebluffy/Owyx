@@ -137,7 +137,7 @@ export class SkinPreviewStorage {
 					const key = cursor.primaryKey as string
 
 					if (!validKeys.has(key)) {
-						const deleteRequest = cursor.delete()
+						const deleteRequest = store.delete(cursor.primaryKey)
 						deleteRequest.onsuccess = () => {
 							deletedCount++
 						}
