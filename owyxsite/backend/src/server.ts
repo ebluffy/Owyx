@@ -85,7 +85,16 @@ app.use(
 );
 
 app.use(compression());
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+app.use(
+  morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev', {
+    stream: {
+      write(message) {
+        // Strip query strings so bearer tokens can never enter access logs.
+        process.stdout.write(message.replace(/(GET|POST|PUT|PATCH|DELETE) ([^ ]+)\?/g, '$1 $2'));
+      },
+    },
+  })
+);
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 

@@ -628,6 +628,14 @@ const messages = defineMessages({
 		id: 'app.update.download-error.missing-version',
 		defaultMessage: 'Failed to download update: no version available',
 	},
+	updateCheckFailedTitle: {
+		id: 'app.update.check-error.title',
+		defaultMessage: 'Update check failed',
+	},
+	updateCheckFailedText: {
+		id: 'app.update.check-error.text',
+		defaultMessage: 'We could not check for updates. Please try again later.',
+	},
 	updateInstalledToastTitle: {
 		id: 'app.update.complete-toast.title',
 		defaultMessage: 'Version {version} was successfully installed!',
@@ -1882,18 +1890,28 @@ async function checkUpdates() {
 
 	async function performCheck() {
 		let update = null
+		let lastError: unknown = null
 		for (let attempt = 1; attempt <= 3; attempt++) {
 			try {
 				update = await invoke('plugin:updater|check')
 				break
 			} catch (error) {
+				lastError = error
 				console.warn(`Update check attempt ${attempt} failed`, error)
 				if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 2000))
 			}
 		}
+		if (lastError && !update) {
+			handleError(new Error('Update check failed after retries'))
+			return
+		}
 		if (!update) {
 			console.log('No update available')
 			return
+		}
+
+		if (!update.version) {
+			throw new Error('Update metadata is incomplete')
 		}
 
 		const isExistingUpdate = update.version === availableUpdate.value?.version

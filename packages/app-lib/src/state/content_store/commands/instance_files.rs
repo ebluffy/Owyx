@@ -68,7 +68,6 @@ impl ContentStore {
         self.check_instance_path(&path, &binding.blob_sha512).await
     }
 
-    #[expect(dead_code)]
     pub(crate) async fn validate_instance(
         &self,
         instance: &Instance,
@@ -105,6 +104,11 @@ impl ContentStore {
                 .await?;
             let file_status =
                 self.check_instance_file(instance, &file, &binding).await?;
+            if file_status == InstanceFileStatus::Missing {
+                // A file removed outside the launcher is already reflected by the
+                // instance sync; do not block launch on a stale content-store row.
+                continue;
+            }
             if !matches!(content, FileContent::Stored { .. })
                 || file_status != InstanceFileStatus::Healthy
             {
