@@ -34,8 +34,7 @@ export function initSocket(httpServer: HttpServer) {
   io.use(async (socket: AuthedSocket, next) => {
     try {
       const token =
-        (socket.handshake.auth && (socket.handshake.auth as { token?: string }).token) ||
-        (socket.handshake.query && (socket.handshake.query as { token?: string }).token);
+        socket.handshake.auth && (socket.handshake.auth as { token?: string }).token;
 
       if (!token || typeof token !== 'string') {
         return next(new Error('Authentication required'));

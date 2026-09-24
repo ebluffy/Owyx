@@ -757,10 +757,7 @@ router.get('/verify-email', async (req, res) => {
 
 async function resolveDiscordStartUser(req) {
     const authHeader = req.headers['authorization'];
-    let token = authHeader && authHeader.split(' ')[1];
-    if (!token && typeof req.query.token === 'string') {
-        token = req.query.token;
-    }
+    const token = authHeader && authHeader.split(' ')[1];
     if (!token) return null;
     try {
         await attachUserFromToken(req, token, { failOnMissingSession: true });

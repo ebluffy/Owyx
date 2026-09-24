@@ -413,7 +413,8 @@ services:
       test: ['CMD-SHELL', 'clickhouse-client --query "SELECT 1"']
       interval: 3s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 30s
   mail:
     image: axllent/mailpit:v1.27
     container_name: labrinth-mail

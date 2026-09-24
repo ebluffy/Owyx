@@ -1881,7 +1881,16 @@ async function checkUpdates() {
 	}
 
 	async function performCheck() {
-		const update = await invoke('plugin:updater|check')
+		let update = null
+		for (let attempt = 1; attempt <= 3; attempt++) {
+			try {
+				update = await invoke('plugin:updater|check')
+				break
+			} catch (error) {
+				console.warn(`Update check attempt ${attempt} failed`, error)
+				if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 2000))
+			}
+		}
 		if (!update) {
 			console.log('No update available')
 			return
