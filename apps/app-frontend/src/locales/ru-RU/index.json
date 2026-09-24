@@ -53,6 +53,9 @@
   "app.action-bar.install.summary.download-failed": {
     "message": "Скачивание прервано"
   },
+  "app.action-bar.install.summary.instance-error": {
+    "message": "Не удалось подготовить сборку"
+  },
   "app.action-bar.install.summary.invalid-file-path": {
     "message": "Неверный путь к файлу"
   },

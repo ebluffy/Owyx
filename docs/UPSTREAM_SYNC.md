@@ -206,17 +206,19 @@ Run what the environment allows; record skips.
 - [ ] Version left alone unless you intend a SemVer bump (`scripts/set-app-version.js`). A sync is not automatically `0.11.0`.
 - [ ] Do not publish from the sync branch until smoke above is done.
 
-### 8. Open a **separate** sync PR
+### 8. Use the working sync PR
+
+Push the sync branch and keep the reviewed upstream commits plus conflict report in one PR:
 
 ```bash
-git push -u origin sync/modrinth-YYYYMMDD
+git push -u origin sync/modrinth-0.21-YYYYMMDD
 # PR base = ebluffy/Owyx main
-# PR head = sync/modrinth-YYYYMMDD
+# PR head = sync/modrinth-0.21-YYYYMMDD
 ```
 
-This audit PR **only documents** the plan. The actual merge is a different PR.
+The sync PR may also contain follow-up Owyx fixes discovered by Auto-Review, but keep them in separate commits after the upstream port. Do not merge or publish until the CI and smoke checklist are green.
 
-Title idea: `sync: modrinth/code main as of YYYY-MM-DD (52 commits)`.
+Title idea: `sync: Modrinth App 0.21.4-0.21.5 launcher fixes`.
 
 Body must list: upstream SHA(s), selected commit rationale, changed paths, any manually re-applied Owyx hooks, what was kept Owyx vs taken upstream, and the smoke checklist. If `git merge-base` is empty, explicitly say that the sync used reviewed patches rather than a full merge.
 
