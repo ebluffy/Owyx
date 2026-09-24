@@ -24,7 +24,7 @@ const {
     BCRYPT_MAX_BYTES,
     passwordComplexityValidators,
 } = require('../utils/passwordPolicy');
-const { consumeIp, consumeIdentifier } = require('../utils/ipRateLimit');
+const { consumeIp } = require('../utils/ipRateLimit');
 const {
     setPendingCookie,
     clearPendingCookie,
@@ -478,10 +478,6 @@ router.post('/login', [
 
         // Проверяем количество неудачных попыток
         const failedAttempts = await checkLoginAttempts(ip, loginKey);
-        const identifierRate = consumeIdentifier('login', loginKey, { windowMs: 60 * 60 * 1000, max: 10 });
-        if (!identifierRate.allowed) {
-            return res.status(429).json({ error: 'Слишком много неудачных попыток, попробуйте позже' });
-        }
         if (failedAttempts >= 5) {
             await logLoginAttempt(loginKey, ip, userAgent, false);
             return res.status(429).json({

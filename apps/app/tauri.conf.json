@@ -105,7 +105,7 @@
 				"connect-src": "ipc: http://ipc.localhost https://api.owyx.site https://owyx.site https://*.owyx.site http://127.0.0.1:3001 http://localhost:3001 https://sessionserver.mojang.com http://textures.minecraft.net https://textures.minecraft.net https://github.com https://api.github.com 'self' data: blob:",
 				"style-src": "'unsafe-inline' 'self' https://fonts.googleapis.com",
 				"font-src": ["'self'", "data:", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-				"img-src": "'self' asset: http://asset.localhost http://textures.minecraft.net https://textures.minecraft.net blob: data:",
+				"img-src": "'self' asset: http://asset.localhost http://textures.minecraft.net https://textures.minecraft.net https://owyx.site https://api.owyx.site https://*.owyx.site https://*.githubusercontent.com blob: data:",
 				"script-src": "'self'",
 				"frame-src": "'self'",
 				"media-src": "'self' blob:"
