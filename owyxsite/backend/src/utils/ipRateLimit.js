@@ -19,8 +19,4 @@ function consumeIp(key, { windowMs = 60 * 60 * 1000, max = 5 } = {}) {
   return { allowed: true };
 }
 
-function consumeIdentifier(key, identifier, options) {
-  return consumeIp(`${key}:${String(identifier || 'unknown').toLowerCase()}`, options);
-}
-
-module.exports = { consumeIp, consumeIdentifier };
+module.exports = { consumeIp };
