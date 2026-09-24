@@ -22,7 +22,7 @@ jobs:
   push_translations:
     name: Push sources to Crowdin
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && vars.CROWDIN_PROJECT_ID != '' && secrets.CROWDIN_PERSONAL_TOKEN != ''
     concurrency:
       group: i18n-push:${{ github.ref }}
       cancel-in-progress: true
