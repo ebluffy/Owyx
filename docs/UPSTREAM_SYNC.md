@@ -12,9 +12,9 @@ Measured on **2026-09-24** against:
 |-----|-----|------|
 | Owyx `main` | `1f421de75` | launcher **0.10.0** |
 | Upstream `main` | `e977cc867` | 2026-09-24 |
-| Merge-base | **none** | histories are unrelated; do not use a full merge |
+| Fork point | `adf6b25424e6` | inside upstream `v0.21.3` |
 
-The fork and current `upstream/main` have **unrelated histories** (`git merge-base main upstream/main` returns no commit). A full-tree merge is therefore blocked by Git and is not a safe sync strategy for this fork. Select and port reviewed upstream commits instead. Re-measure before each sync (`git rev-list --left-right --count HEAD...upstream/main` and `git merge-base main upstream/main`).
+The fork point is inside the `0.21` line: `v0.21.0` through `v0.21.3` are already in Owyx history. The first release range to audit is therefore **after** `adf6b25424e6`, especially upstream `v0.21.4` and `v0.21.5`, followed by selected launcher fixes from upstream `main`. A normal merge is possible from this shared ancestor, but do it only on the sync branch and review every conflict. Re-measure before each sync (`git rev-list --left-right --count main...upstream/main` and `git merge-base main upstream/main`).
 
 ---
 
@@ -70,7 +70,7 @@ git checkout -b sync/modrinth-YYYYMMDD origin/main
 
 ### 3. Select and port upstream commits
 
-Because this fork and `upstream/main` have unrelated histories, **do not run `git merge upstream/main`** and do not use `--allow-unrelated-histories` for a full-tree merge. That would import thousands of unrelated product changes and make it easy to overwrite Owyx behavior.
+Because the fork has a shared ancestor at `adf6b25424e6`, a normal merge is technically available. Do not use `--allow-unrelated-histories`. For the 0.21 audit, prefer a release-range or selected-commit allowlist first; use a full `git merge upstream/main` only when the sync PR explicitly reviews the complete launcher diff and all conflicts.
 
 Create a small allowlist of reviewed upstream commits, then port them one at a time:
 
