@@ -11,10 +11,10 @@ Measured on **2026-09-24** against:
 | Ref | SHA | Note |
 |-----|-----|------|
 | Owyx `main` | `1f421de75` | launcher **0.10.0** |
-| Upstream `main` | `c819f8e4b` | 2026-09-23 |
-| Merge-base | `adf6b2542` | 2026-09-15 (`Move Delphi scans to Kafka queue`) |
+| Upstream `main` | `e977cc867` | 2026-09-24 |
+| Merge-base | **none** | histories are unrelated; do not use a full merge |
 
-Owyx is **127 commits ahead**, **52 behind**. Three-dot `HEAD...upstream/main` touches **~440 files** (~20k / ~7k lines). Re-measure before each sync (`git rev-list --left-right --count HEAD...upstream/main`).
+The fork and current `upstream/main` have **unrelated histories** (`git merge-base main upstream/main` returns no commit). A full-tree merge is therefore blocked by Git and is not a safe sync strategy for this fork. Select and port reviewed upstream commits instead. Re-measure before each sync (`git rev-list --left-right --count HEAD...upstream/main` and `git merge-base main upstream/main`).
 
 ---
 
@@ -68,21 +68,27 @@ git checkout -b sync/modrinth-YYYYMMDD origin/main
 # example: sync/modrinth-20260924
 ```
 
-### 3. Merge upstream onto the sync branch
+### 3. Select and port upstream commits
 
-**Prefer merge** (preserves Owyx history, no rewrite):
+Because this fork and `upstream/main` have unrelated histories, **do not run `git merge upstream/main`** and do not use `--allow-unrelated-histories` for a full-tree merge. That would import thousands of unrelated product changes and make it easy to overwrite Owyx behavior.
+
+Create a small allowlist of reviewed upstream commits, then port them one at a time:
 
 ```bash
-git merge upstream/main
-# or: git merge modrinth/main   # if that is the parent remote name
+# Inspect before applying; paths and the complete patch must be reviewed.
+git show --stat --summary <upstream-sha>
+git show --format=fuller --find-renames <upstream-sha> -- <allowed-paths>
+
+# Apply the selected commit to the sync branch.
+git cherry-pick -x <upstream-sha>
+# Resolve conflicts manually, keeping Owyx hooks, then:
+git add <resolved-files>
+git cherry-pick --continue
 ```
 
-Rebase **only** if the owner explicitly asks. Even then: rebase the **sync branch**, never `main`, and never force-push `main`.
+For a commit with an incompatible parent or a large mixed diff, export only the reviewed hunks with `git format-patch`/`git apply --3way` or reproduce the fix manually. Do not use `git cherry-pick -m` as a shortcut. Abort is allowed only on the sync branch (`git cherry-pick --abort`); never reset or rewrite `main`.
 
-If the merge is huge, split mentally (not by resetting):
-
-1. Merge and commit conflict resolutions in one sync PR, **or**
-2. Abort is OK **only on the sync branch** (`git merge --abort`) and retry after reading conflict rules. Do not abort and then reset `main`.
+After every port, inspect `git show --stat HEAD`, `git diff HEAD^ HEAD --name-status`, and the protected-path checklist before applying the next commit.
 
 ### 4. Resolve conflicts with Owyx-first rules
 
@@ -100,7 +106,7 @@ When a hunk mixes both: take upstream logic, **re-apply** the Owyx hook (telemet
 
 ### 5. Watch these high-risk paths
 
-Files **edited on both sides** since `adf6b2542` (non-locale). Conflicts here are expected:
+Files that are high-risk for a selected patch (non-locale). Do not apply an upstream patch touching these paths without reviewing every hunk:
 
 **Launcher shell (Owyx-first)**
 
@@ -212,7 +218,7 @@ This audit PR **only documents** the plan. The actual merge is a different PR.
 
 Title idea: `sync: modrinth/code main as of YYYY-MM-DD (52 commits)`.
 
-Body must list: merge-base SHA, conflict files, what was kept Owyx vs taken upstream, and the smoke checklist.
+Body must list: upstream SHA(s), selected commit rationale, changed paths, any manually re-applied Owyx hooks, what was kept Owyx vs taken upstream, and the smoke checklist. If `git merge-base` is empty, explicitly say that the sync used reviewed patches rather than a full merge.
 
 ---
 
