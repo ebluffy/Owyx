@@ -330,8 +330,8 @@ async function removeFriend(friend: OwyxFriend) {
 }
 
 async function copyPlayingInstance(friend: OwyxFriend) {
-	const name = friend.instanceName?.trim()
-	if (!name) return
+	const name = friendPlayingLabel(friend)
+	if (!name || name === formatMessage(messages.unknownInstance)) return
 	try {
 		await navigator.clipboard.writeText(name)
 		playOwyxUiSound('click')
