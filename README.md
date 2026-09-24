@@ -68,9 +68,11 @@ Full playbook: [`docs/UPSTREAM_SYNC.md`](./docs/UPSTREAM_SYNC.md) — sync branc
 
 ```bash
 git remote add upstream https://github.com/modrinth/code.git   # if missing
-git fetch origin main && git fetch upstream main
-git checkout -b sync/modrinth-YYYYMMDD origin/main
-git merge upstream/main   # resolve on the sync branch only; open a separate PR
+git fetch origin main && git fetch upstream --tags main
+git checkout -b sync/modrinth-0.21-YYYYMMDD origin/main
+# Start after the fork point (inside upstream v0.21.3); review v0.21.4/v0.21.5 first.
+git log --oneline adf6b25424e6..upstream/v0.21.5 -- apps/app apps/app-frontend packages/app-lib
+# Apply only the reviewed launcher commits, or merge upstream on this branch after a full diff review.
 ```
 
 Do not mass-rename `@modrinth/*` packages in drive-by PRs (keeps merges sane). Do not unfork.
