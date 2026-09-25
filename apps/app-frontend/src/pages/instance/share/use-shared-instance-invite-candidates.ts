@@ -94,8 +94,13 @@ export function useSharedInstanceInviteCandidates(options: {
 		const ownUserId = options.currentUserId.value
 		const rawUsers = await searchOwyxUsers(query.trim())
 
+		searchUserHits.clear()
 		for (const user of rawUsers) {
 			searchUserHits.set(user.id, { id: user.id, nickname: user.nickname })
+			searchUserHits.set(normalizeInviteKey(user.id), {
+				id: user.id,
+				nickname: user.nickname,
+			})
 			searchUserHits.set(normalizeInviteKey(user.nickname), {
 				id: user.id,
 				nickname: user.nickname,
@@ -122,7 +127,7 @@ export function useSharedInstanceInviteCandidates(options: {
 			})
 			.map((user) => ({
 				id: user.id,
-				username: user.nickname,
+				username: user.displayNickname || user.nickname,
 				avatarUrl: user.avatarUrl || undefined,
 			}))
 	}
