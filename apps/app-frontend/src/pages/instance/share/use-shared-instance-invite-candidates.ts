@@ -3,13 +3,13 @@ import {
 	type InvitePlayersSearchUser,
 	type InvitePlayersUser,
 } from '@modrinth/ui'
-import { computed, onMounted, ref, type Ref, watch } from 'vue'
+import { computed, onMounted, type Ref, ref, watch } from 'vue'
 
 import {
 	listOwyxFriends,
+	type OwyxFriend,
 	requestOwyxFriend,
 	searchOwyxUsers,
-	type OwyxFriend,
 } from '@/helpers/owyx-friends'
 
 import { normalizeInviteKey, type ShareRow } from './shared-instance-share-types'
@@ -23,6 +23,7 @@ export function useSharedInstanceInviteCandidates(options: {
 	const { handleError } = injectNotificationManager()
 	const friends = ref<OwyxFriend[]>([])
 	const loading = ref(false)
+	const searchUserHits = new Map<string, { id: string; nickname: string }>()
 
 	async function refreshFriends() {
 		if (!options.isSignedIn.value || options.actionsLocked.value) {
@@ -40,10 +41,7 @@ export function useSharedInstanceInviteCandidates(options: {
 	}
 
 	onMounted(() => void refreshFriends())
-	watch(
-		[options.isSignedIn, options.actionsLocked],
-		() => void refreshFriends(),
-	)
+	watch([options.isSignedIn, options.actionsLocked], () => void refreshFriends())
 
 	const invitedRows = computed(() => {
 		const invited = new Map<string, ShareRow>()
@@ -67,7 +65,7 @@ export function useSharedInstanceInviteCandidates(options: {
 					id,
 					username,
 					avatarUrl: friend.avatarUrl || undefined,
-					online: friend.presence !== 'offline',
+					online: friend.presence === 'online' || friend.presence === 'playing',
 					status: invited ? (invited.pending ? 'pending' : 'added') : 'available',
 				}
 			}),
@@ -75,9 +73,18 @@ export function useSharedInstanceInviteCandidates(options: {
 
 	const candidateKeys = computed(() => {
 		const keys = new Set<string>()
+		for (const key of invitedRows.value.keys()) {
+			keys.add(key)
+		}
 		for (const friend of inviteFriends.value) {
 			keys.add(normalizeInviteKey(friend.id))
 			keys.add(normalizeInviteKey(friend.username))
+		}
+		for (const friend of friends.value) {
+			if (friend.id) keys.add(normalizeInviteKey(friend.id))
+			if (friend.userId) keys.add(normalizeInviteKey(friend.userId))
+			if (friend.nickname) keys.add(normalizeInviteKey(friend.nickname))
+			if (friend.displayNickname) keys.add(normalizeInviteKey(friend.displayNickname))
 		}
 		return keys
 	})
@@ -85,24 +92,63 @@ export function useSharedInstanceInviteCandidates(options: {
 	async function search(query: string): Promise<InvitePlayersSearchUser[]> {
 		if (options.actionsLocked.value || !query.trim()) return []
 		const ownUserId = options.currentUserId.value
-		return (await searchOwyxUsers(query.trim()))
+		const rawUsers = await searchOwyxUsers(query.trim())
+
+		for (const user of rawUsers) {
+			searchUserHits.set(user.id, { id: user.id, nickname: user.nickname })
+			searchUserHits.set(normalizeInviteKey(user.nickname), {
+				id: user.id,
+				nickname: user.nickname,
+			})
+			if (user.displayNickname) {
+				searchUserHits.set(normalizeInviteKey(user.displayNickname), {
+					id: user.id,
+					nickname: user.nickname,
+				})
+			}
+		}
+
+		return rawUsers
 			.filter((user) => !ownUserId || user.id !== ownUserId)
 			.filter((user) => {
 				const id = normalizeInviteKey(user.id)
-				const username = normalizeInviteKey(user.displayNickname || user.nickname)
-				return !candidateKeys.value.has(id) && !candidateKeys.value.has(username)
+				const loginNick = normalizeInviteKey(user.nickname)
+				const displayNick = user.displayNickname ? normalizeInviteKey(user.displayNickname) : null
+				return (
+					!candidateKeys.value.has(id) &&
+					!candidateKeys.value.has(loginNick) &&
+					(!displayNick || !candidateKeys.value.has(displayNick))
+				)
 			})
 			.map((user) => ({
 				id: user.id,
-				username: user.displayNickname || user.nickname,
+				username: user.nickname,
 				avatarUrl: user.avatarUrl || undefined,
 			}))
 	}
 
+	function resolveLoginNickname(user: InvitePlayersUser): string {
+		const hit = searchUserHits.get(user.id) ?? searchUserHits.get(normalizeInviteKey(user.username))
+		if (hit?.nickname) return hit.nickname
+
+		const normalized = normalizeInviteKey(user.username)
+		const friend = friends.value.find(
+			(f) =>
+				(f.userId || f.id) === user.id ||
+				normalizeInviteKey(f.nickname) === normalized ||
+				(f.displayNickname && normalizeInviteKey(f.displayNickname) === normalized),
+		)
+		if (friend?.nickname) return friend.nickname
+
+		return user.username
+	}
+
 	async function requestFriend(user: InvitePlayersUser) {
 		if (options.actionsLocked.value) return
+		const loginNick = resolveLoginNickname(user)
+		if (!loginNick) return
 		try {
-			await requestOwyxFriend(user.username)
+			await requestOwyxFriend(loginNick)
 			await refreshFriends()
 		} catch (error) {
 			handleError(error)
