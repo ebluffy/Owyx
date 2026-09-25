@@ -245,7 +245,9 @@ async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | nu
 
 async function playServer(server: OwyxServerEntry) {
 	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
-		handleError(new Error(owyx.session.value.user.accessReason || 'Owyx server access is unavailable'))
+		handleError(
+			new Error(owyx.session.value.user.accessReason || 'Owyx server access is unavailable'),
+		)
 		return
 	}
 	if (server.requiresAccount && !owyx.isSignedIn.value) {

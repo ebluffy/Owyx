@@ -72,14 +72,18 @@
   npm test
   ```
 
-### 2.6. Ошибки Prettier из-за CRLF на Windows
+### 2.6. Ошибки Prettier в app-frontend (`prettier --check .`) и CRLF на Windows
 * **Симптом:**
   ```
-  [warn] Code style issues found in ... files. Run Prettier with --write to fix.
+  Checking formatting...
+  [warn] src/pages/OwyxServers.vue
+  [warn] Code style issues found in the above file. Run Prettier with --write to fix.
+  ELIFECYCLE Command failed with exit code 1.
+  Failed: @modrinth/app-frontend#lint
   ```
-* **Причина:** На Windows git может по умолчанию преобразовывать LF в CRLF (`core.autocrlf = true`), а Prettier требует LF.
+* **Причина:** В `apps/app-frontend` скрипт `"lint"` выполняет `eslint . && prettier --check .`. Если хотя бы один файл форматирован не по стандарту Prettier (например, длинная строка не разбита) или переводы строк на Windows сконвертированы в CRLF (`core.autocrlf = true`), CI сразу падает.
 * **Как починить:**
-  В репозитории файлы должны сохраняться с `LF`. Перед коммитом проверять измененные файлы через `prettier --check` с флагом или нормализованными переводами строк.
+  Всегда запускать `corepack pnpm --filter @modrinth/app-frontend exec prettier --write <измененный_файл>`. В репозитории файлы должны сохраняться с `LF`. Перед коммитом проверять измененные файлы через `prettier --check`.
 
 ### 2.7. Clippy предупреждения как ошибки (`RUSTFLAGS: -Dwarnings`)
 * **Симптом:**
