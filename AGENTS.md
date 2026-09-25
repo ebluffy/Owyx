@@ -45,6 +45,7 @@ The Owyx launcher does **not** mount them: `/hosting/manage*` redirects to
 | SemVer releases | `.cursor/rules/semver.mdc` — baseline `0.2.0`, bump MAJOR/MINOR/PATCH per https://semver.org/ |
 | Upstream sync | `docs/UPSTREAM_SYNC.md` — merge onto `sync/modrinth-YYYYMMDD`, never reset `main` |
 | Latest audit | `docs/AUDIT_2026-09-24.md` |
+| CI playbook & hygiene | `docs/CI_PLAYBOOK.md` |
 | External agent skills / MCP | [ebluffy/agent-tool-catalog](https://github.com/ebluffy/agent-tool-catalog) · skill `.agents/skills/agent-tool-catalog/` |
 
 Cloud task paste (local only): `promt.md` (gitignored).
