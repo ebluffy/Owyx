@@ -330,8 +330,8 @@ async function removeFriend(friend: OwyxFriend) {
 }
 
 async function copyPlayingInstance(friend: OwyxFriend) {
-	const name = friend.instanceName?.trim()
-	if (!name) return
+	const name = friendPlayingLabel(friend)
+	if (!name || name === formatMessage(messages.unknownInstance)) return
 	try {
 		await navigator.clipboard.writeText(name)
 		playOwyxUiSound('click')
@@ -383,6 +383,18 @@ const busyJoinId = ref<string | null>(null)
 async function joinFriendServer(friend: OwyxFriend) {
 	const server = matchCatalogServer(friend)
 	if (!server) return
+	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
+		addNotification({
+			type: 'warning',
+			title: formatMessage(messages.joinServer),
+			text: owyx.session.value.user.accessReason || formatMessage(messages.errNoPack),
+		})
+		return
+	}
+	if (server.requiresAccount && !owyx.isSignedIn.value) {
+		await owyx.signIn()
+		if (!owyx.isSignedIn.value) return
+	}
 	if (!resolveOwyxPackUrl(server.packUrl, sanitizeOwyxApiBase(getStoredOwyxApiBase()))) {
 		addNotification({
 			type: 'warning',

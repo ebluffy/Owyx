@@ -387,11 +387,13 @@ const skinTexture = computedAsync(async () => {
 const capeTexture = computed(() => currentCape.value?.texture)
 const skinVariant = computed(() => selectedSkin.value?.variant)
 const skinNametag = computed(() => (appSettings.hideNametagSkinsPage ? undefined : username.value))
-const isSkinManagementReadOnly = computed(
-	() =>
-		!!currentUser.value &&
-		(offline.value || (authServerQuery.isError.value && !authServerQuery.isLoading.value)),
-)
+const isSkinManagementReadOnly = computed(() => {
+	if (!currentUser.value) return false
+	if (isOfflineAccount(currentUser.value) && owyxSite.isSignedIn.value) {
+		return offline.value
+	}
+	return offline.value || (authServerQuery.isError.value && !authServerQuery.isLoading.value)
+})
 const hasPendingSkinChange = computed(
 	() => !skinsMatch(selectedSkin.value, originalSelectedSkin.value),
 )

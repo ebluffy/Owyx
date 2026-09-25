@@ -53,8 +53,8 @@
   "app.action-bar.install.summary.download-failed": {
     "message": "Download couldn't finish"
   },
-  "app.action-bar.install.summary.instance-not-found": {
-    "message": "Instance couldn't be found"
+  "app.action-bar.install.summary.instance-error": {
+    "message": "Couldn't prepare instance"
   },
   "app.action-bar.install.summary.invalid-file-path": {
     "message": "File path is invalid"
@@ -3481,6 +3481,12 @@
   },
   "app.update-popup.title": {
     "message": "Update available"
+  },
+  "app.update.check-error.text": {
+    "message": "We could not check for updates. Please try again later."
+  },
+  "app.update.check-error.title": {
+    "message": "Update check failed"
   },
   "app.update.complete-toast.text": {
     "message": "Click here to view the changelog."

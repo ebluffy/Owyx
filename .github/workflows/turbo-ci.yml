@@ -173,6 +173,13 @@ jobs:
           cp .env.local .env
           sqlx database setup
 
+      - name: Build app frontend before Tauri checks
+        run: pnpm turbo run build --filter=@modrinth/app-frontend
+
+      - name: Check Owyx backend
+        working-directory: owyxsite/backend
+        run: npm ci && npm run typecheck && npm test
+
       - name: Lint and test
         run: pnpm run ci
 

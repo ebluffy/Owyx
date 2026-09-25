@@ -12,7 +12,6 @@ import {
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
-import { formatOsDisplayLabel } from '@/helpers/owyx-os-label'
 import { get as getSettings } from '@/helpers/settings'
 
 const INSTALL_ID_KEY = 'owyx.telemetry.installId'
@@ -95,8 +94,9 @@ async function deviceSnapshot(appVersion: string) {
 
 	return {
 		appVersion,
-		os: formatOsDisplayLabel(osName, osVer),
+		os: osName.toLowerCase(),
 		osVersion: osVer,
+		metadata: { osLabel: `${osName} ${osVer}` },
 		arch: cpuArch,
 		cpuCores: nav?.hardwareConcurrency || undefined,
 		ramMb: ramGb ? Math.round(ramGb * 1024) : undefined,
@@ -126,7 +126,7 @@ async function postTelemetry(
 			...snap,
 			kind: e.kind,
 			message: e.message ? sanitizeClientMessage(e.message) : undefined,
-			metadata: e.metadata,
+			metadata: { ...snap.metadata, ...e.metadata },
 		})),
 	}
 
