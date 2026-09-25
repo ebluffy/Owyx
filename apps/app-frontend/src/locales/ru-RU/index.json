@@ -53,8 +53,8 @@
   "app.action-bar.install.summary.download-failed": {
     "message": "Скачивание прервано"
   },
-  "app.action-bar.install.summary.instance-not-found": {
-    "message": "Сборка не найдена"
+  "app.action-bar.install.summary.instance-error": {
+    "message": "Не удалось подготовить сборку"
   },
   "app.action-bar.install.summary.invalid-file-path": {
     "message": "Неверный путь к файлу"
@@ -3299,6 +3299,12 @@
   "app.update-popup.title": {
     "message": "Доступно обновление"
   },
+  "app.update.check-error.text": {
+    "message": "Не удалось проверить обновления. Пожалуйста, попробуйте позже."
+  },
+  "app.update.check-error.title": {
+    "message": "Ошибка проверки обновлений"
+  },
   "app.update.complete-toast.text": {
     "message": "Нажмите, чтобы посмотреть список изменений."
   },
@@ -4428,7 +4434,7 @@
     "message": "MC {version}"
   },
   "owyx.servers.demo-badge": {
-    "message": "demo"
+    "message": "демо"
   },
   "owyx.servers.playing": {
     "message": "Подготовка…"
@@ -4846,5 +4852,167 @@
   },
   "owyx.servers.server-port": {
     "message": "Порт"
+  },
+  "app.download-manager.active": {
+    "message": "Активные"
+  },
+  "app.download-manager.attention": {
+    "message": "Требует внимания"
+  },
+  "app.download-manager.cancel": {
+    "message": "Отменить установку"
+  },
+  "app.download-manager.canceling": {
+    "message": "Отмена установки…"
+  },
+  "app.download-manager.clear-all": {
+    "message": "Очистить все"
+  },
+  "app.download-manager.clear-completed": {
+    "message": "Очистить завершённые задачи"
+  },
+  "app.download-manager.complete": {
+    "message": "Завершено"
+  },
+  "app.download-manager.duplicated-instance": {
+    "message": "Скопированная сборка"
+  },
+  "app.download-manager.empty": {
+    "message": "Нет задач установки"
+  },
+  "app.download-manager.estimated-rate": {
+    "message": "Примерная скорость загрузки"
+  },
+  "app.download-manager.eta": {
+    "message": "Оставшееся время загрузки"
+  },
+  "app.download-manager.hide": {
+    "message": "Скрыть задачи установки"
+  },
+  "app.download-manager.imported-instance": {
+    "message": "Импортированная сборка"
+  },
+  "app.download-manager.instance-installation": {
+    "message": "Установка сборки"
+  },
+  "app.download-manager.modpack": {
+    "message": "Модпак"
+  },
+  "app.download-manager.modpack-installation": {
+    "message": "Установка модпака"
+  },
+  "app.download-manager.new-instance": {
+    "message": "Новая сборка"
+  },
+  "app.download-manager.pause": {
+    "message": "Приостановить установку"
+  },
+  "app.download-manager.paused": {
+    "message": "Приостановлено"
+  },
+  "app.download-manager.remove": {
+    "message": "Удалить из истории"
+  },
+  "app.download-manager.resume": {
+    "message": "Возобновить установку"
+  },
+  "app.download-manager.shared-instance": {
+    "message": "Общая сборка"
+  },
+  "app.download-manager.shared-instance-update": {
+    "message": "Обновление общей сборки"
+  },
+  "app.download-manager.show": {
+    "message": "Показать задачи установки"
+  },
+  "app.download-manager.tasks": {
+    "message": "Задачи"
+  },
+  "app.download-manager.title": {
+    "message": "Менеджер загрузок"
+  },
+  "app.download-manager.verifying": {
+    "message": "Проверка"
+  },
+  "app.instance.confirm-delete.bulk-admonition-body": {
+    "message": "Все данные для этих сборок ({count}) будут безвозвратно удалены, включая миры, конфигурации и весь установленный контент."
+  },
+  "app.instance.confirm-delete.bulk-delete-button": {
+    "message": "Удалить сборки ({count})"
+  },
+  "app.instance.confirm-delete.bulk-header": {
+    "message": "Удалить сборки ({count})"
+  },
+  "app.settings.resource-management.store.attention": {
+    "message": "Некоторые файлы требуют внимания"
+  },
+  "app.settings.resource-management.store.cache-limit.description": {
+    "message": "Хранить до указанного объёма неиспользуемого контента для будущих установок. Это помогает экономить время загрузки."
+  },
+  "app.settings.resource-management.store.cache-limit.label": {
+    "message": "Хранить неиспользуемые загрузки"
+  },
+  "app.settings.resource-management.store.cache-limit.unit": {
+    "message": "ГиБ"
+  },
+  "app.settings.resource-management.store.calculating": {
+    "message": "Вычисление"
+  },
+  "app.settings.resource-management.store.clear": {
+    "message": "Очистить неиспользуемое"
+  },
+  "app.settings.resource-management.store.clear.description": {
+    "message": "Удалить неиспользуемый загруженный контент"
+  },
+  "app.settings.resource-management.store.cleared": {
+    "message": "Освобождено {size} на диске."
+  },
+  "app.settings.resource-management.store.clearing": {
+    "message": "Очистка…"
+  },
+  "app.settings.resource-management.store.description": {
+    "message": "Экономьте место на диске за счёт повторного использования файлов игры, модов и модпаков между сборками."
+  },
+  "app.settings.resource-management.store.empty": {
+    "message": "Установите моды или модпаки, чтобы увидеть использование хранилища."
+  },
+  "app.settings.resource-management.store.issues": {
+    "message": "Посмотреть {count, plural, one {# проблему} few {# проблемы} other {# проблем}}"
+  },
+  "app.settings.resource-management.store.nothing-to-clear": {
+    "message": "Нет неиспользуемого контента для очистки."
+  },
+  "app.settings.resource-management.store.repair": {
+    "message": "Проверить и восстановить"
+  },
+  "app.settings.resource-management.store.repair.running-description": {
+    "message": "Это приведёт к закрытию всех запущенных сборок."
+  },
+  "app.settings.resource-management.store.repair.verify-description": {
+    "message": "Поиск отсутствующих или повреждённых файлов и их восстановление."
+  },
+  "app.settings.resource-management.store.repairing": {
+    "message": "Проверка и восстановление…"
+  },
+  "app.settings.resource-management.store.shared.label": {
+    "message": "Общие"
+  },
+  "app.settings.resource-management.store.title": {
+    "message": "Хранилище контента"
+  },
+  "app.settings.resource-management.store.total": {
+    "message": "Сохранено {size}"
+  },
+  "app.settings.resource-management.store.unique.label": {
+    "message": "Уникальные"
+  },
+  "app.settings.resource-management.store.unused.label": {
+    "message": "Неиспользуемые"
+  },
+  "app.settings.resource-management.store.verification-result": {
+    "message": "Проверено {checked, plural, one {# файл} few {# файла} other {# файлов}}, исправлено: {repaired, plural, one {# файл} few {# файла} other {# файлов}}."
+  },
+  "app.settings.resource-management.store.verified": {
+    "message": "Проверка завершена"
   }
 }

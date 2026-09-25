@@ -41,6 +41,8 @@ export type OwyxSiteUser = {
 	displayNickname: string
 	email?: string
 	role?: string
+	serverAccess?: boolean
+	accessReason?: string
 	avatarUrl?: string | null
 }
 
@@ -198,6 +200,8 @@ function mapUser(
 		),
 		email: raw.email ? String(raw.email) : undefined,
 		role: raw.role ? String(raw.role) : undefined,
+		serverAccess: raw.serverAccess === undefined ? undefined : Boolean(raw.serverAccess),
+		accessReason: raw.accessReason ? String(raw.accessReason) : undefined,
 		avatarUrl,
 	}
 }

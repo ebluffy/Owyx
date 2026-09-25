@@ -170,10 +170,11 @@ function attachLongTermApiToken(req, tokenData) {
         is_active: tokenData.is_active,
         is_banned: tokenData.is_banned
     };
+    // Long-term tokens inherit the account role. Token permissions are not
+    // enforced by the current API, so do not expose them as if they were scopes.
     req.apiToken = {
         id: tokenData.id,
-        name: tokenData.token_name,
-        permissions: tokenData.permissions || []
+        name: tokenData.token_name
     };
 }
 
@@ -245,13 +246,11 @@ const logLoginAttempt = async (identifier, ip, userAgent, success) => {
 const checkLoginAttempts = async (ip, identifier) => {
     const result = await db.query(
         `SELECT COUNT(*) as attempts FROM login_logs
-         WHERE (
-           ip_address = $1
-           OR user_id = (
-             SELECT id FROM users
-             WHERE LOWER(email) = LOWER($2) OR LOWER(nickname) = LOWER($2)
-             LIMIT 1
-           )
+         WHERE ip_address = $1
+         AND user_id = (
+           SELECT id FROM users
+           WHERE LOWER(email) = LOWER($2) OR LOWER(nickname) = LOWER($2)
+           LIMIT 1
          )
          AND login_time > NOW() - INTERVAL '1 hour'
          AND success = false`,
@@ -671,6 +670,8 @@ router.post('/refresh', authenticateToken, async (req, res) => {
 
 // POST /api/auth/send-verification - Отправка письма с подтверждением email
 router.post('/send-verification', authenticateToken, async (req, res) => {
+    const rate = consumeIp(`send-verification:${req.ip}:${req.user.id}`, { windowMs: 60 * 60 * 1000, max: 3 });
+    if (!rate.allowed) return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
     try {
         const user = req.user;
         
@@ -757,10 +758,7 @@ router.get('/verify-email', async (req, res) => {
 
 async function resolveDiscordStartUser(req) {
     const authHeader = req.headers['authorization'];
-    let token = authHeader && authHeader.split(' ')[1];
-    if (!token && typeof req.query.token === 'string') {
-        token = req.query.token;
-    }
+    const token = authHeader && authHeader.split(' ')[1];
     if (!token) return null;
     try {
         await attachUserFromToken(req, token, { failOnMissingSession: true });

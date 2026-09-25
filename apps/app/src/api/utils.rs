@@ -65,6 +65,15 @@ pub async fn owyx_site_session_set(payload: String) -> Result<()> {
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(&path, payload).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(
+            &path,
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .await?;
+    }
     Ok(())
 }
 

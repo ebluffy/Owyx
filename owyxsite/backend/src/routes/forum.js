@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
 const { authenticateToken, requireRole } = require('./auth');
+const { consumeIp } = require('../utils/ipRateLimit');
 
 const router = express.Router();
 
@@ -147,6 +148,11 @@ router.post(
   body('category_id').isInt(),
   body('title').isLength({ min: 3, max: 200 }),
   body('content').isLength({ min: 10, max: 20000 }),
+  (req, res, next) => {
+    const rate = consumeIp(`forum-topic:${req.ip}:${req.user.id}`, { windowMs: 60 * 60 * 1000, max: 5 });
+    if (!rate.allowed) return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+    return next();
+  },
   async (req, res) => {
     try {
       const errors = validationResult(req);
