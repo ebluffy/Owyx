@@ -18,6 +18,16 @@
 
 ---
 
+## O3 CSP smoke (owner, POST-MERGE)
+
+Not a code blocker in #162. After `v0.11.0` is installed:
+
+1. Content tab icons, pack search previews, language flags.
+2. Webview DevTools: no `Refused to load the image … img-src`.
+3. Extra hosts → whitelist in `apps/app/tauri.conf.json` `csp.img-src` only (no `*`).
+
+---
+
 ## O2 / O2a VPS notes (2026-10-02 via `ssh owyxsite`)
 
 - Host: `/opt/owyx`, compose `owyxsite/docker-compose.yml` + `docker-compose.prod.yml`.
