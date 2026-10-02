@@ -206,11 +206,22 @@ function mapUser(
 	}
 }
 
+/** Stable error codes for UI i18n (F15). Message is English fallback. */
+export class OwyxSiteAuthError extends Error {
+	code: 'missing_client_key' | 'unauthorized_client' | 'access_denied' | 'generic'
+	constructor(code: OwyxSiteAuthError['code'], message: string) {
+		super(message)
+		this.name = 'OwyxSiteAuthError'
+		this.code = code
+	}
+}
+
 export async function loginOwyxSite(login: string, password: string): Promise<OwyxSiteSession> {
 	const base = apiBase()
 	const key = getOwyxClientKey()
 	if (!key.trim()) {
-		throw new Error(
+		throw new OwyxSiteAuthError(
+			'missing_client_key',
 			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
 		)
 	}
@@ -224,7 +235,8 @@ export async function loginOwyxSite(login: string, password: string): Promise<Ow
 	if (!res.ok || !data.token) {
 		const code = String(data.error ?? '')
 		if (code === 'unauthorized_client' || (res.status === 401 && code.includes('unauthorized'))) {
-			throw new Error(
+			throw new OwyxSiteAuthError(
+				'unauthorized_client',
 				'Invalid or missing client key (unauthorized_client). Set X-Owyx-Client-Key under Owyx Servers.',
 			)
 		}
@@ -254,7 +266,8 @@ export async function loginOwyxSiteViaBrowser(
 ): Promise<OwyxSiteSession> {
 	const key = getOwyxClientKey()
 	if (!key.trim()) {
-		throw new Error(
+		throw new OwyxSiteAuthError(
+			'missing_client_key',
 			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
 		)
 	}
@@ -305,7 +318,29 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 			headers: authHeaders(session.token),
 			signal: AbortSignal.timeout(10000),
 		})
-		if (res.status === 401 || res.status === 403) {
+		if (res.status === 401) {
+			clearOwyxSiteSession()
+			return null
+		}
+		if (res.status === 403) {
+			// Banned/inactive should not look like a silent logout (F4).
+			const errBody = (await res.json().catch(() => ({}))) as Record<string, unknown>
+			const code = String(errBody.code ?? '')
+			const err = String(errBody.error ?? '')
+			const banned = code === 'banned' || /заблокир|banned|blocked/i.test(err)
+			const inactive = code === 'inactive' || /неактивен|inactive/i.test(err)
+			if (banned || inactive) {
+				const user = mapUser({
+					...(session.user as unknown as Record<string, unknown>),
+					serverAccess: false,
+					accessReason: banned ? 'banned' : 'inactive',
+				})
+				if (epoch !== sessionEpoch || getStoredOwyxSiteSession()?.token !== tokenAtStart) {
+					return null
+				}
+				persistSession(session.token, user)
+				return { token: session.token, user }
+			}
 			clearOwyxSiteSession()
 			return null
 		}
@@ -318,6 +353,9 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 			string,
 			unknown
 		>
+		// Root serverAccess / accessReason (launcher contract) — not nested under user.
+		if (data.serverAccess !== undefined) userRaw.serverAccess = data.serverAccess
+		if (data.accessReason !== undefined) userRaw.accessReason = data.accessReason
 		const cosmetics =
 			data.cosmetics && typeof data.cosmetics === 'object'
 				? (data.cosmetics as Record<string, unknown>)

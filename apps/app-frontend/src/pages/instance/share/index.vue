@@ -68,11 +68,18 @@
 		/>
 
 		<SharedInstanceShareEmptyState
-			v-else-if="sharedInstanceActionsLocked"
-			:heading="formatMessage(lockedEmptyHeading)"
+			v-else-if="sharedInstanceActionsLocked || owyxShareUnavailable"
+			:heading="
+				formatMessage(
+					owyxShareUnavailable ? messages.owyxShareUnavailableHeading : lockedEmptyHeading,
+				)
+			"
 		>
 			<template #description>
-				<span class="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
+				<span v-if="owyxShareUnavailable">{{
+					formatMessage(messages.owyxShareUnavailableDescription)
+				}}</span>
+				<span v-else class="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1">
 					<span>{{ formatMessage(messages.lockedEmptyDescriptionPrefix) }}</span>
 					<span
 						v-if="linkedAccount"
@@ -94,7 +101,7 @@
 					<span>{{ formatMessage(messages.lockedEmptyDescriptionSuffix) }}</span>
 				</span>
 			</template>
-			<template #actions>
+			<template v-if="!owyxShareUnavailable" #actions>
 				<Button type="colored" color="brand" size="lg" @click="signInToShare">
 					<LogInIcon aria-hidden="true" />{{ formatMessage(lockedActionButton) }}
 				</Button>
@@ -182,6 +189,8 @@ const actionsLocked = sharedInstanceState.shareActionsLocked
 const sharedInstanceActionsLocked = actionsLocked
 const currentUserId = computed(() => auth.user.value?.id ?? null)
 const isSignedIn = computed(() => !!auth.session_token.value)
+/** Owyx build: Modrinth shared-instances backend is not product surface (F8). */
+const owyxShareUnavailable = computed(() => true)
 const sharedInstancesApiUnavailable = ref(false)
 const invitePlayersModal = ref<InstanceType<typeof InvitePlayersModal>>()
 const unlinkModal = ref<InstanceType<typeof ConfirmUnlinkModal>>()
@@ -340,6 +349,15 @@ const messages = defineMessages({
 		id: 'app.instance.share.locked.switch-account-button',
 		defaultMessage: 'Switch Modrinth account',
 	},
+	owyxShareUnavailableHeading: {
+		id: 'app.instance.share.owyx-unavailable.heading',
+		defaultMessage: 'Sharing is not available yet',
+	},
+	owyxShareUnavailableDescription: {
+		id: 'app.instance.share.owyx-unavailable.description',
+		defaultMessage:
+			'Instance sharing is not available in Owyx yet. Invite friends through Owyx Friends instead.',
+	},
 	unlinkForShareHeader: {
 		id: 'app.instance.share.unlink.header',
 		defaultMessage: 'Sharing requires unlinking',
@@ -392,7 +410,8 @@ function userProfileLink(username: string) {
 	return !username || username.includes('@') ? undefined : `/user/${encodeURIComponent(username)}`
 }
 function signInToShare(_event?: MouseEvent) {
-	// Shared instances use Labrinth / Modrinth credentials — not Owyx site login.
+	// Owyx: do not open Modrinth sign-in for a backend we do not ship (F8).
+	if (owyxShareUnavailable.value) return
 	void auth.requestSignIn('', isSignedIn.value ? 'sign-in' : 'sign-in', { showModal: false })
 }
 
@@ -436,6 +455,7 @@ watch(
 watch(
 	[() => auth.isReady.value, isSignedIn, actionsLocked],
 	([ready, signedIn, locked]) => {
+		if (owyxShareUnavailable.value) return
 		if (ready && !signedIn && !locked) signInToShare()
 	},
 	{ immediate: true, flush: 'post' },

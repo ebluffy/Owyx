@@ -206,6 +206,11 @@ router.post(
   '/topics/:id/posts',
   authenticateToken,
   body('content').isLength({ min: 1, max: 20000 }),
+  (req, res, next) => {
+    const rate = consumeIp(`forum-reply:${req.ip}:${req.user.id}`, { windowMs: 60 * 60 * 1000, max: 5 });
+    if (!rate.allowed) return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+    return next();
+  },
   async (req, res) => {
     try {
       const errors = validationResult(req);

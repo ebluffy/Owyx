@@ -303,10 +303,33 @@ useAppEvent(
 			try {
 				const { get } = await import('@/helpers/instance')
 				const { OWYX_SERVER_LINK_PREFIX } = await import('@/helpers/owyx-server-instances')
+				const {
+					fetchOwyxCatalog,
+					getOwyxClientKey,
+					getOwyxDemoFlag,
+					getOwyxLocalApiFallback,
+					getStoredOwyxApiBase,
+					sanitizeOwyxApiBase,
+				} = await import('@/helpers/owyx-api')
 				const inst = event.instance_id ? await get(event.instance_id) : null
 				const linkId = inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
 				if (linkId.startsWith(OWYX_SERVER_LINK_PREFIX)) {
-					presenceKey = linkId
+					const serverId = linkId.slice(OWYX_SERVER_LINK_PREFIX.length)
+					try {
+						const catalog = await fetchOwyxCatalog({
+							baseUrl: sanitizeOwyxApiBase(getStoredOwyxApiBase()),
+							clientKey: getOwyxClientKey(),
+							authToken: owyxSiteSession.value?.token,
+							demoFallback: getOwyxDemoFlag(),
+							allowLocalFallback: getOwyxLocalApiFallback(),
+						})
+						const hit = catalog.servers?.find(
+							(s) => String(s.id || '').toLowerCase() === serverId.toLowerCase(),
+						)
+						presenceKey = (hit?.name || inst?.name || serverId).slice(0, 120)
+					} catch {
+						presenceKey = (inst?.name || serverId).slice(0, 120)
+					}
 				} else if (inst?.name) {
 					presenceKey = inst.name
 				}

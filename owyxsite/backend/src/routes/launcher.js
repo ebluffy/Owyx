@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../database/connection');
-const { authenticateToken, optionalAuthenticate } = require('./auth');
+const { authenticateToken, authenticateTokenAllowBanned, optionalAuthenticate } = require('./auth');
 const catalog = require('./catalog');
 const { absoluteWebsiteAsset } = require('./csl-helpers');
 const {
@@ -66,7 +66,8 @@ function buildMe(req, user) {
 }
 
 // GET /api/launcher/me — profile for the signed-in launcher user (open access).
-router.get('/me', authenticateToken, async (req, res) => {
+// Banned/inactive still get a body with serverAccess=false (not a silent logout).
+router.get('/me', authenticateTokenAllowBanned, async (req, res) => {
   try {
     res.json(buildMe(req, req.user));
   } catch (error) {
@@ -76,7 +77,7 @@ router.get('/me', authenticateToken, async (req, res) => {
 });
 
 // Versioned alias so the launcher can pin /v1/me.
-router.get('/v1/me', authenticateToken, async (req, res) => {
+router.get('/v1/me', authenticateTokenAllowBanned, async (req, res) => {
   try {
     res.json(buildMe(req, req.user));
   } catch (error) {

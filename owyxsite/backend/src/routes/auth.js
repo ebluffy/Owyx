@@ -42,7 +42,7 @@ const registerPasswordValidators = passwordComplexityValidators(body);
 
 const router = express.Router();
 
-async function attachUserFromToken(req, token, { failOnMissingSession }) {
+async function attachUserFromToken(req, token, { failOnMissingSession, allowBanned = false }) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const hashes = sessionTokenHashes(token);
 
@@ -68,24 +68,55 @@ async function attachUserFromToken(req, token, { failOnMissingSession }) {
 
     req.user = sessionResult.rows[0];
     if (req.user.is_active === false || req.user.is_banned === true) {
-        await db.query(
-            'UPDATE user_sessions SET is_active = false WHERE id = $1',
-            [req.user.session_id]
-        ).catch(() => {});
-        const err = new Error(req.user.is_banned ? 'Аккаунт заблокирован' : 'Аккаунт неактивен');
-        err.status = 403;
-        throw err;
+        if (!allowBanned) {
+            await db.query(
+                'UPDATE user_sessions SET is_active = false WHERE id = $1',
+                [req.user.session_id]
+            ).catch(() => {});
+            const err = new Error(req.user.is_banned ? 'Аккаунт заблокирован' : 'Аккаунт неактивен');
+            err.status = 403;
+            err.code = req.user.is_banned ? 'banned' : 'inactive';
+            throw err;
+        }
+        // /me still returns profile with serverAccess=false — do not revoke session here.
     }
     req.sessionTokenHash = hashes[0];
     if (!req.user.role) {
         req.user.role = 'user';
     }
-    db.query(
-        'UPDATE user_sessions SET token_hash = $1, last_activity = NOW() WHERE id = $2',
-        [hashes[0], req.user.session_id]
-    ).catch(err => console.error('Error updating last_activity:', err));
+    if (!(req.user.is_active === false || req.user.is_banned === true)) {
+        db.query(
+            'UPDATE user_sessions SET token_hash = $1, last_activity = NOW() WHERE id = $2',
+            [hashes[0], req.user.session_id]
+        ).catch(err => console.error('Error updating last_activity:', err));
+    }
     return true;
 }
+
+/** Like authenticateToken, but banned/inactive users still get a /me profile. */
+const authenticateTokenAllowBanned = async (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'Токен доступа отсутствует' });
+    }
+
+    try {
+        await attachUserFromToken(req, token, {
+            failOnMissingSession: true,
+            allowBanned: true,
+        });
+        next();
+    } catch (error) {
+        console.error('Ошибка проверки токена:', error);
+        const status = error.status || 403;
+        return res.status(status).json({
+            error: error.message || 'Недействительный токен',
+            code: error.code || undefined,
+        });
+    }
+};
 
 // Middleware для проверки токена
 const authenticateToken = async (req, res, next) => {
@@ -102,7 +133,10 @@ const authenticateToken = async (req, res, next) => {
     } catch (error) {
         console.error('Ошибка проверки токена:', error);
         const status = error.status || 403;
-        return res.status(status).json({ error: error.message || 'Недействительный токен' });
+        return res.status(status).json({
+            error: error.message || 'Недействительный токен',
+            code: error.code || undefined,
+        });
     }
 };
 
@@ -160,6 +194,19 @@ async function findLongTermApiToken(token) {
     return tokenData;
 }
 
+function parseTokenPermissions(raw) {
+    if (Array.isArray(raw)) return raw.map(String);
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
 function attachLongTermApiToken(req, tokenData) {
     req.user = {
         id: tokenData.user_id,
@@ -170,11 +217,36 @@ function attachLongTermApiToken(req, tokenData) {
         is_active: tokenData.is_active,
         is_banned: tokenData.is_banned
     };
-    // Long-term tokens inherit the account role. Token permissions are not
-    // enforced by the current API, so do not expose them as if they were scopes.
+    const permissions = parseTokenPermissions(tokenData.permissions);
     req.apiToken = {
         id: tokenData.id,
-        name: tokenData.token_name
+        name: tokenData.token_name,
+        permissions,
+    };
+}
+
+/**
+ * Enforce long-term API token scopes.
+ * Empty permissions / `*` / `admin:all` → full access (legacy tokens).
+ * Session JWT auth (no req.apiToken) skips this check — use requireRole.
+ */
+function requireApiTokenPermission(required) {
+    const needed = Array.isArray(required) ? required : [required];
+    return (req, res, next) => {
+        if (!req.apiToken) return next();
+        const perms = req.apiToken.permissions || [];
+        if (
+            perms.length === 0 ||
+            perms.includes('*') ||
+            perms.includes('admin:all')
+        ) {
+            return next();
+        }
+        if (needed.some((p) => perms.includes(p))) return next();
+        return res.status(403).json({
+            error: 'Недостаточно прав токена',
+            required: needed,
+        });
     };
 }
 
@@ -457,21 +529,41 @@ router.post('/login', [
 
         const loginKey = rawLogin.includes('@') ? rawLogin.toLowerCase() : rawLogin;
 
-        // Launcher clients: Host api.* + valid X-Owyx-Client-Key → skip Turnstile.
-        // Browser Host (owyx.site) must still pass captcha even if someone replays the key.
+        // Browser Host (owyx.site / www) must always pass Turnstile — even if a
+        // copied X-Owyx-Client-Key is replayed. Launcher password login on API
+        // Host may skip captcha only with a valid client key; prefer browser SSO.
         const { requestHost, parseList } = require('../middleware/clientKey');
         const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
         const gotKey = (req.get('x-owyx-client-key') || '').trim();
         const apiHosts = parseList(process.env.API_HOSTS, 'api.owyx.site');
-        const onApiHost = apiHosts.includes(requestHost(req));
+        const siteHosts = parseList(process.env.SITE_HOSTS, 'owyx.site,www.owyx.site');
+        const host = requestHost(req);
+        const onApiHost = apiHosts.includes(host);
+        const onSiteHost = siteHosts.includes(host);
+        // Never skip Turnstile on browser Site Host (F7).
         const launcherClient =
-            onApiHost && Boolean(expectedKey) && gotKey === expectedKey;
+            !onSiteHost &&
+            onApiHost &&
+            Boolean(expectedKey) &&
+            gotKey === expectedKey;
 
         if (!launcherClient) {
             const turnstileResult = await verifyTurnstile(turnstileToken, ip);
             if (!turnstileResult.success) {
                 return res.status(400).json({
                     error: turnstileResult.message || 'Проверка капчи не пройдена'
+                });
+            }
+        } else {
+            // Harder brute-force when captcha is skipped (client key is in the build).
+            const keyRate = consumeIp(`login-launcher-key:${ip}:${loginKey}`, {
+                windowMs: 60 * 60 * 1000,
+                max: 3,
+            });
+            if (!keyRate.allowed) {
+                await logLoginAttempt(loginKey, ip, userAgent, false);
+                return res.status(429).json({
+                    error: 'Слишком много попыток входа. Попробуйте через час или войдите через браузер.',
                 });
             }
         }
@@ -1380,8 +1472,10 @@ router.post('/launcher/exchange', async (req, res) => {
 });
 
 router.authenticateToken = authenticateToken;
+router.authenticateTokenAllowBanned = authenticateTokenAllowBanned;
 router.optionalAuthenticate = optionalAuthenticate;
 router.authenticateLongTermApiToken = authenticateLongTermApiToken;
 router.requireRole = requireRole;
+router.requireApiTokenPermission = requireApiTokenPermission;
 
 module.exports = router;

@@ -46,6 +46,7 @@ pub enum MinecraftAuthStep {
 }
 
 #[derive(thiserror::Error, Debug)]
+
 pub enum MinecraftAuthenticationError {
     #[error("Error reading public key during generation")]
     ReadingPublicKey,
@@ -57,8 +58,10 @@ pub enum MinecraftAuthenticationError {
         #[source]
         source: serde_json::Error,
     },
+    // Do not interpolate `{raw}` into Display — logs must not dump auth response bodies (F17).
+    // `raw` is still kept for structured checks such as invalid_grant detection.
     #[error(
-        "Failed to deserialize response to JSON during step {step:?}: {source}. Status Code: {status_code} Body: {raw}"
+        "Failed to deserialize response to JSON during step {step:?}: {source}. Status Code: {status_code}"
     )]
     DeserializeResponse {
         step: MinecraftAuthStep,
