@@ -593,15 +593,6 @@
   "app.instance.modpack-already-installed.instance": {
     "message": "Сборка"
   },
-  "app.instance.mods.bulk-update.downloading-projects": {
-    "message": "Скачивание проектов: {current, number}/{total, number}..."
-  },
-  "app.instance.mods.bulk-update.finishing": {
-    "message": "Завершение обновления..."
-  },
-  "app.instance.mods.bulk-update.resolving-versions": {
-    "message": "Разрешение версий..."
-  },
   "app.instance.mods.content-type-project": {
     "message": "проект"
   },
@@ -4307,6 +4298,12 @@
   "minecraft-required.sign-in": {
     "message": "Войти в Microsoft"
   },
+  "modal.owyx-account-required.browser-sign-in-button": {
+    "message": "Войти через owyx.site"
+  },
+  "modal.owyx-account-required.browser-signing-in-header": {
+    "message": "Ждём браузер"
+  },
   "modal.owyx-account-required.client-key-hint": {
     "message": ""
   },
@@ -4342,6 +4339,12 @@
   },
   "modal.owyx-account-required.waiting": {
     "message": "Входим в Owyx…"
+  },
+  "modal.owyx-account-required.waiting-browser": {
+    "message": "Завершите вход в браузере…"
+  },
+  "modal.owyx-account-required.waiting-browser-body": {
+    "message": "Открылась вкладка owyx.site. Войдите при необходимости и нажмите «Вернуть в лаунчер»."
   },
   "onboarding-checklist.create-instance": {
     "message": "Создайте сборку"
@@ -4858,6 +4861,9 @@
   },
   "app.download-manager.attention": {
     "message": "Требует внимания"
+  },
+  "app.download-manager.bulk-update-content": {
+    "message": "Обновление {count, plural, one {# элемента} few {# элементов} many {# элементов} other {# элементов}}"
   },
   "app.download-manager.cancel": {
     "message": "Отменить установку"

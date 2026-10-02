@@ -305,6 +305,9 @@
   "app.download-manager.attention": {
     "message": "Needs attention"
   },
+  "app.download-manager.bulk-update-content": {
+    "message": "Updating {count, plural, one {# item} other {# items}}"
+  },
   "app.download-manager.cancel": {
     "message": "Cancel installation"
   },
@@ -685,15 +688,6 @@
   },
   "app.instance.modpack-already-installed.instance": {
     "message": "Instance"
-  },
-  "app.instance.mods.bulk-update.downloading-projects": {
-    "message": "Downloading {current, number}/{total, number} projects..."
-  },
-  "app.instance.mods.bulk-update.finishing": {
-    "message": "Finishing update..."
-  },
-  "app.instance.mods.bulk-update.resolving-versions": {
-    "message": "Resolving versions..."
   },
   "app.instance.mods.content-type-project": {
     "message": "project"
@@ -4625,6 +4619,12 @@
   "minecraft-required.sign-in": {
     "message": "Sign in to Microsoft"
   },
+  "modal.owyx-account-required.browser-sign-in-button": {
+    "message": "Sign in via owyx.site"
+  },
+  "modal.owyx-account-required.browser-signing-in-header": {
+    "message": "Waiting for browser"
+  },
   "modal.owyx-account-required.client-key-hint": {
     "message": ""
   },
@@ -4660,6 +4660,12 @@
   },
   "modal.owyx-account-required.waiting": {
     "message": "Signing in to Owyx…"
+  },
+  "modal.owyx-account-required.waiting-browser": {
+    "message": "Finish sign-in in your browser…"
+  },
+  "modal.owyx-account-required.waiting-browser-body": {
+    "message": "A browser tab opened on owyx.site. Sign in if needed, then tap “Return to launcher”."
   },
   "onboarding-checklist.create-instance": {
     "message": "Create first instance"
