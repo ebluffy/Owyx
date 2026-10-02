@@ -13,8 +13,8 @@ const BRAND = {
   muted: "#9aa0a8",
   site: "https://owyx.site",
   discord: "https://discord.gg/owyx",
-  /** Absolute PNG/SVG for inbox — many clients block relative URLs. */
-  logo: "https://owyx.site/favicon-owyx.svg",
+  /** Absolute PNG for inbox — Gmail/Outlook often block SVG in <img>. */
+  logo: "https://owyx.site/icon-192.png",
 };
 
 function esc(v) {
@@ -129,7 +129,7 @@ const templates = {
     html: layout({
       title: "Добро пожаловать в Owyx",
       intro: `Привет, <b style="color:${BRAND.text}">${esc(v.nickname || "игрок")}</b>! Аккаунт активен. Скачай лаунчер, войди этим же аккаунтом — и играй.`,
-      bodyHtml: `<tr><td style="padding:4px 0 8px;color:${BRAND.muted};">Гостю хватит ника, а аккаунт даёт скин и плюшки.</td></tr>`,
+      bodyHtml: `<tr><td style="padding:4px 0 8px;color:${BRAND.muted};">С аккаунтом Owyx доступны твои скины, друзья и серверы.</td></tr>`,
       button: { href: `${BRAND.site}/download`, label: "Скачать лаунчер" },
       footerNote: "Рады видеть тебя в Owyx.",
     }),

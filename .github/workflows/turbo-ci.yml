@@ -125,6 +125,12 @@ jobs:
           cache: false
 
       - name: Setup mold
+        id: setup-mold
+        continue-on-error: true
+        uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1 / Mold 2.41.0
+
+      - name: Setup mold (retry on 5xx)
+        if: steps.setup-mold.outcome == 'failure'
         uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1 / Mold 2.41.0
 
       - name: Setup binstall
@@ -179,6 +185,10 @@ jobs:
       - name: Check Owyx backend
         working-directory: owyxsite/backend
         run: npm ci && npm run typecheck && npm test
+
+      - name: Check Owyx frontend
+        working-directory: owyxsite/frontend
+        run: npm ci && npm run lint && npm run build
 
       - name: Lint and test
         run: pnpm run ci

@@ -31,6 +31,22 @@ export function initSocket(httpServer: HttpServer) {
     path: '/socket.io',
   });
 
+  /** Per-user chat send buckets (in-process; resets on restart). */
+  const chatSendBuckets = new Map<string, { start: number; count: number }>();
+  function allowChatSend(userId: number): boolean {
+    const windowMs = 60_000;
+    const max = 20;
+    const now = Date.now();
+    const key = String(userId);
+    let entry = chatSendBuckets.get(key);
+    if (!entry || now - entry.start >= windowMs) {
+      entry = { start: now, count: 0 };
+      chatSendBuckets.set(key, entry);
+    }
+    entry.count += 1;
+    return entry.count <= max;
+  }
+
   io.use(async (socket: AuthedSocket, next) => {
     try {
       const token =
@@ -138,6 +154,10 @@ export function initSocket(httpServer: HttpServer) {
           }
           if (!socket.rooms.has(`room:${roomId}`)) {
             cb?.({ error: 'Join the room before sending messages' });
+            return;
+          }
+          if (!allowChatSend(socket.user!.id)) {
+            cb?.({ error: 'Too many messages, slow down' });
             return;
           }
 

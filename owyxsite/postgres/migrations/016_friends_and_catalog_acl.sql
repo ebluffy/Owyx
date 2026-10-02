@@ -1,9 +1,9 @@
--- Social privacy: allow users to hide online presence from friends.
--- Also applied idempotently by ensureFriendsSchema() in friends.js.
+-- Friends schema + catalog access_mode / ACL (F2/F13).
+-- Idempotent. Safe on DBs that already got tables from ensure* JS or 013.
 --
--- Friends tables must exist before ALTER (empty Postgres / fresh compose).
--- Full friends schema also lives in 016_friends_and_catalog_acl.sql for
--- databases that already ran an older 013.
+-- Fresh compose: mount after 015 (see docker-compose.yml).
+-- Existing volume:
+--   docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/016_friends_and_catalog_acl.sql
 
 CREATE TABLE IF NOT EXISTS public.friendships (
   id BIGSERIAL PRIMARY KEY,
@@ -41,5 +41,21 @@ CREATE TABLE IF NOT EXISTS public.user_social_settings (
 ALTER TABLE public.user_social_settings
   ADD COLUMN IF NOT EXISTS share_presence BOOLEAN NOT NULL DEFAULT true;
 
-COMMENT ON COLUMN public.user_social_settings.share_presence IS
-  'When false, presence heartbeats are ignored and friends always see offline.';
+ALTER TABLE public.packs
+  ADD COLUMN IF NOT EXISTS access_mode VARCHAR(16) NOT NULL DEFAULT 'open';
+
+ALTER TABLE public.servers
+  ADD COLUMN IF NOT EXISTS access_mode VARCHAR(16) NOT NULL DEFAULT 'open';
+
+CREATE TABLE IF NOT EXISTS public.catalog_acl (
+  id BIGSERIAL PRIMARY KEY,
+  resource_type VARCHAR(16) NOT NULL CHECK (resource_type IN ('pack', 'server')),
+  resource_id TEXT NOT NULL,
+  user_id INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  effect VARCHAR(8) NOT NULL CHECK (effect IN ('allow', 'deny')),
+  created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT catalog_acl_unique UNIQUE (resource_type, resource_id, user_id, effect)
+);
+
+CREATE INDEX IF NOT EXISTS catalog_acl_resource_idx
+  ON public.catalog_acl (resource_type, resource_id);

@@ -1,247 +1,34 @@
-# Owner findings 2026-10-02 (WIP tracker)
+# Owner findings 2026-10-02
 
 Рабочий список багов пачки. Актуальный статус — в теле PR. Чиним коммитами в этом же PR.
 
 Base: `main` @ `1961589`.
 
-- E1 — логотип в письмах не грузится (`emailTemplates.js`, SVG в `<img>`).
-- E2 — welcome-письмо: устаревший текст про гостя (`emailTemplates.js`).
-
----
-
-## Full cloud audit
-
-Инвентарь только. Продуктовый код не трогался. База: `main` @ `1961589` (ветка = этот коммит + трекер). Эталон: shallow `modrinth/code` @ `2f05d2d`. Скиллы: mattpocock code-review / diagnosing-bugs (факт + строка, без догадок), hallmark / ui-ux-pro-max только как фильтр «сломанный UX, не вкус».
-
-E1 и E2 не повторяю. Ниже — то, что проверено чтением файла или логом CI.
-
-**Уже в шапке PR, не новый ID.** E3 всё ещё правда, это P1. Кнопка «Войти через owyx.site» падает с `plugin:utils|owyx_site_browser_login not allowed by ACL`. Команды есть в Rust (`apps/app/src/api/utils.rs` строки 37–38), фронт их зовёт (`owyx-site-auth.ts` `loginOwyxSiteViaBrowser` ~262 и `cancel` ~290), а в списке разрешений плагина `utils` их нет: `apps/app/build.rs` строки 392–394 заканчиваются на `owyx_site_session_clear`. Без этих двух строк в `.commands` Tauri 2 режет вызов. Обычный вход паролем жив, потому что `owyx_site_session_*` в списке есть. Чинить: дописать `"owyx_site_browser_login"` и `"owyx_site_browser_login_cancel"` в этот массив и пересобрать.
-
-**Не баг (перепроверил):** Friends Join и Play оба смотрят `requiresAccount`. Скин Owyx-оффлайн больше не упирается в Mojang. Копирование «во что играет» берёт подпись, не `owyx-server:…`. `site_session.json` на Unix ставится в `0o600`. CSP больше не пускает PostHog/Sentry. `POST /send-verification` режется (3/час). Логин локается по паре IP+аккаунт, не по всему сайту. На 5xx и обрыве сети `fetchOwyxSiteMe` сессию не стирает (`owyx-site-auth.ts` ~312 и `catch` ~334). SSO: редирект только на `http://127.0.0.1:<port>`, state проверяется, в проде exchange без client key не отдаёт JWT. Открытого редиректа на чужой сайт нет.
-
-### F1 — P0 — В публичном git лежит дамп базы с паролем почты и людьми
-
-**Симптом.** Файл `owyxsite/postgres/init.full.sql` в репозитории (публичный https://github.com/ebluffy/Owyx). Внутри не пустая схема, а копия данных.
-
-**Как для новичка.** Это как выложить в открытый чат список игроков, их почту и пароль от ящика, с которого сайт шлёт письма. Скачать может любой. Файл в docker не подключается (в `owyxsite/docker-compose.yml` его нет), сам сервер от этого не стартует с этими данными. Утечка — сам файл в git.
-
-**Evidence.** `git ls-files` отдаёт файл, `git check-ignore` — не игнор. `COPY public.users` строка 2935: 17 строк, у всех email и bcrypt (`$2a$…`), ролей `admin` две. `COPY public.server_settings` строка 2510, ключ `smtp-password` на строке 2531 (значение непустое, не слово-заглушка), рядом `smtp-user` / `smtp-host` (2547, 2525). `COPY public.login_logs` строка 2303: 158 IP. `COPY public.applications` строка 2084: почты и IP. `COPY public.api_tokens` строка 2071: 5 строк, флаг active, в файле хеш токена, не сам токен. Одна сессия в дампе неактивна и протухла (2026-01-03). Письменные токены подтверждения — 2025, уже не живые. Значения в этот отчёт не копирую.
-
-**Root cause.** В репозиторий закоммитили полный `pg_dump` с продовыми строками, а не пустую схему.
-
-**Fix direction.** Убрать файл из дерева и из истории (`git filter-repo` / BFG), сменить SMTP-пароль, сбросить пароли этих 17 аккаунтов, перевыпустить API-токены. Пока история жива, секрет считается утёкшим.
-
-### F2 — P1 — Новый пустой Postgres падает на миграции друзей
-
-**Симптом.** Чистый `docker compose` с пустой папкой данных не доезжает до здоровой базы: скрипт миграции меняет таблицу, которой ещё нет.
-
-**Как для новичка.** Инструкция «создай колонку в тетради» выполняется до того, как тетрадь завели. Установщик останавливается. Уже живой прод, где таблицу когда-то создал сам API, это не роняет. Новый сервер или стёртый volume — роняет.
-
-**Evidence.** `owyxsite/postgres/migrations/013_share_presence.sql` строки 4–5: `ALTER TABLE public.user_social_settings ADD COLUMN … share_presence`. Таблицы нет ни в `owyxsite/postgres/init.sql`, ни в миграциях 000–012 (поиск `user_social_settings` / `friendships` по `init.sql` — пусто). Создаёт её только рантайм: `owyxsite/backend/src/routes/friends.js` `ensureFriendsSchema` строки 45–50. Compose монтирует 013 как init-скрипт: `owyxsite/docker-compose.yml` строка 34. Официальный entrypoint образа Postgres гоняет `psql -v ON_ERROR_STOP=1`: ошибка ALTER останавливает первый старт.
-
-**Root cause.** Колонка добавлена миграцией, таблица — кодом при старте API. Порядок обратный.
-
-**Fix direction.** Положить `CREATE TABLE` друзей/присутствия в SQL до 013 (или убрать ALTER из initdb и оставить его только после создания таблицы). Прогнать compose на пустом volume.
-
-### F3 — P2 — CI на main красный: скачивание mold получило HTTP 500
-
-**Симптом.** Пуш `1961589` (мерж #162) не прошёл проверки. Линтер и тесты даже не начались.
-
-**Как для новичка.** Сборщик пошёл качать программу-линковщик, GitHub ответил «ошибка сервера», и вся очередь проверок встала. Это не баг игры. Повтор может пройти: соседний PR-прогон того же кода был зелёный.
-
-**Evidence.** Run [37031173726](https://github.com/ebluffy/Owyx/actions/runs/37031173726), job Lint and Test, шаг Setup mold. Лог: `wget … mold-2.41.0-x86_64-linux.tar.gz` → `500 Internal Server Error`, tar оборвался, exit 2. Шаг в `.github/workflows/turbo-ci.yml` строка 128 (`rui314/setup-mold`, mold 2.41.0). Успешный прогон того же набора до мержа: [37026099362](https://github.com/ebluffy/Owyx/actions/runs/37026099362). Ретрая на код 500 в этом шаге нет.
-
-**Root cause.** CI качает mold с GitHub Releases одним wget. Ответ 500 не переживается.
-
-**Fix direction.** Повторить шаг при 5xx или кэшировать tarball. Перезапустить упавший run, чтобы на `1961589` вообще появились lint/test.
-
-### F4 — P2 — Бан выглядит как тихий выход, флаг доступа лаунчер не читает
-
-**Симптом.** Забаненный или выключенный аккаунт в лаунчере просто перестаёт быть «вошедшим». Текст «banned» / «inactive» на экране Play не появляется. Кнопка, которая должна стопорить игру при `serverAccess === false`, не срабатывает.
-
-**Как для новичка.** Сайт говорит «доступ закрыт» отдельным флажком рядом с анкетой. Лаунчер читает только анкету и этот флажок выбрасывает. Если сервер отвечает 403, лаунчер забывает сессию и ничего не объясняет.
-
-**Evidence.** `owyxsite/backend/src/routes/launcher.js` `buildMe`: `serverAccess` и `accessReason` на корне ответа, строки 45–52. Внутри `user` (строки 30–44) их нет. `apps/app-frontend/src/helpers/owyx-site-auth.ts` `fetchOwyxSiteMe` строки 316–326 берёт `data.user` и кормит `mapUser`. `mapUser` строки 203–204 ждёт `serverAccess` на этом объекте — его там нет, остаётся `undefined`. `OwyxServers.vue` `playServer` строка 247 пускает дальше, пока значение не строго `false`. Бан до тела `/me` не доходит: `owyxsite/backend/src/routes/auth.js` `attachUserFromToken` строки 70–77 кидает 403. Клиент на 401/403 вызывает `clearOwyxSiteSession` (строки 308–310) и не показывает текст ошибки.
-
-**Root cause.** Контракт `/me` и парсер лаунчера разошлись. 403 стирает сессию раньше, чем UI успевает прочитать причину.
-
-**Fix direction.** В `fetchOwyxSiteMe` скопировать корневые `serverAccess` / `accessReason` в user. На 403 «banned»/«inactive» показать этот текст, а не просто разлогинить. Строки `banned` / `inactive` / `ok` перевести, не показывать сырыми (`FriendsList.vue` `joinFriendServer` ~390 уже готов показать `accessReason` как есть).
-
-### F5 — P2 — Друзья при 401 не выкидывают сессию
-
-**Симптом.** Список друзей пишет «нет доступа», а в шапке человек всё ещё как будто вошёл. Пока не дернут `/me`, лаунчер думает, что токен живой.
-
-**Как для новичка.** Одна дверь сказала «ключ не тот», другая дверь об этом не узнала.
-
-**Evidence.** `apps/app-frontend/src/helpers/owyx-friends.ts` строки 89–90: 401 → `OwyxFriendsError('unauthorized')`, `clearOwyxSiteSession` нет. `FriendsList.vue` `handleFriendsError` строки 362–376 только показывает уведомление.
-
-**Root cause.** Сброс сессии завязан на `/me`, друзья ходят своим клиентом.
-
-**Fix direction.** На `unauthorized` дернуть тот же сброс/повторный вход, что и `/me` на 401.
-
-### F6 — P2 — Галочки прав API-токена ни на что не влияют
-
-**Симптом.** Админ создаёт токен и может передать список `permissions`. Токен всё равно ходит в API как полный админ этого аккаунта.
-
-**Как для новичка.** На ключе написано «только читать», замок пускает куда угодно.
-
-**Evidence.** `owyxsite/backend/src/routes/admin.js` `POST /api-tokens` строки 3060 и 3089–3100 сохраняет `permissions`. `owyxsite/backend/src/routes/auth.js` `attachLongTermApiToken` строки 163–178 копирует роль пользователя и прямо пишет, что permissions не проверяются. Чужой `userId` выписать нельзя (строки 3080–3086) — дыра только в «узком» токене своего админа.
-
-**Root cause.** Поле прав хранится и отдаётся в `GET /api-tokens` (строка 3032), проверки по маршрутам нет.
-
-**Fix direction.** Либо проверять список на каждом админ-маршруте, либо убрать поле из API и написать, что токен = роль аккаунта.
-
-### F7 — P2 — Капча на логине API выключается общим ключом лаунчера
-
-**Симптом.** Запрос `POST /api/auth/login` на хост `api.owyx.site` с заголовком `X-Owyx-Client-Key` не проходит Turnstile. Ключ попадает в сборку лаунчера (`VITE_OWYX_CLIENT_KEY`), его можно вытащить из релиза.
-
-**Как для новичка.** Капча «ты не робот» не спрашивается у того, кто принёс ключ из программы. Ключ один на всех, он не секрет пользователя. Остаётся лимит: 5 неудачных входов в час с одного IP на один аккаунт (`checkLoginAttempts`, строки 246–261 и 480–486).
-
-**Evidence.** `owyxsite/backend/src/routes/auth.js` строки 460–477. Откуда ключ в клиенте: `apps/app-frontend/src/helpers/owyx-api.ts` `getOwyxClientKey` строка 152.
-
-**Root cause.** Лаунчеру так удобнее логиниться без виджета Cloudflare. Тот же обход получает любой, кто скопировал ключ.
-
-**Fix direction.** Не считать ключ из exe секретом. Оставить капчу на парольном логине или дать лаунчеру отдельный узкий вход (SSO уже есть) и резать перебор жёстче, чем 5/час/IP.
-
-### F8 — P2 — «Поделиться миром» всё ещё требует аккаунт Modrinth
-
-**Симптом.** Игрок Owyx открывает шаринг инстанса и видит «нужен вход Modrinth». Вход на owyx.site эту страницу не открывает. Кнопка зовёт модальное окно Modrinth/Labrinth.
-
-**Как для новичка.** Друзей Owyx страница приглашений уже умеет спрашивать, а замок на двери всё ещё от чужого сайта.
-
-**Evidence.** `apps/app-frontend/src/pages/instance/share/index.vue`: `isSignedIn` строка 184 смотрит `auth.session_token` (это сессия Modrinth, не сайт). Тексты строки 323–333 (`Modrinth sign-in required`, «Owyx site login is not enough here»). `signInToShare` строки 394–396 вызывает `auth.requestSignIn`. Список кандидатов при этом уже с Owyx API (`use-shared-instance-invite-candidates.ts`).
-
-**Root cause.** Экран шаринга оставлен от upstream и завязан на Labrinth. Для сборки без аккаунта Modrinth он мёртвый.
-
-**Fix direction.** Спрятать Share в сборке Owyx, пока нет своего бэкенда шаринга. Не оставлять кнопку, которая ведёт в чужой логин.
-
-### F9 — P2 — В русском лаунчере нет 7 строк, одна потеряна относительно Modrinth
-
-**Симптом.** Куски интерфейса на русской сборке показываются по-английски. Одна строка в актуальном `modrinth/code` уже переведена, у нас перевода нет.
-
-**Как для новичка.** Словарь английский толще русского на 7 карточек. Одну карточку при синхронизации потеряли: у эталона она есть, у нас дырка.
-
-**Evidence.** Сверка ключей `apps/app-frontend/src/locales/en-US/index.json` (1681) и `ru-RU/index.json` (1674). Нет в ru:
-
-- `app.action-bar.install.summary.mojang-maps-timeout` (en-US ~83; в эталоне ключа нет — дыра только наша)
-- `app.instance.mods.projects-were-added`
-- `app.instance.worlds.search-worlds-placeholder`
-- `app.library.selection.selected-count`
-- `app.screenshots.selection.selected-count`
-- `instance.files.adding-files`
-- `instance.files.managed-content-read-only` — в `/tmp/modrinth-code` ru есть: «Управляйте установленным контентом через вкладку Контент». У нас ключа нет. Это регресс против эталона `2f05d2d`.
-
-Остальные пять (кроме mojang-maps) нет и в русском эталона. Префикс `owyx.*`: дыр 0. Пустая строка `modal.owyx-account-required.client-key-hint` пустая и в en, и в ru — не переводческий баг.
-
-**Root cause.** После синка 0.21.6 ru-RU не догнали. Один ключ при переносе выпал.
-
-**Fix direction.** Дописать 7 `message` в `ru-RU`. Для `managed-content-read-only` взять текст эталона. CI на «en есть, ru нет» сейчас нет.
-
-### F10 — P2 — Crowdin pull каждый понедельник красный
-
-**Симптом.** Расписание «скачать переводы» падает, потому что у форка нет секретов Crowdin.
-
-**Как для новичка.** Будильник орёт каждый понедельник, хотя переводить там нечему: ключей проекта нет.
-
-**Evidence.** `.github/workflows/i18n-pull.yml` строки 37–47: нет `CROWDIN_PROJECT_ID` или токена → `exit 1`. Прогон [36439560454](https://github.com/ebluffy/Owyx/actions/runs/36439560454) (2026-09-28): оба флага `false`, exit 1. Push-воркфлоу при этом тихо пропускается (`i18n-push.yml`).
-
-**Root cause.** Pull написан под репозиторий Modrinth с секретами. На форке секретов нет, пропуска нет.
-
-**Fix direction.** Как у push: если секретов нет, шаг не запускать (`if`), а не валить job.
-
-### F11 — P2 — Сайт на Next в CI не собирается
-
-**Симптом.** Сломанный `owyxsite/frontend` может влиться: в CI гоняется только бэкенд сайта.
-
-**Как для новичка.** Проверяют кухню, витрину не включают.
-
-**Evidence.** `.github/workflows/turbo-ci.yml` строки 179–181: `owyxsite/backend` → `npm ci && npm run typecheck && npm test`. Шага `owyxsite/frontend` (`lint` / `build` из его `package.json`) нет.
-
-**Root cause.** В воркфлоу добавили только API.
-
-**Fix direction.** Отдельный job: `npm ci && npm run lint && npm run build` в `owyxsite/frontend`.
-
-### F12 — P2 — Ответы на форуме можно слать пачкой
-
-**Симптом.** Создание темы режется (5 в час). Ответ в тему — нет. Страница форума на сайте — заглушка «скоро», но API живой: любой вошедший может залить базу постами.
-
-**Как для новичка.** Дверь в зал закрыли табличкой, чёрный ход без охраны.
-
-**Evidence.** `owyxsite/backend/src/routes/forum.js`: лимит на `POST /topics` строки 151–154. `POST /topics/:id/posts` строки 205–209 — `authenticateToken` и длина текста, `consumeIp` нет. UI: `owyxsite/frontend/app/forum/page.tsx` рендерит ComingSoon.
-
-**Root cause.** Лимит повесили только на создание темы.
-
-**Fix direction.** Тот же лимит на ответы. Либо закрыть маршруты, пока витрина — заглушка.
-
-### F13 — P2 — Права на паки и друзья живут в коде старта, не в SQL
-
-**Симптом.** База, собранная только миграциями, не знает колонку `access_mode` и таблицы друзей, пока API хоть раз не стартанёт и само не допишет схему. Если этот допис упадёт, каталог и друзья тихо не готовы (в лог — warning).
-
-**Как для новичка.** Чертёж базы неполный. Программа при включении дорисовывает карандашом. Выключил дорисовку — части таблиц нет.
-
-**Evidence.** `owyxsite/postgres/migrations/007_servers_packs.sql` строки 8–40: `packs` / `servers` без `access_mode` и без `catalog_acl`. Дописывает `owyxsite/backend/src/routes/catalog.js` `ensureCatalogSchema` строки 955–967. Друзья — только `friends.js` `ensureFriendsSchema` (см. F2). Вызов при старте: `owyxsite/backend/src/server.ts` строки 308–318; ошибка каталога ловится и пишется как `Catalog schema ensure skipped` (строки 312–314). Чат: миграция `001_chat.sql` ставит внешние ключи на `users`, а `ensureChatSchema` в `server.ts` строки 236–263 создаёт те же таблицы без FK, если 001 не применяли.
-
-**Root cause.** Схему меняли в JS, чтобы не трогать уже запущенные базы. Файлы миграций отстали.
-
-**Fix direction.** Новая миграция = то, что сейчас делает `ensure*`. Рантайм оставить проверкой «таблица есть», не вторым автором схемы.
-
-### F14 — P3 — Друзьям уходит внутреннее имя сервера
-
-**Симптом.** Пока ты на сервере Owyx, в присутствие может уйти строка вида `owyx-server:…`, а не название из каталога. В списке друзей подпись маскируется, в API имя сырое.
-
-**Evidence.** `apps/app-frontend/src/helpers/owyx-presence.ts` `detectPlayingInstanceName` строки 75–76: `return linkId.slice(0, 120)` для префикса серверного линка.
-
-**Root cause.** В heartbeat кладётся id связи, не имя пака.
-
-**Fix direction.** Перед отправкой подставить имя из каталога, как уже делает подпись в UI.
-
-### F15 — P3 — Часть ошибок входа по-английски в русской сборке
-
-**Симптом.** Если в лаунчере нет client key, окно говорит по-английски. Запасная фраза «нет доступа к серверу» тоже английская. Ответ API при этом часто уже русский и показывается как есть.
-
-**Evidence.** `owyx-site-auth.ts` `loginOwyxSite` строки 213–215 и 227–229; то же для браузерного входа строки 257–259. `OwyxServers.vue` `playServer` строка 249: `'Owyx server access is unavailable'`.
-
-**Root cause.** Эти фразы захардкожены в `throw new Error`, не в `ru-RU`.
-
-**Fix direction.** Прогнать через те же id, что остальной модал аккаунта.
-
-### F16 — P3 — Сокет чата без лимита сообщений
-
-**Симптом.** Страница чата — заглушка, сокет при этом принимает `send_message` без ограничения частоты (текст до 2000 символов, каждая пачка пишет строку в БД).
-
-**Evidence.** `owyxsite/frontend/app/chat/page.tsx` — ComingSoon. `owyxsite/backend/src/socket/index.ts` обработчик `send_message` около строки 126, перед `INSERT` лимита нет.
-
-**Root cause.** Лимиты вешали на HTTP-ручки, сокет забыли. Витрины нет, ручка есть.
-
-**Fix direction.** Лимит на пользователя/комнату или не поднимать сокет, пока чат закрыт.
-
-### F17 — P3 — В лог Minecraft-входа попадает сырое тело ответа
-
-**Симптом.** Если профиль Microsoft не разобрался, в tracing пишется весь текст ответа, не короткая причина.
-
-**Как для новичка.** В журнал ошибок кладётся всё письмо от сервера, а не строчка «не пустили». В этом теле иногда бывают лишние данные.
-
-**Evidence.** `packages/app-lib/src/state/minecraft_auth.rs`: `DeserializeResponse` строки 60–62 включает `Body: {raw}`. `tracing::warn!(… {err})` строки 517–519 (и 500–503 на 401).
-
-**Root cause.** Текст ошибки показывает сырой body целиком.
-
-**Fix direction.** В Display резать body и выкидывать поля вроде токенов. В лог — статус и код ошибки.
-
-### Сводка
-
-| Уровень | Сколько | ID |
-|---|---|---|
-| P0 | 1 | F1 |
-| P1 | 1 | F2 |
-| P2 | 11 | F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 |
-| P3 | 4 | F14 F15 F16 F17 |
-
-Числа выше — только новые F. Плюс уже открытый **E3 (P1)**, он не в этой таблице.
-
-**Первыми чинить:**
-
-1. **F1** — вычистить дамп из git и сменить SMTP-пароль и пароли людей из дампа. Пока файл в истории, это открытый секрет.
-2. **E3** — дописать две команды SSO в ACL `build.rs`. Кнопка «Войти через сайт» сейчас мёртвая.
-3. **F2** — починить 013, иначе новый сервер с пустой базой не поднимается.
-4. **F6** — убрать или реально включить `permissions` у API-токена. Иначе «ограниченный» ключ админа — полный админ.
-5. **F4** — научить лаунчер читать `serverAccess` и говорить, что аккаунт забанен, а не молча разлогинивать.
+| ID | Баг | Sev | Статус |
+|---|---|---|---|
+| **F1** | `owyxsite/postgres/init.full.sql` убран из дерева + gitignore; stub `postgres/README.md` | **P0** | ✅ |
+| **E3** | ACL SSO: `owyx_site_browser_login` + `_cancel` в `apps/app/build.rs` | **P1** | ✅ |
+| **F2** | Миграция `013` создаёт friends-таблицы до ALTER; `016` для ACL/access_mode | **P1** | ✅ |
+| **E1** | Логотип писем → PNG `icon-192.png` | P2 | ✅ |
+| **F3** | CI mold: retry step при 5xx | P2 | ✅ |
+| **F4** | `/me` allowBanned + root `serverAccess`/`accessReason`; бан ≠ тихий логаут | P2 | ✅ |
+| **F5** | Friends 401 → `clearOwyxSiteSession` | P2 | ✅ |
+| **F6** | `requireApiTokenPermission` на long-term admin routes | P2 | ✅ |
+| **F7** | Turnstile не отключается client key на Site Host (+ жёстче rate на API Host) | P2 | ✅ |
+| **F8** | Share tab скрыт; страница без Modrinth sign-in CTA | P2 | ✅ |
+| **F9** | 7 ru-RU строк дописаны | P2 | ✅ |
+| **F10** | Crowdin pull: skip без секретов (как push) | P2 | ✅ |
+| **F11** | CI: `owyxsite/frontend` lint + build | P2 | ✅ |
+| **F12** | Rate limit forum replies (5/час) | P2 | ✅ |
+| **F13** | Миграция `016_friends_and_catalog_acl.sql` | P2 | ✅ |
+| **E2** | Welcome-письмо без «гостю хватит ника» | P3 | ✅ |
+| **F14** | Presence → имя из каталога, не `owyx-server:…` | P3 | ✅ |
+| **F15** | Ошибки входа / access через i18n | P3 | ✅ |
+| **F16** | Сокет чата: 20 msg/мин на пользователя | P3 | ✅ |
+| **F17** | MC auth Display без сырого body | P3 | ✅ |
+
+**F1 note:** файл убран из ветки; полная зачистка git-истории + ротация SMTP/паролей — на локали владельца после merge (без filter-repo в этом PR).
+
+**Не баг:** Friends Join/Play `requiresAccount`; сессия на 5xx/network; SSO loopback+state; open redirect; CSP без PostHog/Sentry.
+
+Версия лаунчера в этом PR **не** бампается (E3 hotfix → `0.11.1` локально после merge).

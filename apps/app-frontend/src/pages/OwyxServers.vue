@@ -78,6 +78,12 @@ const messages = defineMessages({
 	statusOffline: { id: 'owyx.servers.status.offline', defaultMessage: 'Offline' },
 	statusChecking: { id: 'owyx.servers.status.checking', defaultMessage: 'Checking…' },
 	statusPing: { id: 'owyx.servers.status.ping', defaultMessage: '{ms} ms' },
+	accessBanned: { id: 'owyx.servers.access.banned', defaultMessage: 'Account is banned' },
+	accessInactive: { id: 'owyx.servers.access.inactive', defaultMessage: 'Account is inactive' },
+	accessUnavailable: {
+		id: 'owyx.servers.access.unavailable',
+		defaultMessage: 'Owyx server access is unavailable',
+	},
 })
 
 useRootBreadcrumb({
@@ -245,9 +251,16 @@ async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | nu
 
 async function playServer(server: OwyxServerEntry) {
 	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
-		handleError(
-			new Error(owyx.session.value.user.accessReason || 'Owyx server access is unavailable'),
-		)
+		const reason = owyx.session.value.user.accessReason || ''
+		const text =
+			reason === 'banned'
+				? formatMessage(messages.accessBanned)
+				: reason === 'inactive'
+					? formatMessage(messages.accessInactive)
+					: reason && reason !== 'ok'
+						? reason
+						: formatMessage(messages.accessUnavailable)
+		handleError(new Error(text))
 		return
 	}
 	if (server.requiresAccount && !owyx.isSignedIn.value) {

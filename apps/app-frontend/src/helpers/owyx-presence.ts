@@ -62,6 +62,42 @@ function ensureHeartbeatTimer() {
 	}, 30_000)
 }
 
+async function resolveOwyxServerPresenceName(
+	linkId: string,
+	fallbackName?: string | null,
+): Promise<string> {
+	const { OWYX_SERVER_LINK_PREFIX } = await import('@/helpers/owyx-server-instances')
+	const serverId = linkId.startsWith(OWYX_SERVER_LINK_PREFIX)
+		? linkId.slice(OWYX_SERVER_LINK_PREFIX.length)
+		: linkId
+	try {
+		const {
+			fetchOwyxCatalog,
+			getOwyxClientKey,
+			getOwyxDemoFlag,
+			getOwyxLocalApiFallback,
+			getStoredOwyxApiBase,
+			sanitizeOwyxApiBase,
+		} = await import('@/helpers/owyx-api')
+		const { getStoredOwyxSiteSession } = await import('@/helpers/owyx-site-auth')
+		const catalog = await fetchOwyxCatalog({
+			baseUrl: sanitizeOwyxApiBase(getStoredOwyxApiBase()),
+			clientKey: getOwyxClientKey(),
+			authToken: getStoredOwyxSiteSession()?.token,
+			demoFallback: getOwyxDemoFlag(),
+			allowLocalFallback: getOwyxLocalApiFallback(),
+		})
+		const hit = catalog.servers?.find(
+			(s) => String(s.id || '').toLowerCase() === serverId.toLowerCase(),
+		)
+		if (hit?.name) return String(hit.name).slice(0, 120)
+	} catch {
+		/* ignore catalog miss */
+	}
+	if (fallbackName?.trim()) return fallbackName.trim().slice(0, 120)
+	return serverId.slice(0, 120)
+}
+
 async function detectPlayingInstanceName(): Promise<string | null> {
 	try {
 		const { get_all } = await import('@/helpers/process.js')
@@ -73,7 +109,7 @@ async function detectPlayingInstanceName(): Promise<string | null> {
 		const inst = await get(instanceId)
 		const linkId = inst?.link?.type === 'imported_modpack' ? inst.link.project_id || '' : ''
 		if (linkId.startsWith(OWYX_SERVER_LINK_PREFIX)) {
-			return linkId.slice(0, 120)
+			return await resolveOwyxServerPresenceName(linkId, inst?.name)
 		}
 		return inst?.name?.slice(0, 120) || 'Minecraft'
 	} catch {
