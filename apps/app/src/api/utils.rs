@@ -199,6 +199,7 @@ fn is_safe_owyx_auth_state(state: &str) -> bool {
 }
 
 fn urlencoding_encode(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
         match b {
@@ -211,7 +212,11 @@ fn urlencoding_encode(value: &str) -> String {
             | b'~' => {
                 out.push(b as char);
             }
-            _ => out.push_str(&format!("%{b:02X}")),
+            _ => {
+                out.push('%');
+                out.push(HEX[(b >> 4) as usize] as char);
+                out.push(HEX[(b & 0xf) as usize] as char);
+            }
         }
     }
     out
