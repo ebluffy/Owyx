@@ -976,7 +976,10 @@ async function handleModpackUnlinkConfirm() {
 	}
 }
 
-async function handleBulkUpdate(selections: UpdateAllSelection[]) {
+async function handleBulkUpdate(
+	selections: UpdateAllSelection[],
+	onProgress?: (completed: number) => void,
+) {
 	if (contentActionDisabled.value) return
 	const addons = selections.flatMap((selection) => {
 		const item = contentItems.value.find((item) => getContentItemId(item) === selection.id)
@@ -992,6 +995,7 @@ async function handleBulkUpdate(selections: UpdateAllSelection[]) {
 	if (addons.length === 0) return
 	try {
 		await client.archon.content_v1.updateAddons(serverId, worldId.value!, addons)
+		onProgress?.(addons.length)
 		await queryClient.invalidateQueries({ queryKey: queryKey.value })
 	} catch (err) {
 		addNotification({

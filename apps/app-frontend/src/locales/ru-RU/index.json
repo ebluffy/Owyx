@@ -4850,6 +4850,9 @@
   "app.download-manager.attention": {
     "message": "Требует внимания"
   },
+  "app.download-manager.bulk-update-content": {
+    "message": "Обновление {count, plural, one {# элемента} few {# элементов} many {# элементов} other {# элементов}}"
+  },
   "app.download-manager.cancel": {
     "message": "Отменить установку"
   },
