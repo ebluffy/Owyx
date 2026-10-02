@@ -90,6 +90,8 @@ docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migratio
 docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/013_share_presence.sql
 # friends tables + catalog access_mode / ACL:
 docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/016_friends_and_catalog_acl.sql
+# legacy empty API-token permissions → ["*"]:
+docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/017_api_token_permissions_star.sql
 ```
 
 If `012_logs_telemetry.sql` is not applied, `POST /api/launcher/v1/telemetry` and admin telemetry fail soft with a clear 503.

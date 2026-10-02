@@ -130,8 +130,15 @@ jobs:
         uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1 / Mold 2.41.0
 
       - name: Setup mold (retry on 5xx)
+        id: setup-mold-retry
         if: steps.setup-mold.outcome == 'failure'
+        continue-on-error: true
         uses: rui314/setup-mold@9c9c13bf4c3f1adef0cc596abc155580bcb04444 # v1 / Mold 2.41.0
+
+      # If GitHub Releases returns 5xx twice, continue with the default linker (F3).
+      - name: Mold unavailable fallback
+        if: steps.setup-mold.outcome == 'failure' && steps.setup-mold-retry.outcome == 'failure'
+        run: echo "mold download failed twice; continuing without mold"
 
       - name: Setup binstall
         uses: cargo-bins/cargo-binstall@ead08b90bd7b2e6d81963fb9cf0b7239f66d5db4 # v1.21.0

@@ -166,6 +166,24 @@ export function clearOwyxSiteSession() {
 	hydratePromise = null
 	clearLegacyLocalStorage()
 	void clearOsSession()
+	for (const listener of sessionClearedListeners) {
+		try {
+			listener()
+		} catch {
+			/* ignore listener errors */
+		}
+	}
+}
+
+type SessionClearedListener = () => void
+const sessionClearedListeners = new Set<SessionClearedListener>()
+
+/** App shell registers so Vue refs / presence stop when storage is cleared (F5). */
+export function onOwyxSiteSessionCleared(listener: SessionClearedListener): () => void {
+	sessionClearedListeners.add(listener)
+	return () => {
+		sessionClearedListeners.delete(listener)
+	}
 }
 
 function persistSession(token: string, user: OwyxSiteUser) {

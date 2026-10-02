@@ -66,7 +66,7 @@ jobs:
         shell: bash
         run: |
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
-          SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed -e "s/[\\/\:*?\"<>|]/_/g")
+          SAFE_BRANCH_NAME=$(echo "$BRANCH_NAME" | sed -e "s/[\\\\/\\:*?\"<>|]/_/g")
           echo "Branch name is $BRANCH_NAME (escaped as $SAFE_BRANCH_NAME)"
           echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
           echo "safe_branch_name=$SAFE_BRANCH_NAME" >> "$GITHUB_OUTPUT"

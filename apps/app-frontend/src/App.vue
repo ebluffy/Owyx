@@ -132,6 +132,7 @@ import {
 	getStoredOwyxSiteSession,
 	hydrateOwyxSiteSession,
 	logoutOwyxSite,
+	onOwyxSiteSessionCleared,
 	OWYX_SITE_CHANGELOG_URL,
 	OWYX_SITE_PROFILE_URL,
 } from '@/helpers/owyx-site-auth'
@@ -250,6 +251,12 @@ const credentials = ref()
 const owyxSiteSession = ref(
 	/** @type {import('@/helpers/owyx-site-auth').OwyxSiteSession | null | undefined} */ (undefined),
 )
+// Keep Vue shell in sync when helpers clear OS/memory session (friends 401, /me 401, …).
+onOwyxSiteSessionCleared(() => {
+	owyxSiteSession.value = null
+	stopOwyxPresenceHeartbeat()
+	resetOwyxSharePresencePreference()
+})
 let credentialsRefreshId = 0
 const sidebarToggled = ref(true)
 watch(
