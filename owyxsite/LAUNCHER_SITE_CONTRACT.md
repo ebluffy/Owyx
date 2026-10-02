@@ -87,13 +87,18 @@ Loopback redirect (same pattern as Modrinth App OAuth), not `owyx://` for the co
 
 1. Launcher starts a temporary loopback HTTP listener and opens
    `https://owyx.site/launcher-auth?port=<ephemeral>&state=<random>` in the system browser
-   (`plugin:utils|owyx_site_browser_login`).
+   (`plugin:utils|owyx_site_browser_login`). `site_base` is allowlisted (`https://owyx.site`
+   / `https://www.owyx.site`; localhost only in debug builds). Loopback ignores replies whose
+   `state` does not match.
 2. Site page `/launcher-auth`: if not signed in → `/login?redirect=/launcher-auth?…`;
-   if signed in → `POST /api/auth/launcher/prepare` `{ state }` with Bearer → `{ code }`
-   (one-time, ~2 minutes, stored hashed in `launcher_auth_codes`).
+   if signed in → **explicit confirm** («Return to launcher»), then
+   `POST /api/auth/launcher/prepare` `{ state }` with Bearer → `{ code }`
+   (one-time, ~2 minutes, stored hashed in `launcher_auth_codes`). No auto-redirect without click.
 3. Browser redirects to `http://127.0.0.1:<port>/?code=…&state=…`.
-4. Launcher `POST https://api.owyx.site/api/auth/launcher/exchange` with client key
-   `{ code, state }` → JWT + user (remember / 30d session), then same OS storage as password login.
+4. Launcher `POST https://api.owyx.site/api/auth/launcher/exchange` with **required**
+   `X-Owyx-Client-Key` `{ code, state }` → JWT + user (remember / 30d session), then same OS
+   storage as password login. Exchange also rejects requests that omit the key on site Host
+   (does not rely on `clientKeyGate` SITE_HOSTS bypass alone).
 
 Cancel: `plugin:utils|owyx_site_browser_login_cancel`.
 

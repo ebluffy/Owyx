@@ -31,6 +31,7 @@ pub async fn modrinth_login<R: Runtime>(
     let (auth_code_recv_socket_tx, auth_code_recv_socket) = oneshot::channel();
     let auth_code = tokio::spawn(oauth_utils::auth_code_reply::listen(
         auth_code_recv_socket_tx,
+        None,
     ));
 
     let auth_code_recv_socket = auth_code_recv_socket.await.unwrap()?;
