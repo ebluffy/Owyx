@@ -4619,6 +4619,12 @@
   "minecraft-required.sign-in": {
     "message": "Sign in to Microsoft"
   },
+  "modal.owyx-account-required.browser-sign-in-button": {
+    "message": "Sign in via owyx.site"
+  },
+  "modal.owyx-account-required.browser-signing-in-header": {
+    "message": "Waiting for browser"
+  },
   "modal.owyx-account-required.client-key-hint": {
     "message": ""
   },
@@ -4639,12 +4645,6 @@
   },
   "modal.owyx-account-required.sign-in-button": {
     "message": "Sign in to Owyx"
-  },
-  "modal.owyx-account-required.browser-sign-in-button": {
-    "message": "Sign in via owyx.site"
-  },
-  "modal.owyx-account-required.browser-signing-in-header": {
-    "message": "Waiting for browser"
   },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Sign in to your Owyx account"
