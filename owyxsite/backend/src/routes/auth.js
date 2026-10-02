@@ -1311,6 +1311,24 @@ router.post('/launcher/exchange', async (req, res) => {
     if (!rate.allowed) {
         return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
     }
+    // Always require client key (do not rely on clientKeyGate SITE_HOSTS bypass).
+    const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
+    if (!expectedKey) {
+        if (process.env.NODE_ENV === 'production') {
+            return res.status(503).json({
+                error: 'launcher_client_key_missing',
+                message: 'LAUNCHER_CLIENT_KEY must be set in production',
+            });
+        }
+    } else {
+        const gotKey = (req.get('x-owyx-client-key') || '').trim();
+        if (gotKey !== expectedKey) {
+            return res.status(401).json({
+                error: 'unauthorized_client',
+                message: 'Missing or invalid X-Owyx-Client-Key',
+            });
+        }
+    }
     try {
         const code = String(req.body?.code || '').trim();
         const state = String(req.body?.state || '').trim();

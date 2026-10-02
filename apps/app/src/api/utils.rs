@@ -98,9 +98,25 @@ pub async fn owyx_site_browser_login<R: Runtime>(
     site_base: String,
     state: String,
 ) -> Result<String> {
+    if !is_allowed_owyx_site_base(&site_base) {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(
+                "Owyx site login URL is not allowed".into(),
+            )
+            .into(),
+        ));
+    }
+    if !is_safe_owyx_auth_state(&state) {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError("Invalid Owyx auth state".into()).into(),
+        ));
+    }
+
     let (auth_code_recv_socket_tx, auth_code_recv_socket) = tokio::sync::oneshot::channel();
+    let expected_state = state.clone();
     let auth_code = tokio::spawn(super::oauth_utils::auth_code_reply::listen(
         auth_code_recv_socket_tx,
+        Some(expected_state),
     ));
 
     let auth_code_recv_socket = auth_code_recv_socket.await.unwrap()?;
@@ -138,6 +154,32 @@ pub async fn owyx_site_browser_login<R: Runtime>(
 #[tauri::command]
 pub fn owyx_site_browser_login_cancel() {
     super::oauth_utils::auth_code_reply::stop_listeners();
+}
+
+fn is_allowed_owyx_site_base(site_base: &str) -> bool {
+    let base = site_base.trim().trim_end_matches('/').to_ascii_lowercase();
+    if base == "https://owyx.site" || base == "https://www.owyx.site" {
+        return true;
+    }
+    #[cfg(debug_assertions)]
+    {
+        base.starts_with("http://localhost")
+            || base.starts_with("http://127.0.0.1")
+            || base.starts_with("https://localhost")
+            || base.starts_with("https://127.0.0.1")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+fn is_safe_owyx_auth_state(state: &str) -> bool {
+    let bytes = state.as_bytes();
+    (16..=128).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
 }
 
 fn urlencoding_encode(value: &str) -> String {

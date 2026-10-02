@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthShell from "@/components/layout/AuthShell";
@@ -71,13 +71,6 @@ function LauncherAuthInner() {
     }
   }, [a.loginFailed, c.networkError, loginHref, port, router, state, user, valid]);
 
-  useEffect(() => {
-    if (loading || !valid) return;
-    if (!user) return;
-    if (status !== "idle") return;
-    void complete();
-  }, [complete, loading, status, user, valid]);
-
   if (!valid) {
     return (
       <AuthShell title={a.launcherAuthTitle} subtitle={a.launcherAuthBadLink}>
@@ -111,6 +104,19 @@ function LauncherAuthInner() {
     );
   }
 
+  if (status === "idle") {
+    return (
+      <AuthShell title={a.launcherAuthTitle} subtitle={a.launcherAuthConfirm}>
+        <div className="space-y-4">
+          <p className="text-sm text-muted m-0">{a.launcherAuthConfirmBody}</p>
+          <button type="button" className="btn btn-primary w-full" onClick={() => void complete()}>
+            {a.launcherAuthConfirmButton}
+          </button>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       title={a.launcherAuthTitle}
@@ -118,10 +124,17 @@ function LauncherAuthInner() {
     >
       <div className="panel p-5 text-sm text-muted space-y-3">
         {status === "error" && <p className="text-danger m-0">{error}</p>}
-        {(status === "idle" || status === "working") && <p className="m-0">{a.launcherAuthWorking}</p>}
+        {status === "working" && <p className="m-0">{a.launcherAuthWorking}</p>}
         {status === "done" && <p className="m-0 text-ok">{a.launcherAuthDone}</p>}
         {status === "error" && (
-          <button type="button" className="btn btn-primary w-full" onClick={() => { setStatus("idle"); }}>
+          <button
+            type="button"
+            className="btn btn-primary w-full"
+            onClick={() => {
+              setStatus("idle");
+              setError("");
+            }}
+          >
             {a.launcherAuthRetry}
           </button>
         )}
