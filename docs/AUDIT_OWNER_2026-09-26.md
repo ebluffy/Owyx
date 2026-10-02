@@ -12,7 +12,7 @@
 | **O1** | Language flags empty | P1 | fixed with O3 (`flagcdn.com`) |
 | **O2** | Launcher session drops quickly | P2 / ops | diagnosed — see below |
 | **O2a** | Neyra/dashboard redeploy kills login | P2 / ops | JWT + Postgres bind mount stable; secret only randomized on first `.env` create |
-| **O4** | Browser “sign in via site” | feature | deferred (follow-up) |
+| **O4** | Browser “sign in via site” | feature | ✅ MVP loopback SSO (`/launcher-auth` + prepare/exchange) |
 | **O5** | Password = min 8 only | P3 / UX | fixed — backend + register UI + i18n |
 | **O6** | Sync Modrinth App 0.21.6 | P2 / sync | cherry-picked (skip labrinth/changelog) |
 

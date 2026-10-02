@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tauri::Runtime;
 use tauri_plugin_opener::OpenerExt;
 use theseus::{
@@ -33,6 +34,8 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_session_get,
             owyx_site_session_set,
             owyx_site_session_clear,
+            owyx_site_browser_login,
+            owyx_site_browser_login_cancel,
         ])
         .build()
 }
@@ -85,6 +88,69 @@ pub async fn owyx_site_session_clear() -> Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Open the Owyx site in the system browser and wait for a one-time auth code
+/// on a loopback redirect (same pattern as Modrinth App OAuth).
+#[tauri::command]
+pub async fn owyx_site_browser_login<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    site_base: String,
+    state: String,
+) -> Result<String> {
+    let (auth_code_recv_socket_tx, auth_code_recv_socket) = tokio::sync::oneshot::channel();
+    let auth_code = tokio::spawn(super::oauth_utils::auth_code_reply::listen(
+        auth_code_recv_socket_tx,
+    ));
+
+    let auth_code_recv_socket = auth_code_recv_socket.await.unwrap()?;
+    let base = site_base.trim_end_matches('/');
+    let auth_request_uri = format!(
+        "{base}/launcher-auth?port={}&state={}",
+        auth_code_recv_socket.port(),
+        urlencoding_encode(&state),
+    );
+
+    app.opener()
+        .open_url(auth_request_uri, None::<&str>)
+        .map_err(|e| {
+            TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError(format!(
+                    "Failed to open Owyx site login URL: {e}"
+                ))
+                .into(),
+            )
+        })?;
+
+    let Some(auth_code) = auth_code.await.unwrap()? else {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError("Login canceled".into()).into(),
+        ));
+    };
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+
+    Ok(auth_code)
+}
+
+#[tauri::command]
+pub fn owyx_site_browser_login_cancel() {
+    super::oauth_utils::auth_code_reply::stop_listeners();
+}
+
+fn urlencoding_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

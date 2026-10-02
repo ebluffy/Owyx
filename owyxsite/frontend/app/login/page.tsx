@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Suspense, useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AuthShell from "@/components/layout/AuthShell";
 import Turnstile from "@/components/ui/Turnstile";
 import { notifyAuthChanged, useAuth } from "@/hooks/useAuth";
@@ -10,10 +10,26 @@ import { useLocale } from "@/hooks/useLocale";
 
 const SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
 
-export default function LoginPage() {
+function safeInternalRedirect(raw: string | null): string | null {
+  if (!raw) return null;
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("://")) {
+    return null;
+  }
+  return decoded;
+}
+
+function LoginInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  const redirectTo = safeInternalRedirect(params.get("redirect")) || "/profile";
   const { dict } = useLocale();
-  useAuth({ redirectIfAuth: true });
+  const { user, loading: authLoading } = useAuth();
 
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -29,6 +45,12 @@ export default function LoginPage() {
     setTurnstileToken(null);
     setTurnstileReset((n) => n + 1);
   }
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace(redirectTo);
+    }
+  }, [authLoading, user, router, redirectTo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,7 +73,7 @@ export default function LoginPage() {
         const ttl = remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
         localStorage.setItem("token_expires", new Date(Date.now() + ttl).toISOString());
         notifyAuthChanged();
-        router.replace("/profile");
+        router.replace(redirectTo);
       } else {
         setError(result.error || dict.auth.loginFailed);
         refreshTurnstile();
@@ -131,5 +153,13 @@ export default function LoginPage() {
         </button>
       </form>
     </AuthShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="panel p-5 text-sm text-muted">…</div>}>
+      <LoginInner />
+    </Suspense>
   );
 }

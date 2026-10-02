@@ -67,6 +67,18 @@
 						}}
 					</Button>
 				</div>
+				<div class="px-3">
+					<Button
+						type="outlined"
+						class="w-full"
+						native-type="button"
+						:disabled="submitting"
+						@click="submitBrowserLogin"
+					>
+						<GlobeIcon aria-hidden="true" />
+						{{ formatMessage(messages.browserSignInButton) }}
+					</Button>
+				</div>
 			</form>
 
 			<p class="m-0 text-center text-base font-medium leading-6 text-primary">
@@ -104,7 +116,7 @@
 </template>
 
 <script setup lang="ts">
-import { LogInIcon, SpinnerIcon, UserPlusIcon, XIcon } from '@modrinth/assets'
+import { GlobeIcon, LogInIcon, SpinnerIcon, UserPlusIcon, XIcon } from '@modrinth/assets'
 import {
 	Button,
 	commonMessages,
@@ -117,7 +129,9 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { ref } from 'vue'
 
 import {
+	cancelOwyxSiteBrowserLogin,
 	loginOwyxSite,
+	loginOwyxSiteViaBrowser,
 	OWYX_SITE_REGISTER_URL,
 	OWYX_SITE_SUPPORT_URL,
 } from '@/helpers/owyx-site-auth'
@@ -180,7 +194,30 @@ async function submitLogin() {
 	}
 }
 
+async function submitBrowserLogin() {
+	if (submitting.value) return
+	submitting.value = true
+	authenticating.value = true
+	errorMessage.value = ''
+	try {
+		await loginOwyxSiteViaBrowser()
+		authenticating.value = false
+		finish(true)
+		emit('signedIn')
+		modal.value?.hide()
+	} catch (e) {
+		authenticating.value = false
+		const msg = e instanceof Error ? e.message : String(e)
+		if (!/cancel/i.test(msg)) {
+			errorMessage.value = msg
+		}
+	} finally {
+		submitting.value = false
+	}
+}
+
 function handleHide() {
+	cancelOwyxSiteBrowserLogin()
 	authenticating.value = false
 	submitting.value = false
 	finish(false)
@@ -231,6 +268,10 @@ const messages = defineMessages({
 	signInButton: {
 		id: 'modal.owyx-account-required.sign-in-button',
 		defaultMessage: 'Sign in to Owyx',
+	},
+	browserSignInButton: {
+		id: 'modal.owyx-account-required.browser-sign-in-button',
+		defaultMessage: 'Sign in via owyx.site',
 	},
 	signingInButton: {
 		id: 'modal.owyx-account-required.signing-in-button',

@@ -4640,6 +4640,9 @@
   "modal.owyx-account-required.sign-in-button": {
     "message": "Sign in to Owyx"
   },
+  "modal.owyx-account-required.browser-sign-in-button": {
+    "message": "Sign in via owyx.site"
+  },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Sign in to your Owyx account"
   },
