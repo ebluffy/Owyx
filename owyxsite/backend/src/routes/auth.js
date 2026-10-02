@@ -1223,7 +1223,10 @@ router.post('/terminate-game-sessions', pluginGone);
  *  Schema: postgres/migrations/015_launcher_auth_codes.sql (no runtime DDL).
  */
 function isMissingLauncherAuthCodesRelation(error) {
-    return error?.code === '42P01' && error?.table === 'launcher_auth_codes';
+    if (error?.code !== '42P01') return false;
+    if (error?.table === 'launcher_auth_codes') return true;
+    // PG often omits `table` for undefined_relation; only match with 42P01 + name in message.
+    return /launcher_auth_codes/i.test(String(error?.message || ''));
 }
 
 async function issueRememberSession(user, req) {
