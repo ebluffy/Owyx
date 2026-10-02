@@ -4643,6 +4643,9 @@
   "modal.owyx-account-required.browser-sign-in-button": {
     "message": "Sign in via owyx.site"
   },
+  "modal.owyx-account-required.browser-signing-in-header": {
+    "message": "Waiting for browser"
+  },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Sign in to your Owyx account"
   },
@@ -4657,6 +4660,12 @@
   },
   "modal.owyx-account-required.waiting": {
     "message": "Signing in to Owyx…"
+  },
+  "modal.owyx-account-required.waiting-browser": {
+    "message": "Finish sign-in in your browser…"
+  },
+  "modal.owyx-account-required.waiting-browser-body": {
+    "message": "A browser tab opened on owyx.site. Sign in if needed, then tap “Return to launcher”."
   },
   "onboarding-checklist.create-instance": {
     "message": "Create first instance"

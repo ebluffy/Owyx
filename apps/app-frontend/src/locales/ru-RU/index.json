@@ -4322,6 +4322,9 @@
   "modal.owyx-account-required.browser-sign-in-button": {
     "message": "Войти через owyx.site"
   },
+  "modal.owyx-account-required.browser-signing-in-header": {
+    "message": "Ждём браузер"
+  },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Вход в аккаунт Owyx"
   },
@@ -4336,6 +4339,12 @@
   },
   "modal.owyx-account-required.waiting": {
     "message": "Входим в Owyx…"
+  },
+  "modal.owyx-account-required.waiting-browser": {
+    "message": "Завершите вход в браузере…"
+  },
+  "modal.owyx-account-required.waiting-browser-body": {
+    "message": "Открылась вкладка owyx.site. Войдите при необходимости и нажмите «Вернуть в лаунчер»."
   },
   "onboarding-checklist.create-instance": {
     "message": "Создайте сборку"

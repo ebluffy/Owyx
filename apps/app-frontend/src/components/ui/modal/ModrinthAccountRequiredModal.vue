@@ -1,7 +1,7 @@
 <template>
 	<NewModal
 		ref="modal"
-		:header="formatMessage(authenticating ? messages.signingInHeader : messages.header)"
+		:header="formatMessage(modalHeader)"
 		:on-hide="handleHide"
 		no-padding
 		max-width="548px"
@@ -101,9 +101,16 @@
 				<div class="flex items-center gap-1.5 text-primary">
 					<SpinnerIcon aria-hidden="true" class="h-5 w-5 shrink-0 animate-spin" />
 					<span class="text-base leading-6">
-						{{ formatMessage(messages.waitingForSignIn) }}
+						{{
+							formatMessage(
+								browserFlow ? messages.waitingForBrowserSignIn : messages.waitingForSignIn,
+							)
+						}}
 					</span>
 				</div>
+				<p v-if="browserFlow" class="m-0 text-sm leading-5 text-secondary">
+					{{ formatMessage(messages.waitingForBrowserSignInBody) }}
+				</p>
 			</div>
 			<div class="px-3">
 				<Button type="outlined" class="w-full" native-type="button" @click="modal?.hide()">
@@ -126,7 +133,7 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import {
 	cancelOwyxSiteBrowserLogin,
@@ -143,14 +150,21 @@ const emit = defineEmits<{
 const { formatMessage } = useVIntl()
 const modal = ref<InstanceType<typeof NewModal>>()
 const authenticating = ref(false)
+const browserFlow = ref(false)
 const submitting = ref(false)
 const email = ref('')
 const password = ref('')
 const errorMessage = ref('')
 let resolveShow: ((signedIn: boolean) => void) | undefined
 
+const modalHeader = computed(() => {
+	if (!authenticating.value) return messages.header
+	return browserFlow.value ? messages.browserSigningInHeader : messages.signingInHeader
+})
+
 function show(event?: MouseEvent) {
 	authenticating.value = false
+	browserFlow.value = false
 	submitting.value = false
 	errorMessage.value = ''
 	password.value = ''
@@ -178,6 +192,7 @@ async function submitLogin() {
 	if (submitting.value) return
 	submitting.value = true
 	authenticating.value = true
+	browserFlow.value = false
 	errorMessage.value = ''
 	try {
 		await loginOwyxSite(email.value, password.value)
@@ -198,15 +213,18 @@ async function submitBrowserLogin() {
 	if (submitting.value) return
 	submitting.value = true
 	authenticating.value = true
+	browserFlow.value = true
 	errorMessage.value = ''
 	try {
 		await loginOwyxSiteViaBrowser()
 		authenticating.value = false
+		browserFlow.value = false
 		finish(true)
 		emit('signedIn')
 		modal.value?.hide()
 	} catch (e) {
 		authenticating.value = false
+		browserFlow.value = false
 		const msg = e instanceof Error ? e.message : String(e)
 		if (!/cancel/i.test(msg)) {
 			errorMessage.value = msg
@@ -219,6 +237,7 @@ async function submitBrowserLogin() {
 function handleHide() {
 	cancelOwyxSiteBrowserLogin()
 	authenticating.value = false
+	browserFlow.value = false
 	submitting.value = false
 	finish(false)
 }
@@ -239,6 +258,10 @@ const messages = defineMessages({
 	signingInHeader: {
 		id: 'modal.owyx-account-required.signing-in-header',
 		defaultMessage: 'Signing in',
+	},
+	browserSigningInHeader: {
+		id: 'modal.owyx-account-required.browser-signing-in-header',
+		defaultMessage: 'Waiting for browser',
 	},
 	signInHeading: {
 		id: 'modal.owyx-account-required.sign-in-heading',
@@ -280,6 +303,15 @@ const messages = defineMessages({
 	waitingForSignIn: {
 		id: 'modal.owyx-account-required.waiting',
 		defaultMessage: 'Signing in to Owyx…',
+	},
+	waitingForBrowserSignIn: {
+		id: 'modal.owyx-account-required.waiting-browser',
+		defaultMessage: 'Finish sign-in in your browser…',
+	},
+	waitingForBrowserSignInBody: {
+		id: 'modal.owyx-account-required.waiting-browser-body',
+		defaultMessage:
+			'A browser tab opened on owyx.site. Sign in if needed, then tap “Return to launcher”.',
 	},
 	supportPrompt: {
 		id: 'modal.owyx-account-required.support-prompt',

@@ -108,11 +108,13 @@ pub async fn owyx_site_browser_login<R: Runtime>(
     }
     if !is_safe_owyx_auth_state(&state) {
         return Err(TheseusSerializableError::Theseus(
-            theseus::ErrorKind::OtherError("Invalid Owyx auth state".into()).into(),
+            theseus::ErrorKind::OtherError("Invalid Owyx auth state".into())
+                .into(),
         ));
     }
 
-    let (auth_code_recv_socket_tx, auth_code_recv_socket) = tokio::sync::oneshot::channel();
+    let (auth_code_recv_socket_tx, auth_code_recv_socket) =
+        tokio::sync::oneshot::channel();
     let expected_state = state.clone();
     let auth_code = tokio::spawn(super::oauth_utils::auth_code_reply::listen(
         auth_code_recv_socket_tx,
@@ -157,16 +159,30 @@ pub fn owyx_site_browser_login_cancel() {
 }
 
 fn is_allowed_owyx_site_base(site_base: &str) -> bool {
-    let base = site_base.trim().trim_end_matches('/').to_ascii_lowercase();
-    if base == "https://owyx.site" || base == "https://www.owyx.site" {
-        return true;
+    let Ok(url) = Url::parse(site_base.trim()) else {
+        return false;
+    };
+    if url.scheme() != "https" && url.scheme() != "http" {
+        return false;
+    }
+    let path = url.path().trim_end_matches('/');
+    if !path.is_empty() {
+        return false;
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    if host == "owyx.site" || host == "www.owyx.site" {
+        return url.scheme() == "https";
     }
     #[cfg(debug_assertions)]
     {
-        base.starts_with("http://localhost")
-            || base.starts_with("http://127.0.0.1")
-            || base.starts_with("https://localhost")
-            || base.starts_with("https://127.0.0.1")
+        (host == "localhost" || host == "127.0.0.1")
+            && (url.scheme() == "http" || url.scheme() == "https")
     }
     #[cfg(not(debug_assertions))]
     {
@@ -186,7 +202,13 @@ fn urlencoding_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~' => {
                 out.push(b as char);
             }
             _ => out.push_str(&format!("%{b:02X}")),

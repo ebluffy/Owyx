@@ -100,6 +100,10 @@ Loopback redirect (same pattern as Modrinth App OAuth), not `owyx://` for the co
    storage as password login. Exchange also rejects requests that omit the key on site Host
    (does not rely on `clientKeyGate` SITE_HOSTS bypass alone).
 
+Schema: `postgres/migrations/015_launcher_auth_codes.sql` (apply on existing VPS volumes;
+fresh compose volumes mount it via `docker-entrypoint-initdb.d`). Missing table → `503
+launcher_auth_codes_missing`.
+
 Cancel: `plugin:utils|owyx_site_browser_login_cancel`.
 
    Session rows store a SHA-256 of the JWT (legacy base64 hashes are migrated on
