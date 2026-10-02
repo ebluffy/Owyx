@@ -1219,22 +1219,14 @@ router.post('/check-game-session', pluginGone);
 router.get('/game-sessions', pluginGone);
 router.post('/terminate-game-sessions', pluginGone);
 
-/** One-time codes for browser → launcher sign-in (O4). */
-async function ensureLauncherAuthCodesSchema() {
-    await db.query(`
-        CREATE TABLE IF NOT EXISTS public.launcher_auth_codes (
-            code_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-            state TEXT NOT NULL,
-            expires_at TIMESTAMPTZ NOT NULL,
-            used_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-    `);
-    await db.query(`
-        CREATE INDEX IF NOT EXISTS launcher_auth_codes_expires_idx
-            ON public.launcher_auth_codes (expires_at)
-    `);
+/** One-time codes for browser → launcher sign-in (O4).
+ *  Schema: postgres/migrations/015_launcher_auth_codes.sql (no runtime DDL).
+ */
+function isMissingLauncherAuthCodesRelation(error) {
+    return (
+        error?.code === '42P01' ||
+        /launcher_auth_codes/i.test(String(error?.message || ''))
+    );
 }
 
 async function issueRememberSession(user, req) {
@@ -1286,7 +1278,6 @@ router.post('/launcher/prepare', authenticateToken, async (req, res) => {
         if (req.user.is_banned === true) {
             return res.status(403).json({ error: 'Аккаунт заблокирован' });
         }
-        await ensureLauncherAuthCodesSchema();
         await db.query(
             `DELETE FROM launcher_auth_codes WHERE expires_at < NOW() OR used_at IS NOT NULL`,
         );
@@ -1300,6 +1291,13 @@ router.post('/launcher/prepare', authenticateToken, async (req, res) => {
         );
         res.json({ success: true, code, expiresIn: 120 });
     } catch (error) {
+        if (isMissingLauncherAuthCodesRelation(error)) {
+            console.error('launcher/prepare missing table — apply migrations/015_launcher_auth_codes.sql');
+            return res.status(503).json({
+                error: 'launcher_auth_codes_missing',
+                message: 'Apply postgres/migrations/015_launcher_auth_codes.sql',
+            });
+        }
         console.error('launcher/prepare error:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }
@@ -1335,7 +1333,6 @@ router.post('/launcher/exchange', async (req, res) => {
         if (!/^[a-f0-9]{64}$/i.test(code) || !/^[A-Za-z0-9_-]{16,128}$/.test(state)) {
             return res.status(400).json({ error: 'invalid_request' });
         }
-        await ensureLauncherAuthCodesSchema();
         const codeHash = hashSessionToken(code);
         const claim = await db.query(
             `UPDATE launcher_auth_codes
@@ -1370,6 +1367,13 @@ router.post('/launcher/exchange', async (req, res) => {
             user: publicUser(row),
         });
     } catch (error) {
+        if (isMissingLauncherAuthCodesRelation(error)) {
+            console.error('launcher/exchange missing table — apply migrations/015_launcher_auth_codes.sql');
+            return res.status(503).json({
+                error: 'launcher_auth_codes_missing',
+                message: 'Apply postgres/migrations/015_launcher_auth_codes.sql',
+            });
+        }
         console.error('launcher/exchange error:', error);
         res.status(500).json({ error: 'Внутренняя ошибка сервера' });
     }

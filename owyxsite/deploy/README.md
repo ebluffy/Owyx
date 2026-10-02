@@ -46,7 +46,7 @@ Launcher prod: `https://api.owyx.site` + header `X-Owyx-Client-Key`.
 
 ## Fresh vs old Postgres volume
 
-`initdb.d` runs only on empty volumes. Apply numbered migrations under `postgres/migrations/` on old DBs (e.g. `014_drop_helper_role.sql`); owner `owyx_user`.
+`initdb.d` runs only on empty volumes. Apply numbered migrations under `postgres/migrations/` on old DBs (e.g. `014_drop_helper_role.sql`, `015_launcher_auth_codes.sql`); owner `owyx_user`.
 
 ## Email deliverability (Mailjet + Cloudflare DNS)
 
