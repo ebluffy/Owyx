@@ -139,9 +139,9 @@ import {
 	cancelOwyxSiteBrowserLogin,
 	loginOwyxSite,
 	loginOwyxSiteViaBrowser,
-	OwyxSiteAuthError,
 	OWYX_SITE_REGISTER_URL,
 	OWYX_SITE_SUPPORT_URL,
+	OwyxSiteAuthError,
 } from '@/helpers/owyx-site-auth'
 
 const emit = defineEmits<{
