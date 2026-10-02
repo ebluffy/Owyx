@@ -18,6 +18,7 @@ function passwordChecks(pw: string) {
   };
 }
 
+/** Soft strength hint only — submit requires length ≥ 8. */
 function passwordScore(pw: string): 0 | 1 | 2 | 3 | 4 {
   if (!pw) return 0;
   const c = passwordChecks(pw);
@@ -52,7 +53,7 @@ export default function RegisterPage() {
   const onToken = useCallback((t: string | null) => setTurnstileToken(t), []);
   const checks = useMemo(() => passwordChecks(password), [password]);
   const score = useMemo(() => passwordScore(password), [password]);
-  const strongEnough = checks.length && checks.upper && checks.digit && checks.special;
+  const longEnough = checks.length;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,7 +62,7 @@ export default function RegisterPage() {
       setError(a.loginInvalid);
       return;
     }
-    if (!strongEnough) {
+    if (!longEnough) {
       setError(a.passwordWeak);
       return;
     }
@@ -196,9 +197,6 @@ export default function RegisterPage() {
               </div>
               <ul className="text-xs text-muted space-y-1 m-0 pl-4 list-disc">
                 <li className={checks.length ? "text-ok" : undefined}>{a.passwordRuleLen}</li>
-                <li className={checks.upper ? "text-ok" : undefined}>{a.passwordRuleUpper}</li>
-                <li className={checks.digit ? "text-ok" : undefined}>{a.passwordRuleDigit}</li>
-                <li className={checks.special ? "text-ok" : undefined}>{a.passwordRuleSpecial}</li>
               </ul>
             </div>
           )}
@@ -224,7 +222,7 @@ export default function RegisterPage() {
 
         {error && <p className="text-sm text-danger">{error}</p>}
 
-        <button type="submit" className="btn btn-primary w-full" disabled={loading || !strongEnough}>
+        <button type="submit" className="btn btn-primary w-full" disabled={loading || !longEnough}>
           {loading ? a.submittingRegister : a.submitRegister}
         </button>
       </form>

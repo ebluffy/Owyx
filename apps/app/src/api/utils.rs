@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use tauri::Runtime;
 use tauri_plugin_opener::OpenerExt;
 use theseus::{
@@ -33,6 +34,8 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_session_get,
             owyx_site_session_set,
             owyx_site_session_clear,
+            owyx_site_browser_login,
+            owyx_site_browser_login_cancel,
         ])
         .build()
 }
@@ -85,6 +88,138 @@ pub async fn owyx_site_session_clear() -> Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Open the Owyx site in the system browser and wait for a one-time auth code
+/// on a loopback redirect (same pattern as Modrinth App OAuth).
+#[tauri::command]
+pub async fn owyx_site_browser_login<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    site_base: String,
+    state: String,
+) -> Result<String> {
+    if !is_allowed_owyx_site_base(&site_base) {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(
+                "Owyx site login URL is not allowed".into(),
+            )
+            .into(),
+        ));
+    }
+    if !is_safe_owyx_auth_state(&state) {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError("Invalid Owyx auth state".into())
+                .into(),
+        ));
+    }
+
+    let (auth_code_recv_socket_tx, auth_code_recv_socket) =
+        tokio::sync::oneshot::channel();
+    let expected_state = state.clone();
+    let auth_code = tokio::spawn(super::oauth_utils::auth_code_reply::listen(
+        auth_code_recv_socket_tx,
+        Some(expected_state),
+    ));
+
+    let auth_code_recv_socket = auth_code_recv_socket.await.unwrap()?;
+    let base = site_base.trim_end_matches('/');
+    let auth_request_uri = format!(
+        "{base}/launcher-auth?port={}&state={}",
+        auth_code_recv_socket.port(),
+        urlencoding_encode(&state),
+    );
+
+    app.opener()
+        .open_url(auth_request_uri, None::<&str>)
+        .map_err(|e| {
+            TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError(format!(
+                    "Failed to open Owyx site login URL: {e}"
+                ))
+                .into(),
+            )
+        })?;
+
+    let Some(auth_code) = auth_code.await.unwrap()? else {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError("Login canceled".into()).into(),
+        ));
+    };
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.set_focus();
+    }
+
+    Ok(auth_code)
+}
+
+#[tauri::command]
+pub fn owyx_site_browser_login_cancel() {
+    super::oauth_utils::auth_code_reply::stop_listeners();
+}
+
+fn is_allowed_owyx_site_base(site_base: &str) -> bool {
+    let Ok(url) = Url::parse(site_base.trim()) else {
+        return false;
+    };
+    if url.scheme() != "https" && url.scheme() != "http" {
+        return false;
+    }
+    let path = url.path().trim_end_matches('/');
+    if !path.is_empty() {
+        return false;
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    if host == "owyx.site" || host == "www.owyx.site" {
+        return url.scheme() == "https";
+    }
+    #[cfg(debug_assertions)]
+    {
+        (host == "localhost" || host == "127.0.0.1")
+            && (url.scheme() == "http" || url.scheme() == "https")
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+fn is_safe_owyx_auth_state(state: &str) -> bool {
+    let bytes = state.as_bytes();
+    (16..=128).contains(&bytes.len())
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_alphanumeric() || *b == b'-' || *b == b'_')
+}
+
+fn urlencoding_encode(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push('%');
+                out.push(HEX[(b >> 4) as usize] as char);
+                out.push(HEX[(b & 0xf) as usize] as char);
+            }
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6710,6 +6710,78 @@
 	"unknown-file-warning-modal.unrecognized-files": {
 		"defaultMessage": "Нераспознанные файлы"
 	},
+	"update-all-modal.changelog-for": {
+		"defaultMessage": "Список изменений: {project}"
+	},
+	"update-all-modal.changelog-loaded": {
+		"defaultMessage": "Список изменений загружен."
+	},
+	"update-all-modal.close-changelog": {
+		"defaultMessage": "Закрыть список изменений"
+	},
+	"update-all-modal.current-version": {
+		"defaultMessage": "Текущая версия"
+	},
+	"update-all-modal.empty": {
+		"defaultMessage": "Обновлений нет."
+	},
+	"update-all-modal.header": {
+		"defaultMessage": "Обновить проекты"
+	},
+	"update-all-modal.loading": {
+		"defaultMessage": "Загрузка обновлений…"
+	},
+	"update-all-modal.loading-changelog": {
+		"defaultMessage": "Загрузка списка изменений…"
+	},
+	"update-all-modal.new-version": {
+		"defaultMessage": "Новая версия"
+	},
+	"update-all-modal.no-changelog": {
+		"defaultMessage": "Для этой версии нет списка изменений."
+	},
+	"update-all-modal.no-compatible-updates": {
+		"defaultMessage": "Совместимых обновлений нет."
+	},
+	"update-all-modal.no-version": {
+		"defaultMessage": "Нет совместимых обновлений"
+	},
+	"update-all-modal.project": {
+		"defaultMessage": "Проект"
+	},
+	"update-all-modal.project-list": {
+		"defaultMessage": "Обновления проектов"
+	},
+	"update-all-modal.results": {
+		"defaultMessage": "{count, plural, one {# проект готов к обновлению} few {# проекта готовы к обновлению} many {# проектов готовы к обновлению} other {# проектов готовы к обновлению}}"
+	},
+	"update-all-modal.select-all": {
+		"defaultMessage": "Выбрать все проекты"
+	},
+	"update-all-modal.select-project": {
+		"defaultMessage": "Выбрать {project} для обновления"
+	},
+	"update-all-modal.select-version": {
+		"defaultMessage": "Новая версия для {project}"
+	},
+	"update-all-modal.update": {
+		"defaultMessage": "Обновить {count, plural, one {# проект} few {# проекта} many {# проектов} other {# проектов}}"
+	},
+	"update-all-modal.versions": {
+		"defaultMessage": "Текущая версия / Новая версия"
+	},
+	"update-all-modal.view": {
+		"defaultMessage": "Открыть"
+	},
+	"update-all-modal.view-changelog": {
+		"defaultMessage": "Список изменений: {project}"
+	},
+	"update-all-modal.warning": {
+		"defaultMessage": "Мы не можем гарантировать, что обновления безопасны для ваших миров. Проверьте список изменений и сделайте резервную копию."
+	},
+	"update-all-modal.warning-server": {
+		"defaultMessage": "Мы не можем гарантировать, что обновления безопасны для сервера. Проверьте список изменений и сделайте резервную копию."
+	},
 	"user.profile.badge.alpha.about.1": {
 		"defaultMessage": "Этот пользователь присоединился к Owyx до завершения альфа‑тестирования в ноябре 2020 года."
 	},

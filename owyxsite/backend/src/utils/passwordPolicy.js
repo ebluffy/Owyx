@@ -6,7 +6,8 @@ function passwordTooLong(password) {
 }
 
 /**
- * Same complexity as registration: min 8, upper, digit, special.
+ * Registration / reset policy: min 8 characters, max 72 bytes (bcrypt).
+ * No required uppercase / digit / special — weak passwords are the user's choice.
  * Returns a Russian error string or null if OK.
  */
 function passwordComplexityError(password) {
@@ -16,15 +17,6 @@ function passwordComplexityError(password) {
   }
   if (passwordTooLong(p)) {
     return `Пароль не должен превышать ${BCRYPT_MAX_BYTES} байт`;
-  }
-  if (!/[A-ZА-ЯЁ]/.test(p)) {
-    return 'Пароль должен содержать хотя бы одну заглавную букву';
-  }
-  if (!/\d/.test(p)) {
-    return 'Пароль должен содержать хотя бы одну цифру';
-  }
-  if (!/[^A-Za-zА-Яа-яЁё0-9]/.test(p)) {
-    return 'Пароль должен содержать хотя бы один спецсимвол';
   }
   return null;
 }
@@ -40,13 +32,7 @@ function passwordComplexityValidators(body) {
     }),
     body('password')
       .isLength({ min: 8 })
-      .withMessage('Пароль должен быть минимум 8 символов')
-      .matches(/[A-ZА-ЯЁ]/)
-      .withMessage('Пароль должен содержать хотя бы одну заглавную букву')
-      .matches(/\d/)
-      .withMessage('Пароль должен содержать хотя бы одну цифру')
-      .matches(/[^A-Za-zА-Яа-яЁё0-9]/)
-      .withMessage('Пароль должен содержать хотя бы один спецсимвол'),
+      .withMessage('Пароль должен быть минимум 8 символов'),
   ];
 }
 

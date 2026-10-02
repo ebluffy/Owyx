@@ -1219,6 +1219,166 @@ router.post('/check-game-session', pluginGone);
 router.get('/game-sessions', pluginGone);
 router.post('/terminate-game-sessions', pluginGone);
 
+/** One-time codes for browser → launcher sign-in (O4).
+ *  Schema: postgres/migrations/015_launcher_auth_codes.sql (no runtime DDL).
+ */
+function isMissingLauncherAuthCodesRelation(error) {
+    if (error?.code !== '42P01') return false;
+    if (error?.table === 'launcher_auth_codes') return true;
+    // PG often omits `table` for undefined_relation; only match with 42P01 + name in message.
+    return /launcher_auth_codes/i.test(String(error?.message || ''));
+}
+
+async function issueRememberSession(user, req) {
+    const ip = req.clientIp || req.ip;
+    const userAgent = req.get('User-Agent') || '';
+    const tokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+    };
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '30d' });
+
+    await db.query('DELETE FROM user_sessions WHERE expires_at < NOW()');
+    const existingSessions = await db.query(
+        `SELECT id FROM user_sessions
+         WHERE user_id = $1 AND expires_at > NOW() AND is_active = true
+         ORDER BY last_activity DESC NULLS LAST, expires_at DESC`,
+        [user.id],
+    );
+    if (existingSessions.rows.length >= 10) {
+        const dropIds = existingSessions.rows.slice(9).map((row) => row.id);
+        await db.query('DELETE FROM user_sessions WHERE id = ANY($1::uuid[])', [dropIds]);
+    }
+
+    const sessionId = uuidv4();
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await db.query(
+        'INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
+        [sessionId, user.id, hashSessionToken(token), expiresAt, ip, userAgent],
+    );
+    await db.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    return token;
+}
+
+// POST /api/auth/launcher/prepare — browser (logged-in) creates a one-time code for the launcher
+router.post('/launcher/prepare', authenticateToken, async (req, res) => {
+    const rate = consumeIp(`launcher-prepare:${req.ip}:${req.user.id}`, {
+        windowMs: 60 * 1000,
+        max: 10,
+    });
+    if (!rate.allowed) {
+        return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+    }
+    try {
+        const state = String(req.body?.state || '').trim();
+        if (!/^[A-Za-z0-9_-]{16,128}$/.test(state)) {
+            return res.status(400).json({ error: 'invalid_state' });
+        }
+        if (req.user.is_banned === true) {
+            return res.status(403).json({ error: 'Аккаунт заблокирован' });
+        }
+        await db.query(
+            `DELETE FROM launcher_auth_codes WHERE expires_at < NOW() OR used_at IS NOT NULL`,
+        );
+        const code = crypto.randomBytes(32).toString('hex');
+        const codeHash = hashSessionToken(code);
+        const expiresAt = new Date(Date.now() + 2 * 60 * 1000);
+        await db.query(
+            `INSERT INTO launcher_auth_codes (code_hash, user_id, state, expires_at)
+             VALUES ($1, $2, $3, $4)`,
+            [codeHash, req.user.id, state, expiresAt],
+        );
+        res.json({ success: true, code, expiresIn: 120 });
+    } catch (error) {
+        if (isMissingLauncherAuthCodesRelation(error)) {
+            console.error('launcher/prepare missing table — apply migrations/015_launcher_auth_codes.sql');
+            return res.status(503).json({
+                error: 'launcher_auth_codes_missing',
+                message: 'Apply postgres/migrations/015_launcher_auth_codes.sql',
+            });
+        }
+        console.error('launcher/prepare error:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+// POST /api/auth/launcher/exchange — launcher (client key) swaps code+state for a JWT
+router.post('/launcher/exchange', async (req, res) => {
+    const rate = consumeIp(`launcher-exchange:${req.ip}`, { windowMs: 60 * 1000, max: 20 });
+    if (!rate.allowed) {
+        return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
+    }
+    // Always require client key (do not rely on clientKeyGate SITE_HOSTS bypass).
+    const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
+    if (!expectedKey) {
+        if (process.env.NODE_ENV === 'production') {
+            return res.status(503).json({
+                error: 'launcher_client_key_missing',
+                message: 'LAUNCHER_CLIENT_KEY must be set in production',
+            });
+        }
+    } else {
+        const gotKey = (req.get('x-owyx-client-key') || '').trim();
+        if (gotKey !== expectedKey) {
+            return res.status(401).json({
+                error: 'unauthorized_client',
+                message: 'Missing or invalid X-Owyx-Client-Key',
+            });
+        }
+    }
+    try {
+        const code = String(req.body?.code || '').trim();
+        const state = String(req.body?.state || '').trim();
+        if (!/^[a-f0-9]{64}$/i.test(code) || !/^[A-Za-z0-9_-]{16,128}$/.test(state)) {
+            return res.status(400).json({ error: 'invalid_request' });
+        }
+        const codeHash = hashSessionToken(code);
+        const claim = await db.query(
+            `UPDATE launcher_auth_codes
+             SET used_at = NOW()
+             WHERE code_hash = $1
+               AND state = $2
+               AND used_at IS NULL
+               AND expires_at > NOW()
+             RETURNING user_id`,
+            [codeHash, state],
+        );
+        if (!claim.rows[0]) {
+            return res.status(401).json({ error: 'invalid_or_expired_code' });
+        }
+        const userResult = await db.query('SELECT * FROM users WHERE id = $1', [
+            claim.rows[0].user_id,
+        ]);
+        const row = userResult.rows[0];
+        if (!row || row.is_banned === true || row.is_active === false) {
+            return res.status(403).json({ error: 'Аккаунт недоступен' });
+        }
+        const token = await issueRememberSession(row, req);
+        await logUserActivity(row.id, 'login', 'Вход через браузер (launcher)', {
+            req,
+            ip: req.clientIp || req.ip,
+            userAgent: req.get('User-Agent') || '',
+        });
+        res.json({
+            success: true,
+            message: 'Успешная авторизация',
+            token,
+            user: publicUser(row),
+        });
+    } catch (error) {
+        if (isMissingLauncherAuthCodesRelation(error)) {
+            console.error('launcher/exchange missing table — apply migrations/015_launcher_auth_codes.sql');
+            return res.status(503).json({
+                error: 'launcher_auth_codes_missing',
+                message: 'Apply postgres/migrations/015_launcher_auth_codes.sql',
+            });
+        }
+        console.error('launcher/exchange error:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
 router.authenticateToken = authenticateToken;
 router.optionalAuthenticate = optionalAuthenticate;
 router.authenticateLongTermApiToken = authenticateLongTermApiToken;
