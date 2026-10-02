@@ -3069,6 +3069,12 @@ router.post('/api-tokens', authenticateToken, requireRole(['admin']), async (req
             return res.status(400).json({ error: 'Название токена обязательно' });
         }
 
+        // Empty scopes used to mean "full admin" without checks. Store explicit
+        // ["*"] for full access so requireApiTokenPermission can enforce (F6).
+        const normalizedPermissions = Array.isArray(permissions) && permissions.length > 0
+            ? permissions.map(String)
+            : ['*'];
+
         // Генерируем случайный токен
         const crypto = require('crypto');
         const tokenLength = 64;
@@ -3103,7 +3109,7 @@ router.post('/api-tokens', authenticateToken, requireRole(['admin']), async (req
             tokenHash,
             tokenPrefix,
             targetUserId,
-            JSON.stringify(permissions),
+            JSON.stringify(normalizedPermissions),
             expiresAt,
             req.user.id,
             description?.trim() || null
@@ -3140,18 +3146,34 @@ router.put('/api-tokens/:id', authenticateToken, requireRole(['admin']), async (
         const tokenId = parseInt(req.params.id);
         const { name, description, permissions, is_active } = req.body;
 
-        const result = await db.query(`
-            UPDATE api_tokens 
-            SET token_name = $1, description = $2, permissions = $3, is_active = $4
+        // Omit permissions → leave existing. Explicit [] → deny-all. Non-empty → scopes.
+        const permissionsJson =
+            permissions === undefined
+                ? null
+                : JSON.stringify(
+                      Array.isArray(permissions) && permissions.length > 0
+                          ? permissions.map(String)
+                          : [],
+                  );
+
+        const result = await db.query(
+            `
+            UPDATE api_tokens
+            SET token_name = $1,
+                description = $2,
+                permissions = COALESCE($3::jsonb, permissions),
+                is_active = $4
             WHERE id = $5
             RETURNING token_name
-        `, [
-            name?.trim(),
-            description?.trim() || null,
-            JSON.stringify(permissions || []),
-            is_active !== undefined ? is_active : true,
-            tokenId
-        ]);
+        `,
+            [
+                name?.trim(),
+                description?.trim() || null,
+                permissionsJson,
+                is_active !== undefined ? is_active : true,
+                tokenId,
+            ],
+        );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'API токен не найден' });

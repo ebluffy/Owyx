@@ -227,7 +227,8 @@ function attachLongTermApiToken(req, tokenData) {
 
 /**
  * Enforce long-term API token scopes.
- * Empty permissions / `*` / `admin:all` → full access (legacy tokens).
+ * Explicit `*` / `admin:all` → full access.
+ * Empty permissions → deny (create must store `["*"]` for legacy full tokens).
  * Session JWT auth (no req.apiToken) skips this check — use requireRole.
  */
 function requireApiTokenPermission(required) {
@@ -235,12 +236,15 @@ function requireApiTokenPermission(required) {
     return (req, res, next) => {
         if (!req.apiToken) return next();
         const perms = req.apiToken.permissions || [];
-        if (
-            perms.length === 0 ||
-            perms.includes('*') ||
-            perms.includes('admin:all')
-        ) {
+        if (perms.includes('*') || perms.includes('admin:all')) {
             return next();
+        }
+        if (perms.length === 0) {
+            return res.status(403).json({
+                error: 'Недостаточно прав токена',
+                required: needed,
+                hint: 'Token has empty permissions; use ["*"] for full access or set scopes',
+            });
         }
         if (needed.some((p) => perms.includes(p))) return next();
         return res.status(403).json({
