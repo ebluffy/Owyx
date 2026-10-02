@@ -65,6 +65,8 @@ The key is configured as `LAUNCHER_CLIENT_KEY` on the site and `OWYX_CLIENT_KEY`
 
 ## Auth flow (Owyx account in the launcher)
 
+### Password login (existing)
+
 1. `POST /api/auth/login` with `{ "login", "password", "remember": true }`
    (`email` still accepted as an alias for `login`).
    - Browser (Host: `owyx.site`): may require Cloudflare Turnstile (`turnstileToken`).
@@ -78,6 +80,23 @@ The key is configured as `LAUNCHER_CLIENT_KEY` on the site and `OWYX_CLIENT_KEY`
    `plugin:utils|owyx_site_session_*`). Never plaintext in webview `localStorage`.
    Legacy `localStorage` keys are migrated once then cleared.
 3. `GET /api/launcher/me` with `Authorization: Bearer <token>` → profile + access.
+
+### Browser SSO / deep-link style (O4)
+
+Loopback redirect (same pattern as Modrinth App OAuth), not `owyx://` for the code handoff:
+
+1. Launcher starts a temporary loopback HTTP listener and opens
+   `https://owyx.site/launcher-auth?port=<ephemeral>&state=<random>` in the system browser
+   (`plugin:utils|owyx_site_browser_login`).
+2. Site page `/launcher-auth`: if not signed in → `/login?redirect=/launcher-auth?…`;
+   if signed in → `POST /api/auth/launcher/prepare` `{ state }` with Bearer → `{ code }`
+   (one-time, ~2 minutes, stored hashed in `launcher_auth_codes`).
+3. Browser redirects to `http://127.0.0.1:<port>/?code=…&state=…`.
+4. Launcher `POST https://api.owyx.site/api/auth/launcher/exchange` with client key
+   `{ code, state }` → JWT + user (remember / 30d session), then same OS storage as password login.
+
+Cancel: `plugin:utils|owyx_site_browser_login_cancel`.
+
    Session rows store a SHA-256 of the JWT (legacy base64 hashes are migrated on
    use). Logout deletes the matching session hash.
 4. `serverAccess === true` → the account may play. `false` → show `accessReason`.

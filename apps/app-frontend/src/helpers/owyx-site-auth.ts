@@ -206,41 +206,89 @@ function mapUser(
 	}
 }
 
-export async function loginOwyxSite(login: string, password: string): Promise<OwyxSiteSession> {
-	const base = apiBase()
-	const key = getOwyxClientKey()
-	if (!key.trim()) {
-		throw new Error(
-			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
-		)
-	}
-	const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/login`, {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify({ login: login.trim(), password, remember: true }),
-		signal: AbortSignal.timeout(12000),
-	})
-	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
-	if (!res.ok || !data.token) {
-		const code = String(data.error ?? '')
-		if (code === 'unauthorized_client' || (res.status === 401 && code.includes('unauthorized'))) {
+	export async function loginOwyxSite(login: string, password: string): Promise<OwyxSiteSession> {
+		const base = apiBase()
+		const key = getOwyxClientKey()
+		if (!key.trim()) {
 			throw new Error(
-				'Invalid or missing client key (unauthorized_client). Set X-Owyx-Client-Key under Owyx Servers.',
+				'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
 			)
 		}
-		const err = String(data.error ?? data.message ?? `Login failed (${res.status})`)
-		throw new Error(err)
+		const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/login`, {
+			method: 'POST',
+			headers: authHeaders(),
+			body: JSON.stringify({ login: login.trim(), password, remember: true }),
+			signal: AbortSignal.timeout(12000),
+		})
+		const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+		if (!res.ok || !data.token) {
+			const code = String(data.error ?? '')
+			if (code === 'unauthorized_client' || (res.status === 401 && code.includes('unauthorized'))) {
+				throw new Error(
+					'Invalid or missing client key (unauthorized_client). Set X-Owyx-Client-Key under Owyx Servers.',
+				)
+			}
+			const err = String(data.error ?? data.message ?? `Login failed (${res.status})`)
+			throw new Error(err)
+		}
+		const userRaw = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<
+			string,
+			unknown
+		>
+		const user = mapUser(userRaw)
+		const token = String(data.token)
+		persistSession(token, user)
+		const refreshed = await fetchOwyxSiteMe(token)
+		return refreshed ?? { token, user }
 	}
-	const userRaw = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<
-		string,
-		unknown
-	>
-	const user = mapUser(userRaw)
-	const token = String(data.token)
-	persistSession(token, user)
-	const refreshed = await fetchOwyxSiteMe(token)
-	return refreshed ?? { token, user }
-}
+
+	function randomOwyxAuthState(): string {
+		const bytes = new Uint8Array(24)
+		crypto.getRandomValues(bytes)
+		return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+	}
+
+	/** Browser SSO: open owyx.site, wait for loopback code, exchange for JWT. */
+	export async function loginOwyxSiteViaBrowser(
+		siteBase = OWYX_SITE_LOGIN_URL.replace(/\/login\/?$/, ''),
+	): Promise<OwyxSiteSession> {
+		const key = getOwyxClientKey()
+		if (!key.trim()) {
+			throw new Error(
+				'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
+			)
+		}
+		const state = randomOwyxAuthState()
+		const code = await invoke<string>('plugin:utils|owyx_site_browser_login', {
+			siteBase: siteBase.replace(/\/$/, ''),
+			state,
+		})
+		const base = apiBase()
+		const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/launcher/exchange`, {
+			method: 'POST',
+			headers: authHeaders(),
+			body: JSON.stringify({ code, state }),
+			signal: AbortSignal.timeout(15000),
+		})
+		const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+		if (!res.ok || !data.token) {
+			const err = String(data.error ?? data.message ?? `Browser login failed (${res.status})`)
+			throw new Error(err)
+		}
+		const userRaw = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<
+			string,
+			unknown
+		>
+		const user = mapUser(userRaw)
+		const token = String(data.token)
+		persistSession(token, user)
+		const refreshed = await fetchOwyxSiteMe(token)
+		return refreshed ?? { token, user }
+	}
+
+	export function cancelOwyxSiteBrowserLogin() {
+		void invoke('plugin:utils|owyx_site_browser_login_cancel').catch(() => undefined)
+	}
 
 export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession | null> {
 	const session = token

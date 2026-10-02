@@ -4319,6 +4319,9 @@
   "modal.owyx-account-required.sign-in-button": {
     "message": "Войти в Owyx"
   },
+  "modal.owyx-account-required.browser-sign-in-button": {
+    "message": "Войти через owyx.site"
+  },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Вход в аккаунт Owyx"
   },
