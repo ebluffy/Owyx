@@ -20,7 +20,8 @@ module.exports = {
     "security": {
         "maxLoginAttempts": 5,
         "lockoutTime": 15,
-        "tokenExpiration": "7d",
+        // Informational only — login/refresh hardcode remember ? 30d : 24h in routes/auth.js
+        "tokenExpiration": "30d",
         "bcryptRounds": 12
     },
     "email": {
