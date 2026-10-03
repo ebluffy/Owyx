@@ -4,7 +4,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
-const { authenticateToken, authenticateLongTermApiToken, requireRole } = require('./auth');
+const { authenticateToken, authenticateLongTermApiToken, requireRole, requireApiTokenPermission } = require('./auth');
 const bcrypt = require('bcryptjs');
 
 const router = express.Router();
@@ -257,7 +257,7 @@ const safeDeleteUser = async (userId, adminId, reason) => {
 };
 
 // GET /api/admin/users/by-nick/:nickname - Поиск пользователя по нику (для плагина)
-router.get('/users/by-nick/:nickname', authenticateLongTermApiToken, requireRole(['admin']), async (req, res) => {
+router.get('/users/by-nick/:nickname', authenticateLongTermApiToken, requireRole(['admin']), requireApiTokenPermission(['admin:users', 'admin:read']), async (req, res) => {
     try {
         const { nickname } = req.params;
 
@@ -299,7 +299,7 @@ router.get('/users/by-nick/:nickname', authenticateLongTermApiToken, requireRole
 });
 
 // GET /api/admin/users - Управление пользователями
-router.get('/users', authenticateLongTermApiToken, requireRole(['admin', 'moderator']), async (req, res) => {
+router.get('/users', authenticateLongTermApiToken, requireRole(['admin', 'moderator']), requireApiTokenPermission(['admin:users', 'admin:read']), async (req, res) => {
     try {
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
@@ -392,6 +392,7 @@ router.get('/users', authenticateLongTermApiToken, requireRole(['admin', 'modera
 router.put('/users/:id/ban', [
     authenticateLongTermApiToken,
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:write']),
     body('reason').isLength({ min: 1, max: 500 }).withMessage('Причина должна содержать от 1 до 500 символов'),
     body('type').optional().isIn(['temporary', 'permanent']).withMessage('Тип должен быть temporary или permanent'),
     body('duration').optional().isInt({ min: 1 }).withMessage('Длительность должна быть положительным числом'),
@@ -519,6 +520,7 @@ router.put('/users/:id/ban', [
 router.put('/users/:id/unban', [
     authenticateLongTermApiToken, 
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:write']),
     body('minecraft_nick').optional().isLength({ min: 1, max: 50 }).withMessage('Minecraft ник должен содержать от 1 до 50 символов')
 ], async (req, res) => {
     try {
@@ -647,6 +649,7 @@ router.delete('/users/:id/delete', [
 router.put('/users/:id/trust-level', [
     authenticateLongTermApiToken,
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:write']),
     body('level').isInt({ min: 0, max: 3 }),
     body('reason').optional().isLength({ max: 200 }),
     body('minecraft_nick').optional().isLength({ min: 1, max: 50 }).withMessage('Minecraft ник должен содержать от 1 до 50 символов')
@@ -913,7 +916,7 @@ router.get('/stats', authenticateToken, requireRole(['admin', 'moderator']), asy
 });
 
 // PUT /api/admin/users/:id/playtime - Обновить время игры (для плагина)
-router.put('/users/:id/playtime', authenticateLongTermApiToken, requireRole(['admin']), async (req, res) => {
+router.put('/users/:id/playtime', authenticateLongTermApiToken, requireRole(['admin']), requireApiTokenPermission(['admin:playtime', 'admin:write']), async (req, res) => {
     try {
         const userId = parseInt(req.params.id);
         const { playtime_minutes } = req.body;
@@ -948,6 +951,7 @@ router.put('/users/:id/playtime', authenticateLongTermApiToken, requireRole(['ad
 router.put('/users/:id/reputation', [
     authenticateLongTermApiToken, 
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:write']),
     body('reputation').optional().isInt({ min: 0 }).withMessage('reputation должно быть неотрицательным числом'),
     body('reason').optional().isLength({ max: 200 }),
     body('minecraft_nick').optional().isLength({ min: 1, max: 50 }).withMessage('Minecraft ник должен содержать от 1 до 50 символов')
@@ -1032,6 +1036,7 @@ router.put('/users/:id/reputation', [
 router.post('/users/:id/reputation/change', [
     authenticateLongTermApiToken, 
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:write']),
     body('reputation_change').isInt({ min: -100, max: 100 }).withMessage('reputation_change должно быть числом от -100 до 100'),
     body('reason').optional().isLength({ max: 200 }),
     body('minecraft_nick').optional().isLength({ min: 1, max: 50 }).withMessage('Minecraft ник должен содержать от 1 до 50 символов')
@@ -1117,6 +1122,7 @@ router.post('/users/:id/reputation/change', [
 router.get('/users/:id/stats', [
     authenticateLongTermApiToken, 
     requireRole(['admin']),
+    requireApiTokenPermission(['admin:users', 'admin:read']),
     // Поддерживаем query параметр minecraft_nick для поиска по нику
 ], async (req, res) => {
     try {
@@ -1196,7 +1202,7 @@ router.get('/users/:id/stats', [
 });
 
 // POST /api/admin/user-activity - Записать активность игрока (для плагина)
-router.post('/user-activity', authenticateLongTermApiToken, requireRole(['admin']), async (req, res) => {
+router.post('/user-activity', authenticateLongTermApiToken, requireRole(['admin']), requireApiTokenPermission(['admin:activity', 'admin:write']), async (req, res) => {
     try {
         const { user_id, activity_type, description, metadata } = req.body;
 
@@ -3063,6 +3069,12 @@ router.post('/api-tokens', authenticateToken, requireRole(['admin']), async (req
             return res.status(400).json({ error: 'Название токена обязательно' });
         }
 
+        // Empty scopes used to mean "full admin" without checks. Store explicit
+        // ["*"] for full access so requireApiTokenPermission can enforce (F6).
+        const normalizedPermissions = Array.isArray(permissions) && permissions.length > 0
+            ? permissions.map(String)
+            : ['*'];
+
         // Генерируем случайный токен
         const crypto = require('crypto');
         const tokenLength = 64;
@@ -3097,7 +3109,7 @@ router.post('/api-tokens', authenticateToken, requireRole(['admin']), async (req
             tokenHash,
             tokenPrefix,
             targetUserId,
-            JSON.stringify(permissions),
+            JSON.stringify(normalizedPermissions),
             expiresAt,
             req.user.id,
             description?.trim() || null
@@ -3134,18 +3146,34 @@ router.put('/api-tokens/:id', authenticateToken, requireRole(['admin']), async (
         const tokenId = parseInt(req.params.id);
         const { name, description, permissions, is_active } = req.body;
 
-        const result = await db.query(`
-            UPDATE api_tokens 
-            SET token_name = $1, description = $2, permissions = $3, is_active = $4
+        // Omit permissions → leave existing. Explicit [] → deny-all. Non-empty → scopes.
+        const permissionsJson =
+            permissions === undefined
+                ? null
+                : JSON.stringify(
+                      Array.isArray(permissions) && permissions.length > 0
+                          ? permissions.map(String)
+                          : [],
+                  );
+
+        const result = await db.query(
+            `
+            UPDATE api_tokens
+            SET token_name = $1,
+                description = $2,
+                permissions = COALESCE($3::jsonb, permissions),
+                is_active = $4
             WHERE id = $5
             RETURNING token_name
-        `, [
-            name?.trim(),
-            description?.trim() || null,
-            JSON.stringify(permissions || []),
-            is_active !== undefined ? is_active : true,
-            tokenId
-        ]);
+        `,
+            [
+                name?.trim(),
+                description?.trim() || null,
+                permissionsJson,
+                is_active !== undefined ? is_active : true,
+                tokenId,
+            ],
+        );
 
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'API токен не найден' });

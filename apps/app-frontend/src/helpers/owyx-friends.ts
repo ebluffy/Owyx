@@ -10,7 +10,7 @@ import {
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
-import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
+import { clearOwyxSiteSession, getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 
 export type OwyxFriendPresence = 'offline' | 'online' | 'playing'
 
@@ -87,6 +87,7 @@ function friendsError(raw: string | undefined, status: number, fallback: string)
 		return new OwyxFriendsError('missing_client_key', status, raw || fallback)
 	}
 	if (status === 401 || msg.includes('unauthorized') || msg.includes('no_session')) {
+		clearOwyxSiteSession()
 		return new OwyxFriendsError('unauthorized', status, raw || fallback)
 	}
 	if (status === 403 && msg.includes('not accepting')) {

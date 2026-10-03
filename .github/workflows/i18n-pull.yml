@@ -22,47 +22,36 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Preflight check
+        id: preflight
         run: |
-          PREFLIGHT_CHECK_RESULT=true
-
-          function flight_failure () {
-            if [ "$PREFLIGHT_CHECK_RESULT" = true ]; then
-              echo "One or more pre-flight checks failed!"
-              echo ""
-              PREFLIGHT_CHECK_RESULT=false
-            fi
-            echo "- $1"
-          }
-
-          if [ "$CROWDIN_PROJECT_ID_DEFINED" != true ]; then
-            flight_failure "CROWDIN_PROJECT_ID variable is not defined (required to push)"
-          fi
-
-          if [ "$CROWDIN_PERSONAL_TOKEN_DEFINED" != true ]; then
-            flight_failure "CROWDIN_PERSONAL_TOKEN secret is not defined (required to push)"
-          fi
-
-          if [ "$PREFLIGHT_CHECK_RESULT" = false ]; then
-            exit 1
+          if [ "$CROWDIN_PROJECT_ID_DEFINED" = true ] && [ "$CROWDIN_PERSONAL_TOKEN_DEFINED" = true ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Crowdin credentials are not configured; skipping translation pull."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
         env:
           CROWDIN_PROJECT_ID_DEFINED: ${{ vars.CROWDIN_PROJECT_ID != '' }}
           CROWDIN_PERSONAL_TOKEN_DEFINED: ${{ secrets.CROWDIN_PERSONAL_TOKEN != '' }}
 
       - name: Checkout
+        if: steps.preflight.outputs.enabled == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.ref }}
 
       - name: Setup Node
+        if: steps.preflight.outputs.enabled == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
 
       - name: Enable Corepack
+        if: steps.preflight.outputs.enabled == 'true'
         run: corepack enable
 
       - name: Install script dependencies
+        if: steps.preflight.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile --ignore-scripts
 
       # # Because --all flag of Crowdin CLI is currently broken we need to create a fake source file
@@ -72,6 +61,7 @@ jobs:
       #   run: echo "{}" > locales/en-US/index.json
 
       - name: Query branch name
+        if: steps.preflight.outputs.enabled == 'true'
         id: branch-name
         shell: bash
         run: |
@@ -82,6 +72,7 @@ jobs:
           echo "safe_branch_name=$SAFE_BRANCH_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Download translations from Crowdin
+        if: steps.preflight.outputs.enabled == 'true'
         uses: crowdin/github-action@c7af9bc98b01694653031fef2a0dc6c7888ce9bc # v2.17.0
         with:
           upload_sources: false
@@ -95,13 +86,16 @@ jobs:
           CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
       - name: Fix broken permissions
+        if: steps.preflight.outputs.enabled == 'true'
         shell: bash
         run: sudo chown -R $USER:$USER .
 
       - name: Prune stale ICU translations
+        if: steps.preflight.outputs.enabled == 'true'
         run: pnpm scripts i18n-icu-contract prune-local
 
       - name: Create Pull Request
+        if: steps.preflight.outputs.enabled == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           title: 'New translations from Crowdin (${{ steps.branch-name.outputs.branch_name }})'

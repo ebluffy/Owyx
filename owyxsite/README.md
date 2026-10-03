@@ -60,8 +60,11 @@ docker compose up -d --build  # postgres + adminer + backend + frontend
 `docker-entrypoint-initdb.d` in filename order: `000_bootstrap_roles` (create
 `owyx`/`root` — the dump does `OWNER TO owyx|root`) → `init.sql` → `001_chat` →
 `002_roles` → `003_cosmetics` (skins) → `004_nickname_cooldown` →
-`005_email_change` → `006_news` → `007_servers_packs`. Re-init from
-scratch: `docker compose down && rm -rf postgres/data`.
+`005_email_change` → `006_news` → `007_servers_packs` → … → `016_friends_and_catalog_acl`.
+Re-init from scratch: `docker compose down && rm -rf postgres/data`.
+
+Do **not** commit full production dumps (`init.full.sql` is gitignored). See
+[`postgres/README.md`](./postgres/README.md).
 
 **Existing volume does not auto-apply new SQL.** `initdb.d` runs only on first
 create. On a DB that already has data, apply the new file yourself:
@@ -85,6 +88,10 @@ docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migratio
 docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/012_logs_telemetry.sql
 # share presence privacy (friends offline when disabled):
 docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/013_share_presence.sql
+# friends tables + catalog access_mode / ACL:
+docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/016_friends_and_catalog_acl.sql
+# legacy empty API-token permissions → ["*"]:
+docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/017_api_token_permissions_star.sql
 ```
 
 If `012_logs_telemetry.sql` is not applied, `POST /api/launcher/v1/telemetry` and admin telemetry fail soft with a clear 503.

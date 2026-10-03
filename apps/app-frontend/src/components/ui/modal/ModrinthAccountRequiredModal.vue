@@ -141,6 +141,7 @@ import {
 	loginOwyxSiteViaBrowser,
 	OWYX_SITE_REGISTER_URL,
 	OWYX_SITE_SUPPORT_URL,
+	OwyxSiteAuthError,
 } from '@/helpers/owyx-site-auth'
 
 const emit = defineEmits<{
@@ -188,6 +189,18 @@ function finish(signedIn: boolean) {
 	resolveShow = undefined
 }
 
+function formatAuthError(e: unknown): string {
+	if (e instanceof OwyxSiteAuthError) {
+		if (e.code === 'missing_client_key') {
+			return formatMessage(messages.errMissingClientKey)
+		}
+		if (e.code === 'unauthorized_client') {
+			return formatMessage(messages.errUnauthorizedClient)
+		}
+	}
+	return e instanceof Error ? e.message : String(e)
+}
+
 async function submitLogin() {
 	if (submitting.value) return
 	submitting.value = true
@@ -203,7 +216,7 @@ async function submitLogin() {
 		modal.value?.hide()
 	} catch (e) {
 		authenticating.value = false
-		errorMessage.value = e instanceof Error ? e.message : String(e)
+		errorMessage.value = formatAuthError(e)
 	} finally {
 		submitting.value = false
 	}
@@ -225,7 +238,7 @@ async function submitBrowserLogin() {
 	} catch (e) {
 		authenticating.value = false
 		browserFlow.value = false
-		const msg = e instanceof Error ? e.message : String(e)
+		const msg = formatAuthError(e)
 		if (!/cancel/i.test(msg)) {
 			errorMessage.value = msg
 		}
@@ -316,6 +329,15 @@ const messages = defineMessages({
 	supportPrompt: {
 		id: 'modal.owyx-account-required.support-prompt',
 		defaultMessage: 'Need help? Visit <support>owyx.site</support>.',
+	},
+	errMissingClientKey: {
+		id: 'modal.owyx-account-required.error.missing-client-key',
+		defaultMessage:
+			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
+	},
+	errUnauthorizedClient: {
+		id: 'modal.owyx-account-required.error.unauthorized-client',
+		defaultMessage: 'Invalid or missing client key. Set X-Owyx-Client-Key under Owyx Servers.',
 	},
 })
 

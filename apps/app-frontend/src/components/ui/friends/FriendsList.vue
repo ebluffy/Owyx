@@ -384,10 +384,19 @@ async function joinFriendServer(friend: OwyxFriend) {
 	const server = matchCatalogServer(friend)
 	if (!server) return
 	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
+		const reason = owyx.session.value.user.accessReason || ''
+		const text =
+			reason === 'banned'
+				? formatMessage(messages.accessBanned)
+				: reason === 'inactive'
+					? formatMessage(messages.accessInactive)
+					: reason && reason !== 'ok'
+						? reason
+						: formatMessage(messages.accessUnavailable)
 		addNotification({
 			type: 'warning',
 			title: formatMessage(messages.joinServer),
-			text: owyx.session.value.user.accessReason || formatMessage(messages.errNoPack),
+			text,
 		})
 		return
 	}
@@ -544,6 +553,12 @@ const messages = defineMessages({
 	errNoPack: {
 		id: 'friends.error.no-pack',
 		defaultMessage: 'No installable pack is published for this server yet.',
+	},
+	accessBanned: { id: 'owyx.servers.access.banned', defaultMessage: 'Account is banned' },
+	accessInactive: { id: 'owyx.servers.access.inactive', defaultMessage: 'Account is inactive' },
+	accessUnavailable: {
+		id: 'owyx.servers.access.unavailable',
+		defaultMessage: 'Owyx server access is unavailable',
 	},
 	copiedInstanceName: {
 		id: 'friends.copied-instance-name',

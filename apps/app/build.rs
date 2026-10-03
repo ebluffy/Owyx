@@ -392,6 +392,8 @@ fn main() {
                         "owyx_site_session_get",
                         "owyx_site_session_set",
                         "owyx_site_session_clear",
+                        "owyx_site_browser_login",
+                        "owyx_site_browser_login_cancel",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

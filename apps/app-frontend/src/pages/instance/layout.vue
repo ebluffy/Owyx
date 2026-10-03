@@ -497,18 +497,9 @@ const renderMode = computed<'scroll' | 'fixed'>(() =>
 	route.meta.renderMode === 'fixed' ? 'fixed' : 'scroll',
 )
 const isFixedRender = computed(() => renderMode.value === 'fixed')
-const currentUserCanUseSharedInstances = sharedInstanceState.currentUserCanUseSharedInstances
-const showShareTab = computed(() => {
-	const linkType = instance.value?.link?.type
-
-	return (
-		currentUserCanUseSharedInstances.value &&
-		!instance.value?.quarantined &&
-		instance.value?.shared_instance?.role !== 'member' &&
-		linkType !== 'server_project' &&
-		linkType !== 'server_project_modpack'
-	)
-})
+// Owyx has no shared-instances backend yet — hide Share so we never push
+// Modrinth account required (F8). Re-enable when Owyx share ships.
+const showShareTab = computed(() => false)
 
 const tabs = computed(() => {
 	const instanceTabs = [

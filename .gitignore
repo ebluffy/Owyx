@@ -113,3 +113,8 @@ latest-review.txt
 .pr-body-*.md
 pr1*_review.txt
 
+
+# Never commit full DB dumps with PII / SMTP secrets
+owyxsite/postgres/init.full.sql
+owyxsite/postgres/*.full.sql
+

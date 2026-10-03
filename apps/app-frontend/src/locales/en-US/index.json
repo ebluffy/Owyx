@@ -758,6 +758,12 @@
   "app.instance.share.members.no-filter-results": {
     "message": "No users match your filters."
   },
+  "app.instance.share.owyx-unavailable.description": {
+    "message": "Instance sharing is not available in Owyx yet. Invite friends through Owyx Friends instead."
+  },
+  "app.instance.share.owyx-unavailable.heading": {
+    "message": "Sharing is not available yet"
+  },
   "app.instance.share.remove-user-modal.effect-access": {
     "message": "They will no longer receive updates for this shared instance"
   },
@@ -4637,6 +4643,12 @@
   "modal.owyx-account-required.email": {
     "message": "Login or email"
   },
+  "modal.owyx-account-required.error.missing-client-key": {
+    "message": "Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key."
+  },
+  "modal.owyx-account-required.error.unauthorized-client": {
+    "message": "Invalid or missing client key. Set X-Owyx-Client-Key under Owyx Servers."
+  },
   "modal.owyx-account-required.header": {
     "message": "Account required"
   },
@@ -4792,6 +4804,15 @@
   },
   "owyx.instance.csl.title": {
     "message": "Owyx in-world skins"
+  },
+  "owyx.servers.access.banned": {
+    "message": "Account is banned"
+  },
+  "owyx.servers.access.inactive": {
+    "message": "Account is inactive"
+  },
+  "owyx.servers.access.unavailable": {
+    "message": "Owyx server access is unavailable"
   },
   "owyx.servers.add-server-title": {
     "message": "Publish server + pack from library"
