@@ -114,7 +114,13 @@ latest-review.txt
 pr1*_review.txt
 
 
-# Never commit full DB dumps with PII / SMTP secrets
+# Never commit full DB dumps with PII / SMTP secrets (keep migrations tracked)
 owyxsite/postgres/init.full.sql
 owyxsite/postgres/*.full.sql
+**/init.full.sql
+**/*.full.sql
+**/db-dump*.sql
+**/*_dump.sql
+!owyxsite/postgres/migrations/
+!owyxsite/postgres/migrations/**
 
