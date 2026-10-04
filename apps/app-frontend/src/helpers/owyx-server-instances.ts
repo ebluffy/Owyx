@@ -3,7 +3,7 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { exists, mkdir, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
+import { exists, mkdir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
@@ -165,11 +165,22 @@ export async function findReusableLibraryParent(
 	return hit ?? null
 }
 
+async function sha256HexOfFile(path: string): Promise<string> {
+	const bytes = await readFile(path)
+	const digest = await crypto.subtle.digest('SHA-256', bytes)
+	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 /**
  * Cache curated packs under app data `owyx-packs/` (in Tauri fs scope).
- * Reuses the cached file when size matches Content-Length (E1).
+ * Reuses the cached file only when Content-Length matches, and packSha256
+ * matches when provided. Without length (and without sha) — always re-download.
  */
-export async function downloadOwyxPackToTemp(packUrl: string, serverId: string): Promise<string> {
+export async function downloadOwyxPackToTemp(
+	packUrl: string,
+	serverId: string,
+	expectedSha256?: string | null,
+): Promise<string> {
 	const headers = packDownloadHeaders(packUrl)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_BYTES = 512 * 1024 * 1024
@@ -177,8 +188,9 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	await mkdir(dir, { recursive: true })
 	const ext = packFileExtension(packUrl)
 	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
+	const wantSha = expectedSha256?.trim().toLowerCase() || ''
 
-	// E1: skip re-download when a complete cached archive is already present.
+	// E1: skip re-download only when we can prove the cache is complete.
 	try {
 		if (await exists(path)) {
 			const fileStat = await stat(path)
@@ -193,11 +205,18 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 			} catch {
 				expected = 0
 			}
-			if (
-				fileStat.size >= 32 &&
-				(!expected || (Number.isFinite(expected) && fileStat.size === expected))
-			) {
-				return path
+			if (fileStat.size >= 32) {
+				if (Number.isFinite(expected) && expected > 0 && fileStat.size !== expected) {
+					await remove(path).catch(() => undefined)
+				} else if (wantSha) {
+					const got = await sha256HexOfFile(path)
+					if (got === wantSha) return path
+					await remove(path).catch(() => undefined)
+				} else if (Number.isFinite(expected) && expected > 0 && fileStat.size === expected) {
+					// Size matches Content-Length; no sha available in catalog yet.
+					return path
+				}
+				// No Content-Length and no sha → never trust the cache.
 			}
 		}
 	} catch {
@@ -330,7 +349,7 @@ async function installOwyxServerPackInner(
 		)
 	}
 
-	const filePath = await downloadOwyxPackToTemp(packUrl, server.id)
+	const filePath = await downloadOwyxPackToTemp(packUrl, server.id, server.packSha256)
 	const filename = filePath.split(/[\\/]/).pop() ?? null
 	const link = owyxServerInstanceLink(server, filename)
 	const postEdit = {

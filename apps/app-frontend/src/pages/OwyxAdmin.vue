@@ -469,7 +469,7 @@ async function publishServer() {
 			statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
 			const published = await publishLibraryPackToCatalog({
 				name: `${formName.value.trim()} pack`,
-				minecraft: formMc.value.trim() || inst.game_version || '1.21.1',
+				minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 				loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
 				description: formNotes.value || `From library: ${inst.name}`,
 				file: blob,
@@ -482,7 +482,7 @@ async function publishServer() {
 			name: formName.value.trim(),
 			address: formAddress.value.trim(),
 			port: parseInt(formPort.value, 10) || 25565,
-			minecraft: formMc.value.trim() || '1.21.1',
+			minecraft: (formMc.value ?? '').trim() || '1.21.1',
 			loader: formLoader.value || 'vanilla',
 			packId,
 			published: true,
@@ -535,7 +535,7 @@ async function updateServerPackPreview() {
 		statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
 		const published = await publishLibraryPackToCatalog({
 			name: `${formName.value.trim() || inst.name} pack`,
-			minecraft: formMc.value.trim() || inst.game_version || '1.21.1',
+			minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 			loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
 			description: formNotes.value || `Update ${formPackVersion.value} from library: ${inst.name}`,
 			file: blob,
