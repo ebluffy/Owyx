@@ -390,11 +390,15 @@ impl ProcessManager {
     }
 
     pub async fn kill(&self, id: Uuid) -> crate::Result<()> {
-        if let Some(mut process) = self.processes.get_mut(&id) {
-            process.child.kill().await?;
+        // Do not hold a DashMap shard guard across `.await` (G16) — same class
+        // of bug as wait_for. start_kill is sync; wait for exit without the guard.
+        {
+            let Some(mut process) = self.processes.get_mut(&id) else {
+                return Ok(());
+            };
+            process.child.start_kill()?;
         }
-
-        Ok(())
+        self.wait_for(id).await
     }
 
     fn remove(&self, id: Uuid) {
