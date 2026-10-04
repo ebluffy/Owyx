@@ -22,5 +22,5 @@ Base: `main` @ `3493c64` (v0.11.1). HEAD ветки: см. `audit/owner-findings
 - G16 — wait_for DashMap lock → ✅ FIXED (`cef06bfc1`)
 - G17 — npm audit backend → ✅ FIXED (`2cd092d90`)
 - G18 — server pack без kubejs → ✅ FIXED (`720add723`)
-- E1 — reuse parent pack → 🟡 open
-- E2 — update server pack from local → 🟡 open
+- E1 — reuse parent pack → 🟡 foundation (`43a68078d`, cache + flag; hardlink/diff unfinished)
+- E2 — update server pack from local → 🟡 foundation (`51b38af85`, version field + stub + migration 018; VPS apply by owner)
