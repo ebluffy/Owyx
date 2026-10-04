@@ -128,7 +128,7 @@ pub(super) async fn snapshot_instance(
     Ok(id)
 }
 
-#[tracing::instrument(skip_all, fields(snapshot_id = id), err)]
+#[tracing::instrument(skip_all, fields(snapshot_id = id))]
 pub(super) async fn load_snapshot(
     state: &State,
     id: &str,
@@ -136,9 +136,20 @@ pub(super) async fn load_snapshot(
     if !archive::valid_hash(id) {
         return Err(input_error("Invalid locale snapshot hash"));
     }
-    let bytes =
-        io::read(root(state).join("snapshots").join(format!("{id}.json")))
-            .await?;
+    let path = root(state).join("snapshots").join(format!("{id}.json"));
+    let bytes = match io::read(&path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Cold / cleared cache is normal — do not spam ERROR (G7).
+            tracing::debug!(
+                snapshot_id = id,
+                path = %path.display(),
+                "Game setting locales: snapshot file missing"
+            );
+            return Err(error.into());
+        }
+        Err(error) => return Err(error.into()),
+    };
     archive::checked_bytes(bytes.clone(), id).inspect_err(|error| {
 		tracing::warn!(%error, expected_hash = id, actual_hash = sha1_bytes(&bytes),
 			"Game setting locales: snapshot checksum mismatch");
