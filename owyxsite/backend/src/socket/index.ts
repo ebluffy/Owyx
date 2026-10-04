@@ -14,6 +14,73 @@ interface AuthedSocket extends Socket {
     role: string;
     avatar_url?: string;
   };
+  sessionId?: number;
+  sessionToken?: string;
+  lastAuthCheckAt?: number;
+}
+
+let ioRef: Server | null = null;
+
+const AUTH_RECHECK_MS = 30_000;
+
+async function sessionStillValid(
+  userId: number,
+  sessionId: number | undefined,
+  token: string | undefined
+): Promise<boolean> {
+  if (!sessionId || !token) return false;
+  const result = await db.query(
+    `SELECT u.id, u.is_active, u.is_banned, s.is_active AS session_active, s.expires_at
+     FROM user_sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1
+       AND s.user_id = $2
+       AND s.token_hash = ANY($3::text[])
+       AND s.is_active = true
+       AND s.expires_at > NOW()`,
+    [sessionId, userId, sessionTokenHashes(token)]
+  );
+  const row = result.rows[0];
+  if (!row) return false;
+  if (row.is_active === false || row.is_banned === true || row.session_active === false) {
+    return false;
+  }
+  return true;
+}
+
+async function assertSocketAuthorized(socket: AuthedSocket): Promise<boolean> {
+  if (!socket.user) return false;
+  const now = Date.now();
+  if (socket.lastAuthCheckAt && now - socket.lastAuthCheckAt < 2_000) {
+    // Allow burst of events within 2s after a recent successful check.
+    return true;
+  }
+  const ok = await sessionStillValid(socket.user.id, socket.sessionId, socket.sessionToken);
+  socket.lastAuthCheckAt = now;
+  if (!ok) {
+    socket.emit('session_revoked', { reason: 'Session expired or revoked' });
+    socket.disconnect(true);
+    return false;
+  }
+  return true;
+}
+
+/** Disconnect live sockets for a user (logout / ban / password reset). */
+export function disconnectUserSockets(
+  userId: number,
+  reason = 'credentials_revoked',
+  keepSessionId?: number | null
+) {
+  if (!ioRef) return;
+  for (const socket of ioRef.sockets.sockets.values()) {
+    const authed = socket as AuthedSocket;
+    if (authed.user?.id !== userId) continue;
+    if (keepSessionId != null && authed.sessionId === Number(keepSessionId)) {
+      continue;
+    }
+    authed.emit('session_revoked', { reason });
+    authed.disconnect(true);
+  }
 }
 
 export function initSocket(httpServer: HttpServer) {
@@ -30,6 +97,7 @@ export function initSocket(httpServer: HttpServer) {
     },
     path: '/socket.io',
   });
+  ioRef = io;
 
   /** Per-user chat send buckets (in-process; resets on restart). */
   const chatSendBuckets = new Map<string, { start: number; count: number }>();
@@ -82,6 +150,9 @@ export function initSocket(httpServer: HttpServer) {
         role: result.rows[0].role || 'user',
         avatar_url: result.rows[0].avatar_url,
       };
+      socket.sessionId = Number(result.rows[0].session_id);
+      socket.sessionToken = token;
+      socket.lastAuthCheckAt = Date.now();
       next();
     } catch (err) {
       next(new Error('Invalid token'));
@@ -91,8 +162,20 @@ export function initSocket(httpServer: HttpServer) {
   io.on('connection', (socket: AuthedSocket) => {
     console.log(`Socket connected: ${socket.user?.nickname} (${socket.id})`);
 
+    const recheckTimer = setInterval(() => {
+      void assertSocketAuthorized(socket);
+    }, AUTH_RECHECK_MS);
+    socket.on('disconnect', () => {
+      clearInterval(recheckTimer);
+      console.log(`Socket disconnected: ${socket.user?.nickname}`);
+    });
+
     socket.on('join_room', async (roomId: number | string, cb?: (res: unknown) => void) => {
       try {
+        if (!(await assertSocketAuthorized(socket))) {
+          cb?.({ error: 'Session expired' });
+          return;
+        }
         const id = parseInt(String(roomId), 10);
         if (!Number.isFinite(id)) {
           cb?.({ error: 'Invalid room id' });
@@ -146,6 +229,10 @@ export function initSocket(httpServer: HttpServer) {
         cb?: (res: unknown) => void
       ) => {
         try {
+          if (!(await assertSocketAuthorized(socket))) {
+            cb?.({ error: 'Session expired' });
+            return;
+          }
           const roomId = parseInt(String(payload.roomId), 10);
           const content = String(payload.content || '').trim();
           if (!Number.isFinite(roomId) || !content || content.length > 2000) {
@@ -156,6 +243,22 @@ export function initSocket(httpServer: HttpServer) {
             cb?.({ error: 'Join the room before sending messages' });
             return;
           }
+
+          // Re-check private room membership (membership may have been revoked).
+          const access = await db.query(
+            `SELECT r.is_private, (rm.user_id IS NOT NULL) AS is_member
+             FROM chat_rooms r
+             LEFT JOIN chat_room_members rm ON rm.room_id = r.id AND rm.user_id = $2
+             WHERE r.id = $1`,
+            [roomId, socket.user!.id]
+          );
+          const room = access.rows[0];
+          if (!room || (room.is_private && !room.is_member)) {
+            socket.leave(`room:${roomId}`);
+            cb?.({ error: 'Room not found or access denied' });
+            return;
+          }
+
           if (!allowChatSend(socket.user!.id)) {
             cb?.({ error: 'Too many messages, slow down' });
             return;
@@ -192,10 +295,6 @@ export function initSocket(httpServer: HttpServer) {
         user: socket.user,
         isTyping: !!payload.isTyping,
       });
-    });
-
-    socket.on('disconnect', () => {
-      console.log(`Socket disconnected: ${socket.user?.nickname}`);
     });
   });
 

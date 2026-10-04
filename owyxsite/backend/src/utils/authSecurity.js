@@ -66,6 +66,15 @@ async function revokeUserApiTokens(userId) {
 async function revokeUserCredentials(userId, keepSessionId) {
   await revokeOtherUserSessions(userId, keepSessionId);
   await revokeUserApiTokens(userId);
+  // Drop live chat sockets so revoke/ban/password-change take effect immediately (G12).
+  try {
+    const { disconnectUserSockets } = require('../socket');
+    if (typeof disconnectUserSockets === 'function') {
+      disconnectUserSockets(userId, 'credentials_revoked', keepSessionId || null);
+    }
+  } catch {
+    // Socket module may be unavailable in unit tests.
+  }
 }
 
 function publicUser(user) {
