@@ -95,23 +95,8 @@ pub async fn import_curseforge(
     if let Some(instance_mod_loader) = minecraft_instance.base_mod_loader {
         let game_version = minecraft_instance.game_version;
 
-        // CF allows Forge, Fabric, and Vanilla
-        let mut mod_loader = None;
-        let mut loader_version = None;
-
-        match instance_mod_loader.name.split('-').collect::<Vec<&str>>()[..] {
-            ["forge", version] => {
-                mod_loader = Some(ModLoader::Forge);
-                loader_version = Some(version.to_string());
-            }
-            ["fabric", version, _game_version] => {
-                mod_loader = Some(ModLoader::Fabric);
-                loader_version = Some(version.to_string());
-            }
-            _ => {}
-        }
-
-        let mod_loader = mod_loader.unwrap_or(ModLoader::Vanilla);
+        let (mod_loader, loader_version) =
+            parse_curseforge_mod_loader(&instance_mod_loader.name)?;
 
         let loader_version = if mod_loader != ModLoader::Vanilla {
             crate::launcher::get_loader_version_from_profile(
@@ -184,4 +169,69 @@ pub async fn import_curseforge(
     .await?;
 
     Ok(())
+}
+
+/// Parse CurseForge `baseModLoader.name` (e.g. `neoforge-21.1.172`, `forge-47.2.0`).
+fn parse_curseforge_mod_loader(
+    name: &str,
+) -> crate::Result<(ModLoader, Option<String>)> {
+    let lower = name.trim().to_ascii_lowercase();
+    let parts: Vec<&str> = lower.split('-').collect();
+    match parts.as_slice() {
+        ["forge", version] if !version.is_empty() => {
+            Ok((ModLoader::Forge, Some((*version).to_string())))
+        }
+        ["neoforge", version] if !version.is_empty() => {
+            Ok((ModLoader::NeoForge, Some((*version).to_string())))
+        }
+        ["fabric", version, _game_version] if !version.is_empty() => {
+            Ok((ModLoader::Fabric, Some((*version).to_string())))
+        }
+        ["fabric", version] if !version.is_empty() => {
+            Ok((ModLoader::Fabric, Some((*version).to_string())))
+        }
+        ["quilt", version, ..] if !version.is_empty() => {
+            Ok((ModLoader::Quilt, Some((*version).to_string())))
+        }
+        ["vanilla"] | [] => Ok((ModLoader::Vanilla, None)),
+        _ => Err(crate::state::content_store::input(format!(
+            "Unsupported CurseForge mod loader '{name}'. Expected forge-*, neoforge-*, fabric-*, quilt-*, or vanilla."
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_neoforge_loader_name() {
+        let (loader, version) =
+            parse_curseforge_mod_loader("neoforge-21.1.172").unwrap();
+        assert_eq!(loader, ModLoader::NeoForge);
+        assert_eq!(version.as_deref(), Some("21.1.172"));
+    }
+
+    #[test]
+    fn parses_forge_and_fabric() {
+        let (loader, version) =
+            parse_curseforge_mod_loader("forge-47.2.0").unwrap();
+        assert_eq!(loader, ModLoader::Forge);
+        assert_eq!(version.as_deref(), Some("47.2.0"));
+
+        let (loader, version) =
+            parse_curseforge_mod_loader("fabric-0.16.0-1.21.1").unwrap();
+        assert_eq!(loader, ModLoader::Fabric);
+        assert_eq!(version.as_deref(), Some("0.16.0"));
+    }
+
+    #[test]
+    fn unknown_loader_is_error_not_silent_vanilla() {
+        let err = parse_curseforge_mod_loader("rift-1.0").unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("Unsupported CurseForge mod loader"),
+            "{message}"
+        );
+    }
 }
