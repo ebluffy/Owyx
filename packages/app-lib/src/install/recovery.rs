@@ -416,7 +416,7 @@ async fn copy_symlink(source: &Path, target: &Path) -> crate::Result<()> {
             })?
             .join(link_target),
     );
-    let link_target = crate::state::content_store::relative_link(
+    let relative_link = crate::state::content_store::relative_link(
         &absolute,
         target.parent().ok_or_else(|| {
             crate::state::content_store::input("Invalid backup target")
@@ -424,19 +424,138 @@ async fn copy_symlink(source: &Path, target: &Path) -> crate::Result<()> {
     );
 
     #[cfg(unix)]
-    tokio::fs::symlink(link_target, target).await?;
+    tokio::fs::symlink(relative_link, target).await?;
 
     #[cfg(windows)]
     {
-        let metadata = tokio::fs::metadata(source).await?;
-        if metadata.is_dir() {
-            tokio::fs::symlink_dir(link_target, target).await?;
+        let metadata = tokio::fs::metadata(&absolute).await.map_err(|error| {
+            crate::ErrorKind::FSError(format!(
+                "Failed to read symlink target {} while backing up {}: {error}",
+                absolute.display(),
+                source.display()
+            ))
+        })?;
+        let symlink_result = if metadata.is_dir() {
+            tokio::fs::symlink_dir(&relative_link, target).await
         } else {
-            tokio::fs::symlink_file(link_target, target).await?;
+            tokio::fs::symlink_file(&relative_link, target).await
+        };
+        match symlink_result {
+            Ok(()) => {}
+            Err(error)
+                if crate::state::content_store::link_unavailable(&error) =>
+            {
+                tracing::warn!(
+                    target: "theseus::install::recovery",
+                    "No symlink privilege while backing up {} (os error {:?}). Copying file/folder instead. Enable Windows Developer Mode to keep symlinks.",
+                    source.display(),
+                    error.raw_os_error(),
+                );
+                materialize_resolved_path(&absolute, target, metadata.is_dir())
+                    .await
+                    .map_err(|copy_error| {
+                        crate::ErrorKind::FSError(format!(
+                            "Failed to copy {} after symlink privilege error (os error 1314). Enable Windows Developer Mode, or free disk space, then retry. Details: {copy_error}",
+                            source.display()
+                        ))
+                        .as_error()
+                    })?;
+            }
+            Err(error) => {
+                return Err(crate::ErrorKind::FSError(format!(
+                    "Failed to recreate symlink for {}: {error}",
+                    source.display()
+                ))
+                .into());
+            }
         }
     }
 
     Ok(())
+}
+
+/// Copy the resolved symlink target when creating a symlink is not allowed.
+#[cfg(windows)]
+async fn materialize_resolved_path(
+    source: &Path,
+    target: &Path,
+    is_dir: bool,
+) -> crate::Result<()> {
+    if is_dir {
+        crate::util::io::create_dir_all(target).await?;
+        let mut read_dir = tokio::fs::read_dir(source).await.map_err(|error| {
+            crate::ErrorKind::FSError(format!(
+                "Failed to read {}: {error}",
+                source.display()
+            ))
+        })?;
+        while let Some(entry) = read_dir.next_entry().await.map_err(|error| {
+            crate::ErrorKind::FSError(format!(
+                "Failed to read {}: {error}",
+                source.display()
+            ))
+        })? {
+            let entry_path = entry.path();
+            let entry_target = target.join(entry.file_name());
+            let file_type = entry.file_type().await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to inspect {}: {error}",
+                    entry_path.display()
+                ))
+            })?;
+            if file_type.is_dir() {
+                Box::pin(materialize_resolved_path(
+                    &entry_path,
+                    &entry_target,
+                    true,
+                ))
+                .await?;
+            } else if file_type.is_symlink() {
+                // Nested symlinks: prefer materializing their targets too.
+                Box::pin(copy_symlink(&entry_path, &entry_target)).await?;
+            } else {
+                crate::state::content_store::writable_copy(
+                    &entry_path,
+                    &entry_target,
+                )
+                .await?;
+            }
+        }
+    } else {
+        if let Some(parent) = target.parent() {
+            crate::util::io::create_dir_all(parent).await?;
+        }
+        crate::state::content_store::writable_copy(source, target).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod symlink_tests {
+    use super::*;
+
+    #[test]
+    fn link_unavailable_detects_privilege_errors() {
+        let denied = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "privilege",
+        );
+        assert!(crate::state::content_store::link_unavailable(&denied));
+        if cfg!(windows) {
+            let error = std::io::Error::from_raw_os_error(1314);
+            assert!(crate::state::content_store::link_unavailable(&error));
+        }
+    }
+
+    #[test]
+    fn symlink_fallback_error_mentions_developer_mode() {
+        let message = format!(
+            "Failed to copy {} after symlink privilege error (os error 1314). Enable Windows Developer Mode, or free disk space, then retry. Details: disk full",
+            Path::new("mods/example.jar").display()
+        );
+        assert!(message.contains("Developer Mode"));
+        assert!(message.contains("1314"));
+    }
 }
 
 pub async fn recover_interrupted_jobs(state: &State) -> crate::Result<()> {

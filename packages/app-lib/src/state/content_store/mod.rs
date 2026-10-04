@@ -52,7 +52,6 @@ pub(crate) fn input(message: impl Into<String>) -> crate::Error {
     crate::ErrorKind::InputError(message.into()).into()
 }
 
-#[cfg(windows)]
 pub(crate) use adapters::filesystem::link_unavailable;
 
 pub(crate) use adapters::sqlite::StoredFileMetadata;
