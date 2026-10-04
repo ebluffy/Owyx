@@ -678,6 +678,16 @@ router.post('/logout', authenticateToken, async (req, res) => {
                 [sessionTokenHashes(token)]
             );
 
+            // G12: drop live Socket.IO connections immediately (same as ban/revoke).
+            try {
+                const { disconnectUserSockets } = require('../socket');
+                if (typeof disconnectUserSockets === 'function') {
+                    disconnectUserSockets(Number(req.user.id), 'logout');
+                }
+            } catch (socketErr) {
+                console.warn('logout: could not disconnect sockets', socketErr?.message || socketErr);
+            }
+
             // Записываем активность
             await logUserActivity(req.user.id, 'logout', 'Выход из системы', {
                 req,

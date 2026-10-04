@@ -56,12 +56,14 @@ async function assertSocketAuthorized(socket: AuthedSocket): Promise<boolean> {
     return true;
   }
   const ok = await sessionStillValid(socket.user.id, socket.sessionId, socket.sessionToken);
-  socket.lastAuthCheckAt = now;
   if (!ok) {
+    // Do not cache a failed check as "fresh success" (G12).
+    socket.lastAuthCheckAt = 0;
     socket.emit('session_revoked', { reason: 'Session expired or revoked' });
     socket.disconnect(true);
     return false;
   }
+  socket.lastAuthCheckAt = now;
   return true;
 }
 
@@ -288,13 +290,16 @@ export function initSocket(httpServer: HttpServer) {
     );
 
     socket.on('typing', (payload: { roomId: number; isTyping: boolean }) => {
-      const roomId = parseInt(String(payload.roomId), 10);
-      if (!socket.rooms.has(`room:${roomId}`)) return;
-      socket.to(`room:${roomId}`).emit('typing', {
-        roomId,
-        user: socket.user,
-        isTyping: !!payload.isTyping,
-      });
+      void (async () => {
+        if (!(await assertSocketAuthorized(socket))) return;
+        const roomId = parseInt(String(payload.roomId), 10);
+        if (!socket.rooms.has(`room:${roomId}`)) return;
+        socket.to(`room:${roomId}`).emit('typing', {
+          roomId,
+          user: socket.user,
+          isTyping: !!payload.isTyping,
+        });
+      })();
     });
   });
 
