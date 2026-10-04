@@ -1225,10 +1225,17 @@ async fn run_request(
             updates,
         } => {
             lock_instance(&instance_id, state).await?;
-            prepare_update_backup(job_id, job_state, state).await?;
-            crate::state::instances::commands::update_selected_projects(
+            // Fail-fast on bad selections before copying gigabytes for rollback.
+            let plan = crate::state::instances::commands::plan_selected_content_updates(
                 &instance_id,
                 &updates,
+                state,
+            )
+            .await?;
+            prepare_update_backup(job_id, job_state, state).await?;
+            crate::state::instances::commands::apply_selected_content_updates(
+                &instance_id,
+                plan,
                 InstallProgressReporter::new(job_id, job_state.clone()),
                 state,
             )
