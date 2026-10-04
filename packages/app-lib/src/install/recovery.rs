@@ -14,7 +14,7 @@ use crate::state::{
     ContentSetSyncProvider, ContentSetSyncState, InstanceFile,
     InstanceMetadata, State,
 };
-use async_walkdir::WalkDir;
+use async_walkdir::{Filtering, WalkDir};
 use chrono::Utc;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -398,6 +398,66 @@ fn is_backup_omitted_path(relative: &str) -> bool {
     })
 }
 
+/// Top-level (or nested) directory that should not be descended into.
+fn is_backup_omitted_dir(relative: &str) -> bool {
+    !relative.is_empty() && is_backup_omitted_path(relative)
+}
+
+fn backup_walk_filter(
+    source: PathBuf,
+    skipped: std::sync::Arc<HashSet<String>>,
+    omit_heavy_paths: bool,
+) -> impl FnMut(
+    async_walkdir::DirEntry,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Filtering> + Send>,
+> + Send
++ 'static {
+    move |entry| {
+        let source = source.clone();
+        let skipped = skipped.clone();
+        Box::pin(async move {
+            let entry_path = entry.path();
+            let Ok(relative_path) = entry_path.strip_prefix(&source) else {
+                return Filtering::Continue;
+            };
+            let relative = relative_path
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            if relative.is_empty() {
+                return Filtering::Continue;
+            }
+            if skipped.contains(&relative) {
+                let is_dir = entry
+                    .file_type()
+                    .await
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or(false);
+                return if is_dir {
+                    Filtering::IgnoreDir
+                } else {
+                    Filtering::Ignore
+                };
+            }
+            if omit_heavy_paths && is_backup_omitted_dir(&relative) {
+                let is_dir = entry
+                    .file_type()
+                    .await
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or(false);
+                return if is_dir {
+                    Filtering::IgnoreDir
+                } else {
+                    Filtering::Ignore
+                };
+            }
+            Filtering::Continue
+        })
+    }
+}
+
 async fn stash_omitted_instance_paths(
     instance_path: &Path,
     preserved_root: &Path,
@@ -487,7 +547,12 @@ async fn measure_backup_totals(
 ) -> crate::Result<(u64, u64)> {
     let mut total_bytes = 0u64;
     let mut total_files = 0u64;
-    let mut walker = WalkDir::new(source);
+    // Prune heavy/skipped dirs so we do not metadata-walk multi-GB worlds (G3).
+    let mut walker = WalkDir::new(source).filter(backup_walk_filter(
+        source.to_path_buf(),
+        std::sync::Arc::new(skipped.clone()),
+        true,
+    ));
     while let Some(entry) = walker.next().await {
         let entry = entry.map_err(|error| {
             crate::ErrorKind::FSError(format!(
@@ -501,10 +566,7 @@ async fn measure_backup_totals(
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if relative.is_empty()
-            || skipped.contains(&relative)
-            || is_backup_omitted_path(&relative)
-        {
+        if relative.is_empty() {
             continue;
         }
         let file_type = entry.file_type().await?;
@@ -553,7 +615,11 @@ async fn copy_directory(
 
     let mut copied_bytes = 0u64;
     let mut copied_files = 0u64;
-    let mut walker = WalkDir::new(source);
+    let mut walker = WalkDir::new(source).filter(backup_walk_filter(
+        source.to_path_buf(),
+        std::sync::Arc::new(skipped.clone()),
+        omit_heavy_paths,
+    ));
     while let Some(entry) = walker.next().await {
         if reporter.is_some()
             && let Ok(control) =
@@ -573,10 +639,7 @@ async fn copy_directory(
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if relative.is_empty()
-            || skipped.contains(&relative)
-            || (omit_heavy_paths && is_backup_omitted_path(&relative))
-        {
+        if relative.is_empty() {
             continue;
         }
         let target_path = target.join(relative_path);
@@ -770,18 +833,44 @@ async fn materialize_resolved_path(
 #[cfg(test)]
 mod backup_omit_tests {
     use super::*;
+    use std::fs;
+    use tempfile::tempdir;
 
     #[test]
     fn omits_heavy_and_recreatable_roots() {
         assert!(is_backup_omitted_path("logs"));
         assert!(is_backup_omitted_path("logs/latest.log"));
         assert!(is_backup_omitted_path("crash-reports/crash.txt"));
+        assert!(is_backup_omitted_path("saves"));
         assert!(is_backup_omitted_path("saves/world"));
         assert!(is_backup_omitted_path(".bobby/cache"));
         assert!(is_backup_omitted_path("screenshots/a.png"));
+        assert!(!is_backup_omitted_path("mods"));
         assert!(!is_backup_omitted_path("mods/example.jar"));
         assert!(!is_backup_omitted_path("config/foo.toml"));
+        assert!(!is_backup_omitted_path("config/saves.cfg"));
         assert!(!is_backup_omitted_path("kubejs/startup_scripts/a.js"));
+    }
+
+    #[tokio::test]
+    async fn measure_skips_descending_into_saves() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/a.jar"), b"mod").unwrap();
+        fs::create_dir_all(root.join("saves/huge/nested")).unwrap();
+        // Many files under saves — must not be counted when pruned.
+        for i in 0..50 {
+            fs::write(
+                root.join(format!("saves/huge/nested/chunk-{i}.dat")),
+                vec![0u8; 64],
+            )
+            .unwrap();
+        }
+        let (bytes, files) =
+            measure_backup_totals(root, &HashSet::new()).await.unwrap();
+        assert_eq!(files, 1, "only mods/a.jar should be measured");
+        assert_eq!(bytes, 3);
     }
 }
 
