@@ -11,6 +11,7 @@ import {
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import { asUint8Array, pngBytesToBlob } from '@/helpers/owyx-bytes'
 import { syncOwyxCosmeticsToDisk } from '@/helpers/owyx-cosmetics'
 import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 
@@ -23,7 +24,7 @@ async function owyxFetch(input: string, init?: RequestInit): Promise<Response> {
 }
 
 export async function uploadOwyxAccountSkin(opts: {
-	pngBytes: Uint8Array
+	pngBytes: Uint8Array | ArrayLike<number>
 	model?: 'classic' | 'slim'
 }): Promise<{ skinUrl: string; skinModel: string }> {
 	const session = getStoredOwyxSiteSession()
@@ -34,20 +35,9 @@ export async function uploadOwyxAccountSkin(opts: {
 		/\/$/,
 		'',
 	)
+	const pngBytes = asUint8Array(opts.pngBytes)
 	const fd = new FormData()
-	fd.append(
-		'skin',
-		new Blob(
-			[
-				opts.pngBytes.buffer.slice(
-					opts.pngBytes.byteOffset,
-					opts.pngBytes.byteOffset + opts.pngBytes.byteLength,
-				) as ArrayBuffer,
-			],
-			{ type: 'image/png' },
-		),
-		'skin.png',
-	)
+	fd.append('skin', pngBytesToBlob(pngBytes), 'skin.png')
 	fd.append('model', opts.model === 'slim' ? 'slim' : 'classic')
 
 	const headers: Record<string, string> = {
