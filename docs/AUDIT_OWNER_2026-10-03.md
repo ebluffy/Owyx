@@ -11,3 +11,7 @@ Base: `main` @ `3493c64` (v0.11.1).
 - G5 — Пауза/отмена задачи обновления: кнопки показаны при can_pause/can_cancel=false (откат), ошибки Install job cannot be paused/canceled. Статус: open.
 - G6 — bulk update: «Selected content is no longer installed» после долгого бэкапа (проверка выбора поздно). Статус: open.
 - G7 — Лог: спам ERROR load_snapshot os error 2 (game-locales). Статус: open.
+- G8 — client key обходит Turnstile на API Host (auth.js:545-573). P2, open.
+- G9 — rate limit в памяти процесса (ipRateLimit.js). P3, open.
+- G10 — site_session.json без Windows ACL (utils.rs:43-80). P3, open.
+- G11 — широкий Tauri FS scope $DOCUMENT/** (plugins.json). P3, hypothesis.
