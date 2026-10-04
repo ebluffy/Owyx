@@ -14,7 +14,8 @@ interface AuthedSocket extends Socket {
     role: string;
     avatar_url?: string;
   };
-  sessionId?: number;
+  /** user_sessions.id is a UUID string — never coerce with Number(). */
+  sessionId?: string;
   sessionToken?: string;
   lastAuthCheckAt?: number;
 }
@@ -25,7 +26,7 @@ const AUTH_RECHECK_MS = 30_000;
 
 async function sessionStillValid(
   userId: number,
-  sessionId: number | undefined,
+  sessionId: string | undefined,
   token: string | undefined
 ): Promise<boolean> {
   if (!sessionId || !token) return false;
@@ -33,7 +34,7 @@ async function sessionStillValid(
     `SELECT u.id, u.is_active, u.is_banned, s.is_active AS session_active, s.expires_at
      FROM user_sessions s
      JOIN users u ON u.id = s.user_id
-     WHERE s.id = $1
+     WHERE s.id = $1::uuid
        AND s.user_id = $2
        AND s.token_hash = ANY($3::text[])
        AND s.is_active = true
@@ -69,23 +70,33 @@ async function assertSocketAuthorized(socket: AuthedSocket): Promise<boolean> {
 
 /**
  * Disconnect live sockets for a user (logout / ban / password reset).
+ * Session ids are UUID strings (user_sessions.id) — compare as strings.
  * - keepSessionId: leave that session connected (revoke-others).
  * - onlySessionId: disconnect only that session (single-device logout).
  */
 export function disconnectUserSockets(
   userId: number,
   reason = 'credentials_revoked',
-  keepSessionId?: number | null,
-  onlySessionId?: number | null
+  keepSessionId?: string | null,
+  onlySessionId?: string | null
 ) {
   if (!ioRef) return;
+  const keep =
+    keepSessionId != null && keepSessionId !== ''
+      ? String(keepSessionId)
+      : null;
+  const only =
+    onlySessionId != null && onlySessionId !== ''
+      ? String(onlySessionId)
+      : null;
   for (const socket of ioRef.sockets.sockets.values()) {
     const authed = socket as AuthedSocket;
     if (authed.user?.id !== userId) continue;
-    if (onlySessionId != null && authed.sessionId !== Number(onlySessionId)) {
+    const sid = authed.sessionId != null ? String(authed.sessionId) : '';
+    if (only != null && sid !== only) {
       continue;
     }
-    if (keepSessionId != null && authed.sessionId === Number(keepSessionId)) {
+    if (keep != null && sid === keep) {
       continue;
     }
     authed.emit('session_revoked', { reason });
@@ -160,7 +171,7 @@ export function initSocket(httpServer: HttpServer) {
         role: result.rows[0].role || 'user',
         avatar_url: result.rows[0].avatar_url,
       };
-      socket.sessionId = Number(result.rows[0].session_id);
+      socket.sessionId = String(result.rows[0].session_id);
       socket.sessionToken = token;
       socket.lastAuthCheckAt = Date.now();
       next();

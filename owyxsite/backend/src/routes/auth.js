@@ -680,6 +680,7 @@ router.post('/logout', authenticateToken, async (req, res) => {
             const deletedSessionId = deleted.rows[0]?.id;
 
             // G12: disconnect only this session's sockets (other devices stay online).
+            // user_sessions.id is UUID — pass string, never Number(uuid)→NaN.
             if (deletedSessionId != null) {
                 try {
                     const { disconnectUserSockets } = require('../socket');
@@ -688,7 +689,7 @@ router.post('/logout', authenticateToken, async (req, res) => {
                             Number(req.user.id),
                             'logout',
                             null,
-                            Number(deletedSessionId)
+                            String(deletedSessionId)
                         );
                     }
                 } catch (socketErr) {
