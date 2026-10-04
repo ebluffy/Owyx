@@ -375,10 +375,18 @@ impl ProcessManager {
     }
 
     pub async fn wait_for(&self, id: Uuid) -> crate::Result<()> {
-        if let Some(mut process) = self.processes.get_mut(&id) {
-            process.child.wait().await?;
+        // Do not hold a DashMap shard guard across `.await` (G16) — that blocks
+        // kill/try_wait on the same shard for the whole game session.
+        loop {
+            match self.try_wait(id)? {
+                None => return Ok(()),
+                Some(Some(_status)) => return Ok(()),
+                Some(None) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(200))
+                        .await;
+                }
+            }
         }
-        Ok(())
     }
 
     pub async fn kill(&self, id: Uuid) -> crate::Result<()> {
