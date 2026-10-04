@@ -924,6 +924,11 @@ async fn terminalize_failed_job(
         cleanup: job_state.cleanup.clone(),
     });
 
+    // Emit early so the UI hides Pause/Cancel before the long restore copy.
+    if let Ok(record) = store::update_state(job_id, &job_state, state).await {
+        let _ = emit_install_job(&record.snapshot()).await;
+    }
+
     let cleanup_succeeded = match recovery::apply_cleanup(&job_state, state)
         .await
     {
@@ -1593,11 +1598,7 @@ async fn prepare_update_backup(
     )
     .await?;
     let snapshot = reporter.persist().await?;
-    job_state.set_progress(
-        snapshot.phase,
-        snapshot.progress,
-        snapshot.details,
-    );
+    job_state.set_progress(snapshot.phase, snapshot.progress, snapshot.details);
     if matches!(job_state.progress.details, InstallPhaseDetails::Empty) {
         job_state.set_progress(
             InstallPhaseId::PreparingInstance,

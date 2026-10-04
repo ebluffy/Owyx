@@ -53,8 +53,15 @@ impl InstallJobRecord {
             status: self.status,
             paused: active && paused,
             canceling: active && canceling,
-            can_pause: active && controllable,
-            can_cancel: active && controllable,
+            // Rollback / finishing must not advertise Pause/Cancel — the worker rejects them.
+            can_pause: active
+                && controllable
+                && self.state.progress.phase
+                    != super::model::InstallPhaseId::RollingBack,
+            can_cancel: active
+                && controllable
+                && self.state.progress.phase
+                    != super::model::InstallPhaseId::RollingBack,
             target: self.state.target.clone(),
             phase: self.state.progress.phase,
             progress: self.state.progress.progress.clone(),
