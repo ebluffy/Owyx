@@ -1149,35 +1149,38 @@ router.post('/reset-password', [
         }
 
         const { token, password } = req.body;
-
-        // Проверяем токен
-        const tokenResult = await db.query(
-            'SELECT user_id FROM password_reset_tokens WHERE token = $1 AND expires_at > NOW() AND used = false',
-            [token]
-        );
-
-        if (tokenResult.rows.length === 0) {
-            return res.status(400).json({
-                error: 'Недействительный или просроченный токен'
-            });
-        }
-
-        const userId = tokenResult.rows[0].user_id;
-
-        // Хешируем новый пароль
         const hashedPassword = await bcrypt.hash(password, 12);
 
-        // Обновляем пароль пользователя
-        await db.query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
-            [hashedPassword, userId]
-        );
-
-        // Помечаем токен как использованный
-        await db.query(
-            'UPDATE password_reset_tokens SET used = true WHERE token = $1',
-            [token]
-        );
+        // Atomically claim token + set password in one transaction (G13).
+        const client = await db.getClient();
+        let userId;
+        try {
+            await client.query('BEGIN');
+            const claim = await client.query(
+                `UPDATE password_reset_tokens
+                 SET used = true
+                 WHERE token = $1 AND used = false AND expires_at > NOW()
+                 RETURNING user_id`,
+                [token]
+            );
+            if (claim.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Недействительный или просроченный токен'
+                });
+            }
+            userId = claim.rows[0].user_id;
+            await client.query(
+                'UPDATE users SET password_hash = $1 WHERE id = $2',
+                [hashedPassword, userId]
+            );
+            await client.query('COMMIT');
+        } catch (txErr) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw txErr;
+        } finally {
+            client.release();
+        }
 
         // Revoke sessions + long-term API tokens after credential rotation
         await revokeUserCredentials(userId);
