@@ -281,6 +281,15 @@ export async function downloadOwyxPackToTemp(
 			reader.releaseLock()
 		}
 		if (totalBytes < 32) throw new Error('Pack download was empty')
+		if (Number.isFinite(contentLength) && contentLength > 0 && totalBytes !== contentLength) {
+			throw new Error(`Pack download incomplete (${totalBytes} bytes, expected ${contentLength})`)
+		}
+		if (wantSha) {
+			const got = await sha256HexOfFile(path)
+			if (got !== wantSha) {
+				throw new Error('Pack sha256 mismatch after download')
+			}
+		}
 		return path
 	} catch (error) {
 		await remove(path).catch(() => undefined)
