@@ -21,3 +21,6 @@ Base: `main` @ `3493c64` (v0.11.1).
 - G15 — CurseForge NeoForge -> Vanilla (curseforge.rs:100-114). P2, open.
 - G16 — process.rs::wait_for держит DashMap-lock. P3, open.
 - G17 — npm audit backend (sharp 0.35.3 и др.). P2, open.
+- G18 — пак сервера публикуется без kubejs/defaultconfigs/scripts (export_mrpack.rs:29-35, OwyxAdmin.vue:315). P1, open.
+- E1 — не качать пак сервера, если есть родительская сборка (owyx-server-instances.ts). enhancement.
+- E2 — «Обновить сборку сервера» из локальной сборки (OwyxAdmin.vue:322). enhancement.
