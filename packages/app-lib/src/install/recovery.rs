@@ -717,18 +717,21 @@ async fn materialize_resolved_path(
 ) -> crate::Result<()> {
     if is_dir {
         crate::util::io::create_dir_all(target).await?;
-        let mut read_dir = tokio::fs::read_dir(source).await.map_err(|error| {
-            crate::ErrorKind::FSError(format!(
-                "Failed to read {}: {error}",
-                source.display()
-            ))
-        })?;
-        while let Some(entry) = read_dir.next_entry().await.map_err(|error| {
-            crate::ErrorKind::FSError(format!(
-                "Failed to read {}: {error}",
-                source.display()
-            ))
-        })? {
+        let mut read_dir =
+            tokio::fs::read_dir(source).await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to read {}: {error}",
+                    source.display()
+                ))
+            })?;
+        while let Some(entry) =
+            read_dir.next_entry().await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to read {}: {error}",
+                    source.display()
+                ))
+            })?
+        {
             let entry_path = entry.path();
             let entry_target = target.join(entry.file_name());
             let file_type = entry.file_type().await.map_err(|error| {

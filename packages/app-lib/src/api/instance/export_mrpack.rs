@@ -786,7 +786,9 @@ mod tests {
             "global_packs/required_data"
         )));
         assert!(is_default_selected_export_candidate(&path("openloader")));
-        assert!(is_default_selected_export_candidate(&path("paxi/datapacks")));
+        assert!(is_default_selected_export_candidate(&path(
+            "paxi/datapacks"
+        )));
     }
 
     #[test]
