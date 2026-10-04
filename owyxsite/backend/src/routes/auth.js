@@ -533,43 +533,26 @@ router.post('/login', [
 
         const loginKey = rawLogin.includes('@') ? rawLogin.toLowerCase() : rawLogin;
 
-        // Browser Host (owyx.site / www) must always pass Turnstile — even if a
-        // copied X-Owyx-Client-Key is replayed. Launcher password login on API
-        // Host may skip captcha only with a valid client key; prefer browser SSO.
-        const { requestHost, parseList } = require('../middleware/clientKey');
-        const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
-        const gotKey = (req.get('x-owyx-client-key') || '').trim();
-        const apiHosts = parseList(process.env.API_HOSTS, 'api.owyx.site');
-        const siteHosts = parseList(process.env.SITE_HOSTS, 'owyx.site,www.owyx.site');
-        const host = requestHost(req);
-        const onApiHost = apiHosts.includes(host);
-        const onSiteHost = siteHosts.includes(host);
-        // Never skip Turnstile on browser Site Host (F7).
-        const launcherClient =
-            !onSiteHost &&
-            onApiHost &&
-            Boolean(expectedKey) &&
-            gotKey === expectedKey;
-
-        if (!launcherClient) {
-            const turnstileResult = await verifyTurnstile(turnstileToken, ip);
-            if (!turnstileResult.success) {
-                return res.status(400).json({
-                    error: turnstileResult.message || 'Проверка капчи не пройдена'
-                });
-            }
-        } else {
-            // Harder brute-force when captcha is skipped (client key is in the build).
-            const keyRate = consumeIp(`login-launcher-key:${ip}:${loginKey}`, {
-                windowMs: 60 * 60 * 1000,
-                max: 3,
+        // G8: X-Owyx-Client-Key is public (shipped in the launcher). It must NOT
+        // skip Turnstile. Prefer browser SSO / device flow for the launcher;
+        // password login always requires captcha on every host.
+        const turnstileResult = await verifyTurnstile(turnstileToken, ip);
+        if (!turnstileResult.success) {
+            return res.status(400).json({
+                error: turnstileResult.message || 'Проверка капчи не пройдена. Войдите через браузер из лаунчера.',
             });
-            if (!keyRate.allowed) {
-                await logLoginAttempt(loginKey, ip, userAgent, false);
-                return res.status(429).json({
-                    error: 'Слишком много попыток входа. Попробуйте через час или войдите через браузер.',
-                });
-            }
+        }
+
+        // Account-scoped limit (independent of IP) against distributed guessing.
+        const accountRate = consumeIp(`login-account:${loginKey}`, {
+            windowMs: 60 * 60 * 1000,
+            max: 10,
+        });
+        if (!accountRate.allowed) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            return res.status(429).json({
+                error: 'Слишком много попыток входа для этого аккаунта. Попробуйте через час или войдите через браузер.',
+            });
         }
 
         // Проверяем количество неудачных попыток
