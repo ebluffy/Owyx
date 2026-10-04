@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "start:dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test src/**/*.test.js",
+    "audit:prod": "npm audit --omit=dev"
   },
   "engines": {
     "node": ">=20"
@@ -25,11 +26,11 @@
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
     "minecraft-server-util": "^5.4.4",
-    "morgan": "^1.10.0",
-    "multer": "^2.2.0",
-    "nodemailer": "^9.0.5",
+    "morgan": "^1.12.1",
+    "multer": "^2.4.0",
+    "nodemailer": "^10.0.14",
     "pg": "^8.13.1",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "socket.io": "^4.8.1",
     "uuid": "^11.0.5"
   },

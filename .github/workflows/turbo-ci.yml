@@ -191,7 +191,7 @@ jobs:
 
       - name: Check Owyx backend
         working-directory: owyxsite/backend
-        run: npm ci && npm run typecheck && npm test
+        run: npm ci && npm run typecheck && npm test && npm run audit:prod
 
       - name: Check Owyx frontend
         working-directory: owyxsite/frontend
