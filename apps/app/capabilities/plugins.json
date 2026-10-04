@@ -136,12 +136,6 @@
 				},
 				{
 					"path": "$DOWNLOAD/**"
-				},
-				{
-					"path": "$DOCUMENT"
-				},
-				{
-					"path": "$DOCUMENT/**"
 				}
 			]
 		},
