@@ -5,16 +5,18 @@ import {
 	Combobox,
 	type ComboboxOption,
 	defineMessages,
+	FileTreeSelect,
 	injectNotificationManager,
 	useVIntl,
 } from '@modrinth/ui'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
 	export_instance_mrpack_bytes,
 	get_pack_export_candidates,
 	list as listInstances,
+	type PackExportCandidate,
 } from '@/helpers/instance'
 import {
 	adminBanUser,
@@ -112,6 +114,15 @@ const messages = defineMessages({
 		defaultMessage: 'Select instance',
 	},
 	bindNone: { id: 'owyx.servers.bind-none', defaultMessage: '— no pack —' },
+	exportFilesLabel: {
+		id: 'owyx.admin.export-files-label',
+		defaultMessage: 'Files to include in server pack',
+	},
+	kubejsMissingWarn: {
+		id: 'owyx.admin.kubejs-missing-warn',
+		defaultMessage:
+			'This instance has a kubejs/ folder, but it is not selected for export. Friends may get empty KubeJS scripts and Forge registry desync.',
+	},
 	createServer: { id: 'owyx.servers.create-server', defaultMessage: 'Publish server' },
 	creating: { id: 'owyx.servers.creating', defaultMessage: 'Publishing…' },
 	openSiteAdmin: { id: 'owyx.admin.open-site', defaultMessage: 'Open full site admin' },
@@ -202,6 +213,14 @@ const formMc = ref<string | null>('1.21.1')
 const formLoader = ref<string | null>('vanilla')
 const formNotes = ref('')
 const formInstanceId = ref<string | null>(null)
+const publishExportFiles = shallowRef<PackExportCandidate[]>([])
+const publishIncludedPaths = ref<string[]>([])
+const publishExcludedPaths = ref<string[]>([])
+const publishFileTreeKey = ref(0)
+const publishFilesLoadId = ref(0)
+const publishDirectoryEntries = new Map<string, PackExportCandidate[]>()
+const publishCurrentDirectory = ref('')
+const publishHasKubejsOnDisk = ref(false)
 
 const packName = ref('')
 const packMc = ref('1.21.1')
@@ -305,17 +324,105 @@ watch(adminTab, (tab) => {
 	}
 })
 
-watch(formInstanceId, (id) => {
-	const inst = instances.value.find((i) => i.id === id)
-	if (!inst) return
-	if (inst.game_version) formMc.value = inst.game_version
-	if (inst.loader) formLoader.value = String(inst.loader).toLowerCase()
+const publishKubejsOmitted = computed(() => {
+	if (!publishHasKubejsOnDisk.value) return false
+	const included = publishIncludedPaths.value
+	return !included.some(
+		(p) => p === 'kubejs' || p.startsWith('kubejs/') || p.replaceAll('\\', '/').startsWith('kubejs/'),
+	)
 })
 
+watch(formInstanceId, (id) => {
+	const inst = instances.value.find((i) => i.id === id)
+	if (!inst) {
+		resetPublishExportState()
+		return
+	}
+	if (inst.game_version) formMc.value = inst.game_version
+	if (inst.loader) formLoader.value = String(inst.loader).toLowerCase()
+	void loadPublishExportCandidates(inst.id).catch(handleError)
+})
+
+function resetPublishExportState() {
+	publishExportFiles.value = []
+	publishIncludedPaths.value = []
+	publishExcludedPaths.value = []
+	publishFileTreeKey.value += 1
+	publishDirectoryEntries.clear()
+	publishCurrentDirectory.value = ''
+	publishHasKubejsOnDisk.value = false
+	publishFilesLoadId.value += 1
+}
+
+function normalizePublishExportPath(path: string) {
+	return path.replaceAll('\\', '/').split('/').filter(Boolean).join('/')
+}
+
+async function loadPublishExportCandidates(instanceId: string) {
+	const loadId = ++publishFilesLoadId.value
+	publishExportFiles.value = []
+	publishIncludedPaths.value = []
+	publishExcludedPaths.value = []
+	publishDirectoryEntries.clear()
+	publishCurrentDirectory.value = ''
+	publishHasKubejsOnDisk.value = false
+
+	const candidates = await get_pack_export_candidates(instanceId)
+	if (loadId !== publishFilesLoadId.value) return
+
+	publishHasKubejsOnDisk.value = candidates.some(
+		(c) => c.path === 'kubejs' || c.path.startsWith('kubejs/'),
+	)
+	publishExportFiles.value = candidates
+	publishDirectoryEntries.set('', candidates)
+	publishCurrentDirectory.value = ''
+	publishIncludedPaths.value = candidates
+		.filter((file) => !file.disabled && file.defaultSelected)
+		.map((file) => file.path)
+	publishExcludedPaths.value = candidates
+		.filter((file) => !file.disabled && !file.defaultSelected)
+		.map((file) => file.path)
+	publishFileTreeKey.value += 1
+}
+
+async function loadPublishExportDirectory(path: string) {
+	const inst = instances.value.find((i) => i.id === formInstanceId.value)
+	if (!inst) return
+	const normalizedPath = normalizePublishExportPath(path)
+	publishCurrentDirectory.value = normalizedPath
+
+	const cachedEntries = publishDirectoryEntries.get(normalizedPath)
+	if (cachedEntries) {
+		publishExportFiles.value = cachedEntries
+		return
+	}
+
+	const loadId = publishFilesLoadId.value
+	publishExportFiles.value = []
+	try {
+		const childItems = await get_pack_export_candidates(inst.id, normalizedPath || undefined)
+		if (loadId !== publishFilesLoadId.value) return
+		publishDirectoryEntries.set(normalizedPath, childItems)
+		if (publishCurrentDirectory.value === normalizedPath) {
+			publishExportFiles.value = childItems
+		}
+	} catch {
+		if (publishCurrentDirectory.value === normalizedPath) publishExportFiles.value = []
+	}
+}
+
 async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fileName: string }> {
-	const candidates = await get_pack_export_candidates(inst.id)
-	const included = candidates.filter((c) => c.defaultSelected).map((c) => c.path)
-	const excluded = candidates.filter((c) => !c.defaultSelected).map((c) => c.path)
+	if (!publishIncludedPaths.value.length && formInstanceId.value === inst.id) {
+		await loadPublishExportCandidates(inst.id)
+	}
+	const included =
+		formInstanceId.value === inst.id && publishIncludedPaths.value.length
+			? [...publishIncludedPaths.value]
+			: (await get_pack_export_candidates(inst.id))
+					.filter((c) => c.defaultSelected)
+					.map((c) => c.path)
+	const excluded =
+		formInstanceId.value === inst.id ? [...publishExcludedPaths.value] : []
 	const bytes = await export_instance_mrpack_bytes(
 		inst.id,
 		included,
@@ -368,6 +475,7 @@ async function publishServer() {
 		formAddress.value = ''
 		formNotes.value = ''
 		formInstanceId.value = null
+		resetPublishExportState()
 		await loadCatalogAdmin()
 	} catch (e) {
 		handleError(e)
@@ -613,6 +721,26 @@ onMounted(() => {
 							class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
 						/>
 					</label>
+				</div>
+				<div v-if="formInstanceId" class="flex flex-col gap-2 min-w-0">
+					<p class="m-0 text-sm font-medium text-contrast">
+						{{ formatMessage(messages.exportFilesLabel) }}
+					</p>
+					<p
+						v-if="publishKubejsOmitted"
+						class="m-0 rounded-lg border border-solid border-orange/40 bg-orange/10 px-3 py-2 text-sm text-orange"
+					>
+						{{ formatMessage(messages.kubejsMissingWarn) }}
+					</p>
+					<FileTreeSelect
+						:key="publishFileTreeKey"
+						v-model="publishIncludedPaths"
+						v-model:excluded-paths="publishExcludedPaths"
+						class="min-w-0"
+						:items="publishExportFiles"
+						lazy
+						@navigate="loadPublishExportDirectory"
+					/>
 				</div>
 				<div class="flex flex-wrap gap-2">
 					<Button
