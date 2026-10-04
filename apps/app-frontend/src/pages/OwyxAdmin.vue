@@ -343,9 +343,10 @@ watch(adminTab, (tab) => {
 const publishKubejsOmitted = computed(() => {
 	if (!publishHasKubejsOnDisk.value) return false
 	const included = publishIncludedPaths.value
-	return !included.some(
-		(p) => p === 'kubejs' || p.startsWith('kubejs/') || p.replaceAll('\\', '/').startsWith('kubejs/'),
-	)
+	return !included.some((p) => {
+		const normalized = p.replaceAll('\\', '/')
+		return normalized === 'kubejs' || normalized.startsWith('kubejs/')
+	})
 })
 
 watch(formInstanceId, (id) => {
@@ -437,8 +438,7 @@ async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fil
 			: (await get_pack_export_candidates(inst.id))
 					.filter((c) => c.defaultSelected)
 					.map((c) => c.path)
-	const excluded =
-		formInstanceId.value === inst.id ? [...publishExcludedPaths.value] : []
+	const excluded = formInstanceId.value === inst.id ? [...publishExcludedPaths.value] : []
 	const version = (formPackVersion.value || '1.0.0').trim() || '1.0.0'
 	const bytes = await export_instance_mrpack_bytes(
 		inst.id,
@@ -537,9 +537,7 @@ async function updateServerPackPreview() {
 			name: `${formName.value.trim() || inst.name} pack`,
 			minecraft: formMc.value.trim() || inst.game_version || '1.21.1',
 			loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
-			description:
-				formNotes.value ||
-				`Update ${formPackVersion.value} from library: ${inst.name}`,
+			description: formNotes.value || `Update ${formPackVersion.value} from library: ${inst.name}`,
 			file: blob,
 			fileName,
 		})

@@ -93,7 +93,9 @@ pub async fn owyx_site_session_set(payload: String) -> Result<()> {
 }
 
 #[cfg(windows)]
-async fn restrict_windows_file_acl(path: &std::path::Path) -> std::io::Result<()> {
+async fn restrict_windows_file_acl(
+    path: &std::path::Path,
+) -> std::io::Result<()> {
     let username = std::env::var_os("USERNAME").ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
