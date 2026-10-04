@@ -14,6 +14,10 @@ const messages = defineMessages({
 		id: 'app.action-bar.install.updating-shared-content',
 		defaultMessage: 'Updating shared content',
 	},
+	backingUpInstance: {
+		id: 'app.action-bar.install.backing-up-instance',
+		defaultMessage: 'Backing up instance',
+	},
 })
 
 const kindMessages = defineMessages({
@@ -314,6 +318,14 @@ export function useInstallJobDisplay() {
 		}
 		if (job.kind === 'update_shared_instance' && job.phase === 'downloading_content') {
 			return formatMessage(messages.updatingSharedContent)
+		}
+		if (
+			(job.kind === 'bulk_update_content' ||
+				job.kind === 'update_shared_instance' ||
+				job.kind === 'install_pack_to_existing_instance') &&
+			job.phase === 'preparing_instance'
+		) {
+			return formatMessage(messages.backingUpInstance)
 		}
 		return formatMessage(phaseMessages[job.phase])
 	}

@@ -47,9 +47,10 @@ const stagesByKind: Record<InstallJobSnapshot['kind'], readonly Stage[]> = {
 	install_pack_to_existing_instance: packStages,
 	update_shared_instance: packStages,
 	bulk_update_content: [
-		['preparing_instance', 2],
+		// Backup can dominate wall time on large instances; weight it accordingly.
+		['preparing_instance', 35],
 		['resolving_pack', 3],
-		['downloading_content', 90],
+		['downloading_content', 57],
 		['finalizing', 5],
 	],
 }
