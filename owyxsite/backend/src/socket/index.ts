@@ -67,16 +67,24 @@ async function assertSocketAuthorized(socket: AuthedSocket): Promise<boolean> {
   return true;
 }
 
-/** Disconnect live sockets for a user (logout / ban / password reset). */
+/**
+ * Disconnect live sockets for a user (logout / ban / password reset).
+ * - keepSessionId: leave that session connected (revoke-others).
+ * - onlySessionId: disconnect only that session (single-device logout).
+ */
 export function disconnectUserSockets(
   userId: number,
   reason = 'credentials_revoked',
-  keepSessionId?: number | null
+  keepSessionId?: number | null,
+  onlySessionId?: number | null
 ) {
   if (!ioRef) return;
   for (const socket of ioRef.sockets.sockets.values()) {
     const authed = socket as AuthedSocket;
     if (authed.user?.id !== userId) continue;
+    if (onlySessionId != null && authed.sessionId !== Number(onlySessionId)) {
+      continue;
+    }
     if (keepSessionId != null && authed.sessionId === Number(keepSessionId)) {
       continue;
     }

@@ -673,19 +673,27 @@ router.post('/logout', authenticateToken, async (req, res) => {
         
         if (token) {
             // Полностью удаляем сессию (а не просто деактивируем)
-            await db.query(
-                'DELETE FROM user_sessions WHERE token_hash = ANY($1::text[])',
+            const deleted = await db.query(
+                'DELETE FROM user_sessions WHERE token_hash = ANY($1::text[]) RETURNING id',
                 [sessionTokenHashes(token)]
             );
+            const deletedSessionId = deleted.rows[0]?.id;
 
-            // G12: drop live Socket.IO connections immediately (same as ban/revoke).
-            try {
-                const { disconnectUserSockets } = require('../socket');
-                if (typeof disconnectUserSockets === 'function') {
-                    disconnectUserSockets(Number(req.user.id), 'logout');
+            // G12: disconnect only this session's sockets (other devices stay online).
+            if (deletedSessionId != null) {
+                try {
+                    const { disconnectUserSockets } = require('../socket');
+                    if (typeof disconnectUserSockets === 'function') {
+                        disconnectUserSockets(
+                            Number(req.user.id),
+                            'logout',
+                            null,
+                            Number(deletedSessionId)
+                        );
+                    }
+                } catch (socketErr) {
+                    console.warn('logout: could not disconnect sockets', socketErr?.message || socketErr);
                 }
-            } catch (socketErr) {
-                console.warn('logout: could not disconnect sockets', socketErr?.message || socketErr);
             }
 
             // Записываем активность
