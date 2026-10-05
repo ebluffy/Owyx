@@ -4700,8 +4700,14 @@
   "owyx.admin.draft": {
     "message": "Черновик"
   },
+  "owyx.admin.export-files-label": {
+    "message": "Файлы для включения в серверный пак"
+  },
   "owyx.admin.forbidden": {
     "message": "Нужна роль admin."
+  },
+  "owyx.admin.kubejs-missing-warn": {
+    "message": "В этой инстанции есть папка kubejs/, но она не выбрана для экспорта. У друзей могут оказаться пустые скрипты KubeJS и рассинхрон реестра Forge."
   },
   "owyx.admin.news-summary": {
     "message": "Кратко"
@@ -4721,8 +4727,14 @@
   "owyx.admin.open-site-home": {
     "message": "Открыть owyx.site"
   },
+  "owyx.admin.pack-changelog-label": {
+    "message": "Список изменений (необязательно)"
+  },
   "owyx.admin.pack-url": {
     "message": "URL архива"
+  },
+  "owyx.admin.pack-version-label": {
+    "message": "Версия пака"
   },
   "owyx.admin.packs": {
     "message": "Паки"
@@ -4765,6 +4777,15 @@
   },
   "owyx.admin.title": {
     "message": "Админ-панель"
+  },
+  "owyx.admin.update-server-pack": {
+    "message": "Обновить серверный пак"
+  },
+  "owyx.admin.update-server-pack-hint": {
+    "message": "Повторно экспортирует инстанцию из библиотеки в выбранный пак, записывает версию в pack_versions и уведомляет подключённых клиентов."
+  },
+  "owyx.admin.update-target-pack": {
+    "message": "Существующий пак для обновления"
   },
   "owyx.instance.csl.body": {
     "message": "Пишет конфиг CustomSkinLoader на https://owyx.site/api/csl/ (публично, без client key). Для localhost используется ваш API base. Установите мод CustomSkinLoader в этот инстанс (Fabric/Forge/NeoForge)."
@@ -4852,6 +4873,18 @@
   },
   "owyx.servers.no-pack-url": {
     "message": "У этого сервера нет ссылки на сборку"
+  },
+  "owyx.servers.pack-update-action": {
+    "message": "Обновить пак"
+  },
+  "owyx.servers.pack-update-available": {
+    "message": "Доступно обновление пака"
+  },
+  "owyx.servers.pack-update-confirm": {
+    "message": "Для «{name}» доступна новая версия пака. Обновление может перезаписать конфиги и options.txt. Обновить сейчас? (Отмена оставит текущую установку.)"
+  },
+  "owyx.servers.pack-updating": {
+    "message": "Обновление пака…"
   },
   "owyx.servers.play": {
     "message": "Играть / Зайти"

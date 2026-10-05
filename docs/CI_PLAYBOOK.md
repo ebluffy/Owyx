@@ -57,8 +57,10 @@
 **Обязательно перед пушем**, если трогали `defineMessages` / тексты в `apps/app-frontend`:
 ```bash
 pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force
+pnpm scripts i18n-icu-contract prune-local --check
 git add apps/app-frontend/src/locales
 ```
+Для новых `owyx.*` ключей сразу добавляй перевод в `ru-RU/index.json` (Crowdin pull без секретов пропускается).
 Журнал реальных падений: [`CI_FAILURE_LOG.md`](./CI_FAILURE_LOG.md).
 
 ### 2.4. ClickHouse / Labrinth Docker Services на форках

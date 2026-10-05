@@ -16,7 +16,9 @@ node --test owyxsite/backend/src/routes/catalog-ingest.test.js
 
 # 3) i18n — required whenever defineMessages / formatMessage strings change
 pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force
+pnpm scripts i18n-icu-contract prune-local --check
 git diff --exit-code -- apps/app-frontend/src/locales/*/index.json
+# Also add ru-RU translations for new owyx.* keys (Crowdin pull is skipped without secrets).
 
 # 4) Rust fmt (apps/app) when touching apps/app/src/**
 # cargo fmt --manifest-path apps/app/Cargo.toml
@@ -29,13 +31,19 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 
 ## Entries
 
+### 2026-10-05 · PR #165 · AR round 10 · I18N-1 / DOC-1 / DOC-2
+
+- **I18N-1:** new E2/admin `owyx.*` keys existed in `en-US` but not `ru-RU` (fallback to English). Also filled similar missing: `export-files-label`, `kubejs-missing-warn`, `pack-version-label`.
+- **DOC-1:** local gate omitted `pnpm scripts i18n-icu-contract prune-local --check` (CI runs it).
+- **DOC-2:** restoring post-merge F1 (history purge / SMTP rotate) and O3 (CSP smoke) into `AUDIT_OWNER_2026-10-03.md` after old trackers were deleted.
+
 ### 2026-10-05 · PR #165 · run `37284932460` · Lint and Test
 
 - **Step:** `Verify intl:extract has been run`
 - **Symptom:** `git diff --exit-code …/*/src/locales/*/index.json` exit 1; diff in `apps/app-frontend/src/locales/en-US/index.json`
 - **Cause:** New Owyx Servers / Admin strings (`pack-update-*`, changelog, update-target-pack) were added in Vue but `intl:extract` was not committed.
-- **Fix:** `pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force` and commit locale JSON.
-- **Prevention:** Always run extract after any `defineMessages` / new `formatMessage` id in app-frontend.
+- **Fix:** `pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force`, then `pnpm scripts i18n-icu-contract prune-local --check`, commit locale JSON (+ `ru-RU` for `owyx.*`).
+- **Prevention:** Always run extract + ICU check after any `defineMessages` / new `formatMessage` id in app-frontend; translate new `owyx.*` keys in `ru-RU` by hand.
 
 ### 2026-10-05 · PR #165 · run `37281424593` · Lint and Test
 
