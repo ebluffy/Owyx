@@ -311,6 +311,7 @@ function publicPack(req, row) {
     manifestUrl: row.manifest_url ? absoluteAsset(req, row.manifest_url) : null,
     accessMode: row.access_mode || 'open',
     latestVersion: row.latest_version || null,
+    sourceInstanceHint: row.source_instance_hint || cfg.sourceInstanceHint || null,
   };
   if (cfg.sha256) out.sha256 = cfg.sha256;
   if (type === 'http_zip' || type === 'local_ingest') {
@@ -480,6 +481,29 @@ function sendError(res, error, fallback) {
   res.status(status).json({ error: status >= 500 ? fallback : error.message });
 }
 
+/** null = broadcast to all authenticated sockets; else only these user ids (ACL). */
+async function resolvePackNotifyUserIds(packRow) {
+  const mode = packRow?.access_mode || 'open';
+  if (mode === 'open') return null;
+  const acl = await db.query(
+    `SELECT user_id, effect FROM catalog_acl
+     WHERE resource_type = 'pack' AND resource_id = $1`,
+    [packRow.id],
+  );
+  if (mode === 'whitelist') {
+    return acl.rows.filter((r) => r.effect === 'allow').map((r) => Number(r.user_id));
+  }
+  if (mode === 'blacklist') {
+    // Open-with-deny: notify everyone except denied (handled on socket side via userIds=null + deny list).
+    // Simpler: pass denied ids as negative API — instead return null (all) and filter denies in broadcast.
+    const denied = new Set(
+      acl.rows.filter((r) => r.effect === 'deny').map((r) => Number(r.user_id)),
+    );
+    return { denyUserIds: [...denied] };
+  }
+  return null;
+}
+
 async function listPublishedPacks(req) {
   const result = await db.query(
     `SELECT * FROM packs WHERE published = true ORDER BY name ASC`
@@ -495,7 +519,8 @@ async function listPublishedServers(req) {
             p.icon_url AS p_icon_url, p.description AS p_description,
             p.source_type AS p_source_type, p.source_config AS p_source_config,
             p.manifest_url AS p_manifest_url, p.published AS p_published,
-            p.access_mode AS p_access_mode, p.latest_version AS p_latest_version
+            p.access_mode AS p_access_mode, p.latest_version AS p_latest_version,
+            p.source_instance_hint AS p_source_instance_hint
      FROM servers s
      LEFT JOIN packs p ON p.id = s.pack_id
      WHERE s.published = true
@@ -518,6 +543,7 @@ async function listPublishedServers(req) {
           published: row.p_published,
           access_mode: row.p_access_mode,
           latest_version: row.p_latest_version,
+          source_instance_hint: row.p_source_instance_hint,
         }
       : null;
     if (packRow) {
@@ -747,6 +773,16 @@ function sha256File(filePath) {
   });
 }
 
+/** Content-addressed archive name for ingest (E2-b). Exported for unit tests. */
+function packIngestFinalName(id, sha256, ext) {
+  return `${String(id)}-${String(sha256).slice(0, 12)}.${ext}`;
+}
+
+/** True when re-publishing the same version with a different sha (immutable history). */
+function packVersionShaConflict(priorSha, newSha) {
+  return Boolean(priorSha && newSha && priorSha !== newSha);
+}
+
 packsAdmin.post(
   '/:id/ingest',
   (req, res, next) => {
@@ -767,13 +803,26 @@ packsAdmin.post(
     });
   },
   async (req, res) => {
+  let stagedPath = req.file?.path || null;
+  let committedPath = null;
+  const client = await db.getClient();
   try {
-    const existing = await db.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
+    const existing = await client.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
     if (!req.file) {
       return res.status(400).json({
         error: `Приложите zip (поле archive), до ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} МБ`,
       });
+    }
+    const prev = existing.rows[0];
+    const prevType = String(prev.source_type || '');
+    if (!['local_ingest', 'http_zip', 'mrpack'].includes(prevType) && prevType) {
+      // Do not silently convert remote warehouses to local uploads.
+      const err = new Error(
+        `ingest запрещён для source_type=${prevType}; используйте local_ingest/http_zip/mrpack`,
+      );
+      err.status = 400;
+      throw err;
     }
     const versionRaw = String(req.body?.version || '').trim().slice(0, 64);
     const version = versionRaw || null;
@@ -782,11 +831,44 @@ packsAdmin.post(
     const sha256 = await sha256File(req.file.path);
     const size = req.file.size || (await fs.promises.stat(req.file.path)).size;
     const isMrpack = String(req.file.originalname || '').toLowerCase().endsWith('.mrpack');
-    const finalName = `${req.params.id}.${isMrpack ? 'mrpack' : 'zip'}`;
+    const ext = isMrpack ? 'mrpack' : 'zip';
+    // Content-addressed name so each revision keeps its own file (E2-b).
+    const finalName = packIngestFinalName(req.params.id, sha256, ext);
     const finalPath = path.join(ingestDir, finalName);
+    if (!finalPath.startsWith(ingestDir)) {
+      const err = new Error('invalid pack path');
+      err.status = 400;
+      throw err;
+    }
+    await fs.promises.mkdir(ingestDir, { recursive: true });
     await fs.promises.rename(req.file.path, finalPath);
+    stagedPath = null;
+    committedPath = finalPath;
     const url = `/uploads/packs/${finalName}`;
-    const result = await db.query(
+    const sourceConfig = {
+      url,
+      sha256,
+      size,
+      ingest: 'local',
+      sourceInstanceHint: sourceHint,
+    };
+
+    if (version) {
+      const prior = await client.query(
+        `SELECT sha256 FROM pack_versions WHERE pack_id = $1 AND version = $2`,
+        [req.params.id, version],
+      );
+      if (prior.rows[0] && packVersionShaConflict(prior.rows[0].sha256, sha256)) {
+        const err = new Error(
+          `версия ${version} уже опубликована с другим sha256; выберите новый номер версии`,
+        );
+        err.status = 409;
+        throw err;
+      }
+    }
+
+    await client.query('BEGIN');
+    const result = await client.query(
       `UPDATE packs SET source_type=$2, source_config=$3::jsonb, manifest_url=$4,
         latest_version=COALESCE($5, latest_version),
         source_instance_hint=COALESCE($6, source_instance_hint),
@@ -795,42 +877,47 @@ packsAdmin.post(
       [
         req.params.id,
         isMrpack ? 'mrpack' : 'http_zip',
-        JSON.stringify({ url, sha256, size, ingest: 'local' }),
+        JSON.stringify(sourceConfig),
         `/api/launcher/v1/packs/${req.params.id}/manifest`,
         version,
         sourceHint,
-      ]
+      ],
     );
     if (version) {
-      await db.query(
+      await client.query(
         `INSERT INTO pack_versions (pack_id, version, changelog, sha256, file_size, source_config, created_by)
          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
-         ON CONFLICT (pack_id, version) DO UPDATE SET
-           changelog = EXCLUDED.changelog,
-           sha256 = EXCLUDED.sha256,
-           file_size = EXCLUDED.file_size,
-           source_config = EXCLUDED.source_config,
-           created_by = COALESCE(EXCLUDED.created_by, pack_versions.created_by)`,
+         ON CONFLICT (pack_id, version) DO NOTHING`,
         [
           req.params.id,
           version,
           changelog,
           sha256,
           size,
-          JSON.stringify({ url, sha256, size, ingest: 'local', sourceInstanceHint: sourceHint }),
+          JSON.stringify(sourceConfig),
           req.user?.id || null,
-        ]
+        ],
       );
     }
+    await client.query('COMMIT');
+    committedPath = null; // success — keep the file
+
+    // Best-effort: keep previous content-addressed file if different (history).
+    // Do not delete older revisions here — owner GC policy later.
+
     try {
       const { broadcastPackUpdated } = require('../socket');
       if (typeof broadcastPackUpdated === 'function') {
-        broadcastPackUpdated({
-          packId: req.params.id,
-          version: version || result.rows[0]?.latest_version || null,
-          sha256,
-          size,
-        });
+        const notifyIds = await resolvePackNotifyUserIds(result.rows[0]);
+        broadcastPackUpdated(
+          {
+            packId: req.params.id,
+            version: version || result.rows[0]?.latest_version || null,
+            sha256,
+            size,
+          },
+          { userIds: notifyIds },
+        );
       }
     } catch (notifyErr) {
       console.warn('pack_updated broadcast skipped', notifyErr?.message || notifyErr);
@@ -844,8 +931,16 @@ packsAdmin.post(
       note: 'Файл на этом сайте. Для очень больших складов задайте http_zip URL мини-ПК вручную.',
     });
   } catch (error) {
-    if (req.file?.path) fs.promises.unlink(req.file.path).catch(() => {});
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      /* ignore */
+    }
+    if (stagedPath) fs.promises.unlink(stagedPath).catch(() => {});
+    if (committedPath) fs.promises.unlink(committedPath).catch(() => {});
     sendError(res, error, 'Не удалось принять архив');
+  } finally {
+    client.release();
   }
 });
 
@@ -1016,6 +1111,27 @@ async function ensureCatalogSchema() {
   await db.query(`CREATE INDEX IF NOT EXISTS packs_published_idx ON public.packs (published)`);
   await db.query(`CREATE INDEX IF NOT EXISTS servers_published_sort_idx ON public.servers (published, sort_order, name)`);
   await db.query(`CREATE INDEX IF NOT EXISTS catalog_acl_resource_idx ON public.catalog_acl (resource_type, resource_id)`);
+  // E2 / migration 018 — apply here so deploy order cannot break catalog SELECTs.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS public.pack_versions (
+      id BIGSERIAL PRIMARY KEY,
+      pack_id TEXT NOT NULL REFERENCES public.packs(id) ON DELETE CASCADE,
+      version VARCHAR(64) NOT NULL,
+      changelog TEXT NOT NULL DEFAULT '',
+      sha256 VARCHAR(64),
+      file_size BIGINT,
+      source_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER,
+      UNIQUE (pack_id, version)
+    )
+  `);
+  await db.query(
+    `CREATE INDEX IF NOT EXISTS pack_versions_pack_id_created_idx
+     ON public.pack_versions (pack_id, created_at DESC)`
+  );
+  await db.query(`ALTER TABLE public.packs ADD COLUMN IF NOT EXISTS source_instance_hint TEXT`);
+  await db.query(`ALTER TABLE public.packs ADD COLUMN IF NOT EXISTS latest_version VARCHAR(64)`);
   // Demo seed removed for OBT — admins publish real packs/servers from the launcher or site.
 }
 
@@ -1114,4 +1230,6 @@ module.exports = {
   publicBase,
   absoluteAsset,
   MAX_PACK_BYTES,
+  packIngestFinalName,
+  packVersionShaConflict,
 };

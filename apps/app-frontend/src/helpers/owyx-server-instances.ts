@@ -15,7 +15,7 @@ import {
 	type InstallJobSnapshot,
 	wait_for_install_job,
 } from '@/helpers/install'
-import { edit, list } from '@/helpers/instance'
+import { edit, list, remove as removeInstance } from '@/helpers/instance'
 import {
 	getOwyxClientKey,
 	isOwyxReuseParentPackEnabled,
@@ -25,6 +25,7 @@ import {
 import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
+import { ref, type Ref } from 'vue'
 
 export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 
@@ -32,6 +33,26 @@ const STORAGE_KEY = 'owyx.serverInstanceMap'
 const PACK_META_KEY = 'owyx.serverPackMeta'
 
 type ServerInstanceMap = Record<string, string>
+type ServerPackMeta = { sha256?: string; version?: string; updatedAt: number }
+
+function readPackMetaMap(): Record<string, ServerPackMeta> {
+	try {
+		const raw = localStorage.getItem(PACK_META_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw) as Record<string, ServerPackMeta>
+		return parsed && typeof parsed === 'object' ? parsed : {}
+	} catch {
+		return {}
+	}
+}
+
+function writePackMetaMap(map: Record<string, ServerPackMeta>) {
+	owyxServerPackMeta.value = { ...map }
+	localStorage.setItem(PACK_META_KEY, JSON.stringify(map))
+}
+
+/** Reactive pack-meta map so UI badges update after install/seed (E2-c). */
+export const owyxServerPackMeta: Ref<Record<string, ServerPackMeta>> = ref(readPackMetaMap())
 
 /** In-flight installs keyed by catalog server id — collapses double-click races. */
 const inflightInstalls = new Map<
@@ -147,59 +168,77 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 }
 
 /**
- * Find a non-server library instance that matches this catalog server's
- * Minecraft version + loader (E1 — opt-in via localStorage `owyx.reuseParentPack=1`).
- */
+	 * Find the library instance that last published this pack (E1).
+	 * Opt-in via localStorage `owyx.reuseParentPack=1`.
+	 * Matches **only** by `packSourceInstanceHint` — never by loose MC+loader.
+	 */
 export async function findReusableLibraryParent(
-	server: Pick<OwyxServerEntry, 'mcVersion' | 'loader' | 'id'>,
+	server: Pick<OwyxServerEntry, 'id' | 'packSourceInstanceHint'>,
 ): Promise<GameInstance | null> {
 	if (!isOwyxReuseParentPackEnabled()) return null
-	const mc = (server.mcVersion || '').trim()
-	const loader = (server.loader || '').trim().toLowerCase()
-	if (!mc) return null
+	const hint = (server.packSourceInstanceHint || '').trim()
+	if (!hint) return null
 	const instances = await list()
 	const hit = instances.find((inst) => {
 		if (isOwyxServerInstance(inst)) return false
 		if (inst.install_stage !== 'installed') return false
-		if (inst.game_version !== mc) return false
-		if (loader && String(inst.loader || '').toLowerCase() !== loader) return false
-		return true
+		return inst.id === hint
 	})
 	return hit ?? null
-}
-
-type ServerPackMeta = { sha256?: string; version?: string; updatedAt: number }
-
-function readPackMetaMap(): Record<string, ServerPackMeta> {
-	try {
-		const raw = localStorage.getItem(PACK_META_KEY)
-		if (!raw) return {}
-		const parsed = JSON.parse(raw) as Record<string, ServerPackMeta>
-		return parsed && typeof parsed === 'object' ? parsed : {}
-	} catch {
-		return {}
-	}
 }
 
 export function rememberInstalledPackMeta(
 	serverId: string,
 	meta: { sha256?: string | null; version?: string | null },
 ) {
-	const map = readPackMetaMap()
+	const map = { ...owyxServerPackMeta.value }
 	map[serverId] = {
 		sha256: meta.sha256?.trim().toLowerCase() || undefined,
 		version: meta.version?.trim() || undefined,
 		updatedAt: Date.now(),
 	}
-	localStorage.setItem(PACK_META_KEY, JSON.stringify(map))
+	writePackMetaMap(map)
+}
+
+/**
+	 * Seed local pack meta from the on-disk cache so pre-E2 installs get update badges (E2-c).
+	 * If the cache is missing but the instance is installed, mark version as unknown so
+	 * a catalog sha/version still surfaces the update badge.
+	 */
+export async function seedPackMetaFromCache(server: OwyxServerEntry): Promise<void> {
+	if (owyxServerPackMeta.value[server.id]) return
+	const linked = await findLinkedOwyxServerInstance(server)
+	if (!linked || linked.install_stage !== 'installed') return
+
+	const dir = await join(await appDataDir(), 'owyx-packs')
+	for (const ext of ['mrpack', 'zip'] as const) {
+		const path = await join(dir, `${sanitizePackFileId(server.id)}.${ext}`)
+		try {
+			if (!(await exists(path))) continue
+			const sha = await sha256HexOfFile(path)
+			rememberInstalledPackMeta(server.id, {
+				sha256: sha,
+				version: undefined,
+			})
+			return
+		} catch {
+			/* try next ext */
+		}
+	}
+
+	if (server.packSha256 || server.packVersion) {
+		rememberInstalledPackMeta(server.id, {
+			sha256: undefined,
+			version: '__unknown__',
+		})
+	}
 }
 
 /** True when catalog pack sha/version differs from what this device last installed. */
 export function isOwyxServerPackUpdateAvailable(
 	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
 ): boolean {
-	const map = readPackMetaMap()
-	const prev = map[server.id]
+	const prev = owyxServerPackMeta.value[server.id]
 	if (!prev) return false
 	const wantSha = server.packSha256?.trim().toLowerCase() || ''
 	const wantVer = server.packVersion?.trim() || ''
@@ -374,6 +413,7 @@ async function installOwyxServerPackInner(
 	server: OwyxServerEntry,
 	apiBase: string,
 	appEvents: AppEvents,
+	opts?: { allowUpdate?: boolean },
 ): Promise<{ instanceId: string; job: InstallJobSnapshot | null }> {
 	const packUrl = resolveOwyxPackUrl(server.packUrl, apiBase)
 	if (!packUrl) {
@@ -382,6 +422,10 @@ async function installOwyxServerPackInner(
 	const existing = await findLinkedOwyxServerInstance(server)
 	const wantsUpdate =
 		Boolean(existing?.install_stage === 'installed') && isOwyxServerPackUpdateAvailable(server)
+	if (existing?.install_stage === 'installed' && wantsUpdate && !opts?.allowUpdate) {
+		// E2-d: do not silently overwrite player configs — caller must confirm.
+		return { instanceId: existing.id, job: null }
+	}
 	if (existing?.install_stage === 'installed' && !wantsUpdate) {
 		return { instanceId: existing.id, job: null }
 	}
@@ -401,6 +445,7 @@ async function installOwyxServerPackInner(
 		link,
 	}
 
+	let orphanDupId: string | null = null
 	try {
 		let job: InstallJobSnapshot
 		const reusableParent = await findReusableLibraryParent(server)
@@ -416,6 +461,7 @@ async function installOwyxServerPackInner(
 			if (!dupId) {
 				throw new Error('Duplicate finished without an instance id')
 			}
+			orphanDupId = dupId
 			await edit(dupId, postEdit)
 			job = await install_pack_to_existing_instance(
 				dupId,
@@ -433,10 +479,11 @@ async function installOwyxServerPackInner(
 		}
 
 		const completed = await wait_for_install_job(appEvents, job.job_id)
-		const instanceId = installJobInstanceId(completed) ?? existing?.id ?? null
+		const instanceId = installJobInstanceId(completed) ?? existing?.id ?? orphanDupId ?? null
 		if (!instanceId) {
 			throw new Error('Install finished without an instance id')
 		}
+		orphanDupId = null
 		rememberOwyxServerInstance(server.id, instanceId)
 		rememberInstalledPackMeta(server.id, {
 			sha256: server.packSha256,
@@ -445,6 +492,9 @@ async function installOwyxServerPackInner(
 		return { instanceId, job: completed }
 	} catch (error) {
 		forgetOwyxServerInstance(server.id)
+		if (orphanDupId) {
+			await removeInstance(orphanDupId).catch(() => undefined)
+		}
 		throw error
 	}
 }
@@ -453,11 +503,12 @@ export async function installOwyxServerPack(
 	server: OwyxServerEntry,
 	apiBase: string,
 	appEvents: AppEvents,
+	opts?: { allowUpdate?: boolean },
 ): Promise<{ instanceId: string; job: InstallJobSnapshot | null }> {
 	const existing = inflightInstalls.get(server.id)
 	if (existing) return existing
 
-	const pending = installOwyxServerPackInner(server, apiBase, appEvents).finally(() => {
+	const pending = installOwyxServerPackInner(server, apiBase, appEvents, opts).finally(() => {
 		inflightInstalls.delete(server.id)
 	})
 	inflightInstalls.set(server.id, pending)

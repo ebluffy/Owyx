@@ -29,6 +29,8 @@ export type OwyxServerEntry = {
 	packSha256?: string
 	/** Catalog pack revision (E2 `packs.latest_version`). */
 	packVersion?: string
+	/** Admin library instance id that last published this pack (E1 identity). */
+	packSourceInstanceHint?: string
 	requiresAccount?: boolean
 	demo?: boolean
 }
@@ -328,6 +330,17 @@ function normalizeEntry(
 			if (nested?.latestVersion) return String(nested.latestVersion)
 			if (nested?.latest_version) return String(nested.latest_version)
 			if (nested?.version) return String(nested.version)
+			return undefined
+		})(),
+		packSourceInstanceHint: (() => {
+			const fromRoot =
+				raw.packSourceInstanceHint ??
+				raw.pack_source_instance_hint ??
+				raw.sourceInstanceHint ??
+				raw.source_instance_hint
+			if (fromRoot) return String(fromRoot)
+			if (nested?.sourceInstanceHint) return String(nested.sourceInstanceHint)
+			if (nested?.source_instance_hint) return String(nested.source_instance_hint)
 			return undefined
 		})(),
 		requiresAccount: Boolean(raw.requiresAccount ?? raw.requires_account),

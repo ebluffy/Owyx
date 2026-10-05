@@ -457,6 +457,17 @@ export default function CatalogAdmin({
   }
 
   async function ingestPack(p: PackRow, file: File) {
+    const allowed = new Set(["local_ingest", "http_zip", "mrpack"]);
+    if (p.sourceType && !allowed.has(p.sourceType)) {
+      showMessage(
+        t(
+          `Ingest is not available for ${p.sourceType}`,
+          `Ingest недоступен для ${p.sourceType}`,
+        ),
+        "error",
+      );
+      return;
+    }
     const fd = new FormData();
     fd.append("archive", file);
     const headers = { Authorization: authHeaders().Authorization };
@@ -587,19 +598,21 @@ export default function CatalogAdmin({
                   </div>
                   {!readOnly && (
                     <>
-                      <label className="btn btn-secondary btn-sm cursor-pointer">
-                        Залить zip
-                        <input
-                          type="file"
-                          accept=".zip,.mrpack"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) void ingestPack(p, file);
-                            e.target.value = "";
-                          }}
-                        />
-                      </label>
+                      {["local_ingest", "http_zip", "mrpack"].includes(p.sourceType) && (
+                        <label className="btn btn-secondary btn-sm cursor-pointer">
+                          Залить zip
+                          <input
+                            type="file"
+                            accept=".zip,.mrpack"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) void ingestPack(p, file);
+                              e.target.value = "";
+                            }}
+                          />
+                        </label>
+                      )}
                       <button
                         type="button"
                         className="btn btn-secondary btn-sm"

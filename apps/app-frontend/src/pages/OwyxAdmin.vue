@@ -283,13 +283,18 @@ const instanceOptions = computed<ComboboxOption<string | null>[]>(() => [
 	})),
 ])
 
-const updatePackOptions = computed<ComboboxOption<string | null>[]>(() => [
-	{ value: null, label: formatMessage(messages.bindNone) },
-	...packs.value.map((pack) => ({
-		value: pack.id,
-		label: `${pack.name}${pack.latestVersion ? ` · ${pack.latestVersion}` : ''} (${pack.id})`,
-	})),
-])
+	const updatePackOptions = computed<ComboboxOption<string | null>[]>(() => {
+		const ingestible = new Set(['local_ingest', 'http_zip', 'mrpack'])
+		return [
+			{ value: null, label: formatMessage(messages.bindNone) },
+			...packs.value
+				.filter((pack) => !pack.sourceType || ingestible.has(String(pack.sourceType)))
+				.map((pack) => ({
+					value: pack.id,
+					label: `${pack.name}${pack.latestVersion ? ` · ${pack.latestVersion}` : ''} (${pack.id})`,
+				})),
+		]
+	})
 
 async function loadCatalogAdmin() {
 	loading.value = true

@@ -69,19 +69,30 @@ pub async fn owyx_site_session_get() -> Result<Option<String>> {
 #[tauri::command]
 pub async fn owyx_sha256_file(path: String) -> Result<String> {
     let requested = PathBuf::from(&path);
+    let state = theseus::State::get().await?;
+    // Ensure dirs exist so canonicalize succeeds and Windows `\\?\` prefixes match (P3-a).
+    tokio::fs::create_dir_all(&state.directories.settings_dir).await?;
+    tokio::fs::create_dir_all(&state.directories.config_dir).await?;
     let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
         theseus::Error::from(theseus::ErrorKind::InputError(format!(
             "cannot open path for sha256: {err}"
         )))
     })?;
-    let state = theseus::State::get().await?;
     let settings = tokio::fs::canonicalize(&state.directories.settings_dir)
         .await
-        .unwrap_or_else(|_| state.directories.settings_dir.clone());
+        .map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve settings dir: {err}"
+            )))
+        })?;
     let config = tokio::fs::canonicalize(&state.directories.config_dir)
         .await
-        .unwrap_or_else(|_| state.directories.config_dir.clone());
-    if !(canonical.starts_with(&settings) || canonical.starts_with(&config)) {
+        .map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve config dir: {err}"
+            )))
+        })?;
+    if !owyx_sha256_path_allowed(&canonical, &settings, &config) {
         return Err(theseus::Error::from(theseus::ErrorKind::InputError(
             "sha256 path must be under the launcher data directory".to_string(),
         ))
@@ -105,6 +116,15 @@ pub async fn owyx_sha256_file(path: String) -> Result<String> {
         hasher.update(&buf[..n]);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Returns true when `path` is under settings or config (pack cache, sessions, etc.).
+pub(crate) fn owyx_sha256_path_allowed(
+    path: &Path,
+    settings: &Path,
+    config: &Path,
+) -> bool {
+    path.starts_with(settings) || path.starts_with(config)
 }
 
 #[tauri::command]
@@ -587,4 +607,42 @@ pub(crate) fn tauri_convert_file_src(path: &Path) -> Result<Url> {
     let encoded = urlencoding::encode(&path);
 
     Ok(theseus_try!(Url::parse(&format!("{BASE}{encoded}"))))
+}
+
+#[cfg(test)]
+mod owyx_sha256_tests {
+    use super::owyx_sha256_path_allowed;
+    use std::path::Path;
+
+    #[test]
+    fn allows_paths_under_settings_or_config() {
+        let settings = Path::new("/data/settings");
+        let config = Path::new("/data/config");
+        assert!(owyx_sha256_path_allowed(
+            Path::new("/data/settings/owyx-packs/a.mrpack"),
+            settings,
+            config,
+        ));
+        assert!(owyx_sha256_path_allowed(
+            Path::new("/data/config/owyx-packs/b.zip"),
+            settings,
+            config,
+        ));
+    }
+
+    #[test]
+    fn rejects_paths_outside_launcher_dirs() {
+        let settings = Path::new("/data/settings");
+        let config = Path::new("/data/config");
+        assert!(!owyx_sha256_path_allowed(
+            Path::new("/tmp/evil.mrpack"),
+            settings,
+            config,
+        ));
+        assert!(!owyx_sha256_path_allowed(
+            Path::new("/data/settings-evil/x"),
+            settings,
+            config,
+        ));
+    }
 }
