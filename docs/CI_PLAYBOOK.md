@@ -54,6 +54,13 @@
   ```
   *Примечание для Windows/Node 22:* скрипты в `scripts/*.ts` в CI запускаются через Node 24 (`.nvmrc`). Локально на Node 22 запускать с `--experimental-strip-types`.
 
+**Обязательно перед пушем**, если трогали `defineMessages` / тексты в `apps/app-frontend`:
+```bash
+pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force
+git add apps/app-frontend/src/locales
+```
+Журнал реальных падений: [`CI_FAILURE_LOG.md`](./CI_FAILURE_LOG.md).
+
 ### 2.4. ClickHouse / Labrinth Docker Services на форках
 * **Симптом:**
   `labrinth-clickhouse is unhealthy` в шаге `docker compose up --wait`.

@@ -97,4 +97,4 @@ Owyx использует существующий путь Theseus:
 - Нет редиректа → окно закрыли или URL без `code`
 - Офлайн-ник не заходит на лицензионные сервера → так и задумано (только offline-mode)
 
-См. также архивный набросок: `docs/MICROSOFT_AUTH.owyxold-reference.md` (старый Path A / device-code; не путать с текущим SISU WebView).
+См. также текущий SISU WebView flow выше; старый Path A / device-code из OwyxOld не используется.

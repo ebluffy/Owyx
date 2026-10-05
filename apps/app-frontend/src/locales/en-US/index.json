@@ -4733,6 +4733,9 @@
   "owyx.admin.open-site-home": {
     "message": "Open owyx.site"
   },
+  "owyx.admin.pack-changelog-label": {
+    "message": "Changelog (optional)"
+  },
   "owyx.admin.pack-url": {
     "message": "Archive URL"
   },
@@ -4782,10 +4785,13 @@
     "message": "Admin panel"
   },
   "owyx.admin.update-server-pack": {
-    "message": "Update server pack (E2 preview)"
+    "message": "Update server pack"
   },
   "owyx.admin.update-server-pack-hint": {
-    "message": "E2 unfinished: publishes a new pack version string. Apply migration 018_pack_versions.sql on VPS for version history."
+    "message": "Re-exports the library instance into the selected pack, records the version in pack_versions, and notifies connected clients."
+  },
+  "owyx.admin.update-target-pack": {
+    "message": "Existing pack to update"
   },
   "owyx.instance.csl.body": {
     "message": "Writes CustomSkinLoader config pointing at https://owyx.site/api/csl/ (public, no client key). Localhost API builds use your configured API base instead. Install the CustomSkinLoader mod in this instance (Fabric/Forge/NeoForge)."
@@ -4873,6 +4879,18 @@
   },
   "owyx.servers.no-pack-url": {
     "message": "No pack download URL for this server"
+  },
+  "owyx.servers.pack-update-action": {
+    "message": "Update pack"
+  },
+  "owyx.servers.pack-update-available": {
+    "message": "Pack update available"
+  },
+  "owyx.servers.pack-update-confirm": {
+    "message": "A new pack version is available for “{name}”. Updating may overwrite configs and options.txt. Update now? (Cancel keeps your current install.)"
+  },
+  "owyx.servers.pack-updating": {
+    "message": "Updating pack…"
   },
   "owyx.servers.play": {
     "message": "Play"
