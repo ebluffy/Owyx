@@ -2,10 +2,11 @@
  * Link curated Owyx catalog servers to local pack instances under profiles/servers/.
  */
 
-import { appDataDir, join } from '@tauri-apps/api/path'
 import { invoke } from '@tauri-apps/api/core'
+import { appDataDir, join } from '@tauri-apps/api/path'
 import { exists, mkdir, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+import { type Ref, ref } from 'vue'
 
 import {
 	install_create_modpack_instance,
@@ -25,7 +26,6 @@ import {
 import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
-import { ref, type Ref } from 'vue'
 
 export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 

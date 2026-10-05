@@ -15,6 +15,7 @@ import {
 	resolveOwyxPackUrl,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import { subscribeOwyxPackUpdated } from '@/helpers/owyx-pack-socket'
 import {
 	clearOwyxPackUpdateDismiss,
 	dismissOwyxPackUpdate,
@@ -24,7 +25,6 @@ import {
 	seedPackMetaFromCache,
 	shouldPromptOwyxPackUpdate,
 } from '@/helpers/owyx-server-instances'
-import { subscribeOwyxPackUpdated } from '@/helpers/owyx-pack-socket'
 import type { GameInstance } from '@/helpers/types'
 import {
 	ensureManagedServerWorldExists,

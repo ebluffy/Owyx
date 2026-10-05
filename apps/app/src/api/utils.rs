@@ -73,11 +73,12 @@ pub async fn owyx_sha256_file(path: String) -> Result<String> {
     // Ensure dirs exist so canonicalize succeeds and Windows `\\?\` prefixes match (P3-a).
     tokio::fs::create_dir_all(&state.directories.settings_dir).await?;
     tokio::fs::create_dir_all(&state.directories.config_dir).await?;
-    let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
-        theseus::Error::from(theseus::ErrorKind::InputError(format!(
-            "cannot open path for sha256: {err}"
-        )))
-    })?;
+    let canonical =
+        tokio::fs::canonicalize(&requested).await.map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot open path for sha256: {err}"
+            )))
+        })?;
     let settings = tokio::fs::canonicalize(&state.directories.settings_dir)
         .await
         .map_err(|err| {

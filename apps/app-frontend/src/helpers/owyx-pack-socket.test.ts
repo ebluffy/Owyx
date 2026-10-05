@@ -9,17 +9,19 @@ import {
 	teardownOwyxPackSocket,
 } from './owyx-pack-socket.ts'
 
+type SocketHandler = (...args: unknown[]) => void
+
 type FakeSocket = {
 	connected: boolean
 	active: boolean
-	handlers: Map<string, Function[]>
-	on: (event: string, fn: Function) => FakeSocket
+	handlers: Map<string, SocketHandler[]>
+	on: (event: string, fn: SocketHandler) => FakeSocket
 	removeAllListeners: () => void
 	disconnect: () => void
 }
 
 function makeFakeSocket(opts?: { connected?: boolean; active?: boolean }): FakeSocket {
-	const handlers = new Map<string, Function[]>()
+	const handlers = new Map<string, SocketHandler[]>()
 	return {
 		connected: opts?.connected ?? true,
 		active: opts?.active ?? true,
