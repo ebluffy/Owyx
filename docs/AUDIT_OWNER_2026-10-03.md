@@ -1,26 +1,15 @@
 # Owner findings 2026-10-03 (WIP tracker)
 
-Рабочий список багов пачки. Актуальный статус — в комментарии PR #164 (тело PR агент не смог PATCH из‑за 403). Чиним коммитами в этом же PR.
+G1–G18 смержены в #164. E1/E2/P3 — PR #165 `feat/e1-e2-p3-pack-reuse-update`.
 
-Base: `main` @ `3493c64` (v0.11.1). HEAD ветки: см. `audit/owner-findings-2026-10-03`.
+- G1–G18 → ✅ FIXED (#164)
+- E1 — reuse parent pack → ✅ admin-device only (`owyx.packParentHint:<packId>`); orphan dup deleted; flag opt-in
+- E2 — update server pack → ✅ content-addressed + SAVEPOINT rollback + confirm; badge Update clears dismiss (session-scoped); ru-RU strings for pack-update / admin update
+- P3 — sha256 / socket / tests → ✅ streaming sha; ACL + launcher subscriber; **P3-b3/b4/b5/b6** keep hooks, no connecting churn, recreate after hard reject (`active`), deps at `main.js` bootstrap; SAVEPOINT unlink; CSP wss; ingest rollback mock tests (P3-c); **P3-m** intentional `process.exit(1)` on schema ensure fail-fast
 
-- G1 — скин Owyx `slice` → ✅ FIXED (`d0418455a`)
-- G2 — Windows symlink 1314 → ✅ FIXED (`68b975e9e`)
-- G3 — бэкап без прогресса / тяжёлые папки → ✅ FIXED (`dff824cd9`)
-- G4 — ProgressBar точки → ✅ FIXED (`1c8eeece5`)
-- G5 — Pause/Cancel на откате → ✅ FIXED (`92606d073`)
-- G6 — selection после бэкапа → ✅ FIXED (`b8814aebb`)
-- G7 — spam load_snapshot → ✅ FIXED (`cf611f026`)
-- G8 — Turnstile bypass client key → ✅ FIXED (`97efd594b`)
-- G9 — rate limit memory → ✅ FIXED (`e0c8e9cf1`)
-- G10 — site_session ACL Windows → ✅ FIXED (`fd4840b5f`)
-- G11 — `$DOCUMENT/**` scope → ✅ FIXED (`31ac2eab1`)
-- G12 — Socket.IO revoke → ✅ FIXED (`5b2f170d1`)
-- G13 — reset token race → ✅ FIXED (`15b1b518a`)
-- G14 — cropData limits → ✅ FIXED (`65ed61613`)
-- G15 — CF NeoForge→Vanilla → ✅ FIXED (`26df229c6`)
-- G16 — wait_for DashMap lock → ✅ FIXED (`cef06bfc1`)
-- G17 — npm audit backend → ✅ FIXED (`2cd092d90`)
-- G18 — server pack без kubejs → ✅ FIXED (`720add723`)
-- E1 — reuse parent pack → 🟡 foundation (`43a68078d`, cache + flag; hardlink/diff unfinished)
-- E2 — update server pack from local → 🟡 foundation (`51b38af85`, version field + stub + migration 018; VPS apply by owner)
+## Post-merge / ops (carried from older owner trackers)
+
+- **F1** (P0, from #163 / `AUDIT_OWNER_2026-10-02`): blob `init.full.sql` may still exist in `main` history — after merge, local Cursor only: history purge + rotate SMTP/DB passwords (HARD STOP: no filter-repo/BFG inside product PRs).
+- **O3** (from #162 / `AUDIT_OWNER_2026-09-26`): after release install, CSP smoke — content icons, language flags, DevTools no `img-src` refusals for `cdn.modrinth.com` / `flagcdn.com`.
+
+Do not merge until AR re-review + CI `Lint and Test` are green. Fix every AR finding in-PR (including former “non-blocking” P3).

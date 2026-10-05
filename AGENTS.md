@@ -46,6 +46,7 @@ The Owyx launcher does **not** mount them: `/hosting/manage*` redirects to
 | Upstream sync | `docs/UPSTREAM_SYNC.md` — merge onto `sync/modrinth-YYYYMMDD`, never reset `main` |
 | Latest audit | `docs/AUDIT_2026-09-24.md` |
 | CI playbook & hygiene | `docs/CI_PLAYBOOK.md` |
+| CI failure log (append) | `docs/CI_FAILURE_LOG.md` — known red causes + local gate |
 | External agent skills / MCP | [ebluffy/agent-tool-catalog](https://github.com/ebluffy/agent-tool-catalog) · skill `.agents/skills/agent-tool-catalog/` |
 
 Cloud task paste (local only): `promt.md` (gitignored).

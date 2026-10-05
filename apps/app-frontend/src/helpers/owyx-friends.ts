@@ -257,32 +257,40 @@ export async function publishLibraryPackToCatalog(opts: {
 	file: Blob
 	fileName: string
 	serverId?: string | null
-}): Promise<{ packId: string }> {
+	/** When set, ingest into this existing pack instead of creating a new one (E2). */
+	packId?: string | null
+	version?: string | null
+	changelog?: string | null
+	sourceInstanceHint?: string | null
+}): Promise<{ packId: string; version?: string | null; sha256?: string | null }> {
 	const base = apiBase()
 	const headers = authHeaders()
-	const createRes = await owyxFetch(`${base}/api/admin/packs`, {
-		method: 'POST',
-		headers,
-		body: JSON.stringify({
-			name: opts.name,
-			minecraft: opts.minecraft,
-			loader: opts.loader,
-			description: opts.description || '',
-			sourceType: 'local_ingest',
-			sourceConfig: {},
-			published: true,
-			accessMode: 'open',
-		}),
-		signal: AbortSignal.timeout(30000),
-	})
-	const createData = (await createRes.json().catch(() => ({}))) as {
-		pack?: { id: string }
-		error?: string
+	let packId = opts.packId?.trim() || ''
+	if (!packId) {
+		const createRes = await owyxFetch(`${base}/api/admin/packs`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({
+				name: opts.name,
+				minecraft: opts.minecraft,
+				loader: opts.loader,
+				description: opts.description || '',
+				sourceType: 'local_ingest',
+				sourceConfig: {},
+				published: true,
+				accessMode: 'open',
+			}),
+			signal: AbortSignal.timeout(30000),
+		})
+		const createData = (await createRes.json().catch(() => ({}))) as {
+			pack?: { id: string }
+			error?: string
+		}
+		if (!createRes.ok || !createData.pack?.id) {
+			throw new Error(createData.error || `Create pack failed (${createRes.status})`)
+		}
+		packId = createData.pack.id
 	}
-	if (!createRes.ok || !createData.pack?.id) {
-		throw new Error(createData.error || `Create pack failed (${createRes.status})`)
-	}
-	const packId = createData.pack.id
 	const sizeMb = opts.file.size / (1024 * 1024)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_MB = 512
@@ -293,6 +301,11 @@ export async function publishLibraryPackToCatalog(opts: {
 	}
 	const fd = new FormData()
 	fd.append('archive', opts.file, opts.fileName)
+	if (opts.version?.trim()) fd.append('version', opts.version.trim())
+	if (opts.changelog != null) fd.append('changelog', String(opts.changelog))
+	if (opts.sourceInstanceHint?.trim()) {
+		fd.append('sourceInstanceHint', opts.sourceInstanceHint.trim())
+	}
 	const ingestHeaders: Record<string, string> = { Accept: 'application/json' }
 	const key = getOwyxClientKey()
 	if (key) ingestHeaders['X-Owyx-Client-Key'] = key
@@ -307,15 +320,19 @@ export async function publishLibraryPackToCatalog(opts: {
 			signal: AbortSignal.timeout(Math.max(180000, Math.ceil(sizeMb) * 4000)),
 		},
 	)
+	const ingestData = (await ingestRes.json().catch(() => ({}))) as {
+		error?: string
+		sha256?: string
+		version?: string
+	}
 	if (!ingestRes.ok) {
-		const data = (await ingestRes.json().catch(() => ({}))) as { error?: string }
 		if (ingestRes.status === 413) {
 			throw new Error(
-				data.error ||
+				ingestData.error ||
 					`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
 			)
 		}
-		throw new Error(data.error || `Ingest failed (${ingestRes.status})`)
+		throw new Error(ingestData.error || `Ingest failed (${ingestRes.status})`)
 	}
 	if (opts.serverId) {
 		const bindRes = await owyxFetch(
@@ -332,7 +349,11 @@ export async function publishLibraryPackToCatalog(opts: {
 			throw new Error(data.error || `Bind server failed (${bindRes.status})`)
 		}
 	}
-	return { packId }
+	return {
+		packId,
+		version: ingestData.version || opts.version || null,
+		sha256: ingestData.sha256 || null,
+	}
 }
 
 export async function createOwyxCatalogServer(body: {

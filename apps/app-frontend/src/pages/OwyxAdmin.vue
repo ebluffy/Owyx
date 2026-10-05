@@ -50,6 +50,7 @@ import {
 	setStoredOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { createOwyxCatalogServer, publishLibraryPackToCatalog } from '@/helpers/owyx-friends'
+import { rememberPackParentHint } from '@/helpers/owyx-server-instances'
 import { get_game_versions } from '@/helpers/tags'
 import type { GameInstance } from '@/helpers/types'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
@@ -127,14 +128,22 @@ const messages = defineMessages({
 		id: 'owyx.admin.pack-version-label',
 		defaultMessage: 'Pack version',
 	},
+	updateTargetPack: {
+		id: 'owyx.admin.update-target-pack',
+		defaultMessage: 'Existing pack to update',
+	},
 	updateServerPack: {
 		id: 'owyx.admin.update-server-pack',
-		defaultMessage: 'Update server pack (E2 preview)',
+		defaultMessage: 'Update server pack',
 	},
 	updateServerPackHint: {
 		id: 'owyx.admin.update-server-pack-hint',
 		defaultMessage:
-			'E2 unfinished: publishes a new pack version string. Apply migration 018_pack_versions.sql on VPS for version history.',
+			'Re-exports the library instance into the selected pack, records the version in pack_versions, and notifies connected clients.',
+	},
+	packChangelogLabel: {
+		id: 'owyx.admin.pack-changelog-label',
+		defaultMessage: 'Changelog (optional)',
 	},
 	createServer: { id: 'owyx.servers.create-server', defaultMessage: 'Publish server' },
 	creating: { id: 'owyx.servers.creating', defaultMessage: 'Publishing…' },
@@ -226,9 +235,9 @@ const formMc = ref<string | null>('1.21.1')
 const formLoader = ref<string | null>('vanilla')
 const formNotes = ref('')
 const formPackVersion = ref('1.0.0')
+const formPackChangelog = ref('')
+const formUpdatePackId = ref<string | null>(null)
 const formInstanceId = ref<string | null>(null)
-/** E2 preview: show “update pack” controls when localStorage owyx.e2UpdatePack=1 */
-const e2UpdatePackEnabled = ref(false)
 const publishExportFiles = shallowRef<PackExportCandidate[]>([])
 const publishIncludedPaths = ref<string[]>([])
 const publishExcludedPaths = ref<string[]>([])
@@ -274,6 +283,19 @@ const instanceOptions = computed<ComboboxOption<string | null>[]>(() => [
 		label: `${inst.name} (${inst.game_version})`,
 	})),
 ])
+
+const updatePackOptions = computed<ComboboxOption<string | null>[]>(() => {
+	const ingestible = new Set(['local_ingest', 'http_zip', 'mrpack'])
+	return [
+		{ value: null, label: formatMessage(messages.bindNone) },
+		...packs.value
+			.filter((pack) => !pack.sourceType || ingestible.has(String(pack.sourceType)))
+			.map((pack) => ({
+				value: pack.id,
+				label: `${pack.name}${pack.latestVersion ? ` · ${pack.latestVersion}` : ''} (${pack.id})`,
+			})),
+	]
+})
 
 async function loadCatalogAdmin() {
 	loading.value = true
@@ -474,8 +496,10 @@ async function publishServer() {
 				description: formNotes.value || `From library: ${inst.name}`,
 				file: blob,
 				fileName,
+				sourceInstanceHint: inst.id,
 			})
 			packId = published.packId
+			rememberPackParentHint(published.packId, inst.id)
 		}
 		statusMsg.value = formatMessage(messages.publishCreate)
 		const server = await createOwyxCatalogServer({
@@ -517,14 +541,23 @@ function bumpPackVersion() {
 }
 
 /**
- * E2 preview: re-export attached instance and create a new catalog pack entry
- * with the current version string. Full “update existing pack + notify clients”
- * needs migration 018 on VPS (not applied by the agent).
+ * E2: re-export attached instance into an existing catalog pack, record version,
+ * and notify clients via ingest → pack_updated.
  */
-async function updateServerPackPreview() {
+async function updateServerPack() {
 	const inst = instances.value.find((i) => i.id === formInstanceId.value)
 	if (!inst) {
 		statusMsg.value = 'Select a library instance first'
+		return
+	}
+	const packId = formUpdatePackId.value?.trim()
+	if (!packId) {
+		statusMsg.value = 'Select an existing pack to update'
+		return
+	}
+	const version = (formPackVersion.value || '').trim()
+	if (!version) {
+		statusMsg.value = 'Set a pack version'
 		return
 	}
 	busy.value = true
@@ -537,11 +570,16 @@ async function updateServerPackPreview() {
 			name: `${formName.value.trim() || inst.name} pack`,
 			minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 			loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
-			description: formNotes.value || `Update ${formPackVersion.value} from library: ${inst.name}`,
+			description: formNotes.value || `Update ${version} from library: ${inst.name}`,
 			file: blob,
 			fileName,
+			packId,
+			version,
+			changelog: formPackChangelog.value || '',
+			sourceInstanceHint: inst.id,
 		})
-		statusMsg.value = `E2 preview: published pack ${published.packId} as ${formPackVersion.value}. ${formatMessage(messages.updateServerPackHint)}`
+		rememberPackParentHint(published.packId, inst.id)
+		statusMsg.value = `Updated pack ${published.packId} → ${published.version || version}`
 		bumpPackVersion()
 		await loadCatalogAdmin()
 	} catch (e) {
@@ -651,11 +689,6 @@ onMounted(() => {
 	if (!isAdmin.value) {
 		void router.replace('/owyx-servers')
 		return
-	}
-	try {
-		e2UpdatePackEnabled.value = localStorage.getItem('owyx.e2UpdatePack') === '1'
-	} catch {
-		e2UpdatePackEnabled.value = false
 	}
 	void loadInstances()
 	void loadGameVersions()
@@ -794,6 +827,23 @@ onMounted(() => {
 							class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
 						/>
 					</label>
+					<label class="flex flex-col gap-1 text-sm">
+						<span class="text-secondary">{{ formatMessage(messages.updateTargetPack) }}</span>
+						<Combobox
+							v-model="formUpdatePackId"
+							:options="updatePackOptions"
+							searchable
+							sync-with-selection
+							:placeholder="formatMessage(messages.updateTargetPack)"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-sm sm:col-span-2">
+						<span class="text-secondary">{{ formatMessage(messages.packChangelogLabel) }}</span>
+						<input
+							v-model="formPackChangelog"
+							class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
+						/>
+					</label>
 					<label class="flex flex-col gap-1 text-sm sm:col-span-2">
 						<span class="text-secondary">{{ formatMessage(messages.serverDesc) }}</span>
 						<input
@@ -836,15 +886,15 @@ onMounted(() => {
 						}}
 					</Button>
 					<Button
-						v-if="e2UpdatePackEnabled && formInstanceId"
+						v-if="formInstanceId && formUpdatePackId"
 						type="outlined"
-						:disabled="busy"
-						@click="updateServerPackPreview"
+						:disabled="busy || !formPackVersion"
+						@click="updateServerPack"
 					>
 						{{ formatMessage(messages.updateServerPack) }}
 					</Button>
 				</div>
-				<p v-if="e2UpdatePackEnabled" class="m-0 text-xs text-secondary">
+				<p v-if="formInstanceId && formUpdatePackId" class="m-0 text-xs text-secondary">
 					{{ formatMessage(messages.updateServerPackHint) }}
 				</p>
 				<p v-if="statusMsg" class="m-0 text-sm text-secondary">{{ statusMsg }}</p>

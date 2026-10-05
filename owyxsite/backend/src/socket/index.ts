@@ -104,12 +104,70 @@ export function disconnectUserSockets(
   }
 }
 
+/** Notify connected site clients that a catalog pack revision changed (E2).
+ * opts.userIds: null = all authed; number[] = whitelist; { denyUserIds } = all except denylist.
+ */
+export function broadcastPackUpdated(
+  payload: {
+    packId: string;
+    version?: string | null;
+    sha256?: string | null;
+    size?: number | null;
+  },
+  opts?: { userIds?: number[] | null | { denyUserIds: number[] } },
+) {
+  if (!ioRef) return;
+  const event = {
+    packId: payload.packId,
+    version: payload.version || null,
+    sha256: payload.sha256 || null,
+    size: payload.size ?? null,
+    at: new Date().toISOString(),
+  };
+  const filter = opts?.userIds;
+  if (filter == null) {
+    ioRef.emit('pack_updated', event);
+    return;
+  }
+  const deny =
+    !Array.isArray(filter) && filter && Array.isArray(filter.denyUserIds)
+      ? new Set(filter.denyUserIds.map(Number))
+      : null;
+  const allow = Array.isArray(filter) ? new Set(filter.map(Number)) : null;
+  for (const socket of ioRef.sockets.sockets.values()) {
+    const authed = socket as AuthedSocket;
+    const uid = authed.user?.id;
+    if (uid == null) continue;
+    if (allow) {
+      if (!allow.has(Number(uid))) continue;
+    } else if (deny) {
+      if (deny.has(Number(uid))) continue;
+    }
+    authed.emit('pack_updated', event);
+  }
+}
+
 export function initSocket(httpServer: HttpServer) {
-  const corsOrigin = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
-    : process.env.NODE_ENV === 'production'
-      ? [process.env.FRONTEND_URL || 'https://owyx.site']
-      : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001'];
+  const corsOrigin = [
+    ...new Set([
+      ...(process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+        : process.env.NODE_ENV === 'production'
+          ? [process.env.FRONTEND_URL || 'https://owyx.site', 'https://www.owyx.site']
+          : [
+              'http://localhost:3000',
+              'http://127.0.0.1:3000',
+              'http://localhost:3001',
+              'http://127.0.0.1:3001',
+            ]),
+      // Tauri webview origins (launcher pack_updated subscriber).
+      'https://tauri.localhost',
+      'http://tauri.localhost',
+      'tauri://localhost',
+      'http://localhost:1420',
+      'http://127.0.0.1:1420',
+    ]),
+  ];
 
   const io = new Server(httpServer, {
     cors: {

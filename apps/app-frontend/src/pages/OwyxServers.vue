@@ -15,9 +15,15 @@ import {
 	resolveOwyxPackUrl,
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
+import { subscribeOwyxPackUpdated } from '@/helpers/owyx-pack-socket'
 import {
+	clearOwyxPackUpdateDismiss,
+	dismissOwyxPackUpdate,
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
+	isOwyxServerPackUpdateAvailable,
+	seedPackMetaFromCache,
+	shouldPromptOwyxPackUpdate,
 } from '@/helpers/owyx-server-instances'
 import type { GameInstance } from '@/helpers/types'
 import {
@@ -60,6 +66,23 @@ const messages = defineMessages({
 	settingsNeedInstall: {
 		id: 'owyx.servers.settings-need-install',
 		defaultMessage: 'Download the pack first (Play), then open Settings.',
+	},
+	packUpdateAvailable: {
+		id: 'owyx.servers.pack-update-available',
+		defaultMessage: 'Pack update available',
+	},
+	packUpdateAction: {
+		id: 'owyx.servers.pack-update-action',
+		defaultMessage: 'Update pack',
+	},
+	packUpdating: {
+		id: 'owyx.servers.pack-updating',
+		defaultMessage: 'Updating pack…',
+	},
+	packUpdateConfirm: {
+		id: 'owyx.servers.pack-update-confirm',
+		defaultMessage:
+			'A new pack version is available for “{name}”. Updating may overwrite configs and options.txt. Update now? (Cancel keeps your current install.)',
 	},
 	settingsModalNotReady: {
 		id: 'owyx.servers.settings-modal-not-ready',
@@ -113,6 +136,7 @@ const settingsInstance = ref<GameInstance | null>(null)
 const settingsModal = ref<InstanceType<typeof InstanceSettingsModal> | null>(null)
 let statusTimer: ReturnType<typeof setInterval> | null = null
 let unsubscribeInstanceEvents: (() => void) | null = null
+let unsubscribePackSocket: (() => void) | null = null
 
 const hasServers = computed(() => servers.value.length > 0)
 
@@ -169,6 +193,8 @@ async function loadCatalog() {
 		})
 		servers.value = result.servers
 		apiBase.value = getStoredOwyxApiBase()
+		// Don't block catalog paint on hashing/seeding (P3-g); badge is reactive.
+		void Promise.all(result.servers.map((s) => seedPackMetaFromCache(s).catch(() => undefined)))
 		if (result.fromFallback && result.servers.length === 0) {
 			loadError.value = formatMessage(messages.unreachable)
 		}
@@ -232,21 +258,44 @@ async function refreshAllStatuses() {
 	await Promise.all(servers.value.map((s) => pingOne(s)))
 }
 
-async function ensurePackInstalled(server: OwyxServerEntry): Promise<string | null> {
+async function ensurePackInstalled(
+	server: OwyxServerEntry,
+	opts?: { allowUpdate?: boolean },
+): Promise<string | null> {
 	if (!hasPack(server)) {
 		handleError(new Error(formatMessage(messages.noPackUrl)))
 		return null
 	}
 	const existing = await findLinkedOwyxServerInstance(server)
 	if (existing?.install_stage === 'installed') {
-		return existing.id
+		const needsUpdate = isOwyxServerPackUpdateAvailable(server)
+		if (!needsUpdate || !opts?.allowUpdate) {
+			return existing.id
+		}
 	}
 	const { instanceId } = await installOwyxServerPack(
 		server,
 		sanitizeOwyxApiBase(apiBase.value),
 		appEvents,
+		opts,
 	)
 	return instanceId
+}
+
+/** Explicit update path from the badge (E2-f) — clears dismiss and applies pack. */
+async function applyPackUpdate(server: OwyxServerEntry) {
+	if (busyId.value) return
+	busyId.value = server.id
+	try {
+		clearOwyxPackUpdateDismiss(server.id)
+		const instanceId = await ensurePackInstalled(server, { allowUpdate: true })
+		if (!instanceId) return
+		await refreshLinkedMap()
+	} catch (e) {
+		handleError(e)
+	} finally {
+		busyId.value = null
+	}
 }
 
 async function playServer(server: OwyxServerEntry) {
@@ -270,7 +319,14 @@ async function playServer(server: OwyxServerEntry) {
 	busyId.value = server.id
 	try {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
-		const instanceId = await ensurePackInstalled(server)
+		let allowUpdate = false
+		if (shouldPromptOwyxPackUpdate(server) && hasLinkedInstance(server)) {
+			allowUpdate = window.confirm(formatMessage(messages.packUpdateConfirm, { name: server.name }))
+			if (!allowUpdate) {
+				dismissOwyxPackUpdate(server)
+			}
+		}
+		const instanceId = await ensurePackInstalled(server, { allowUpdate })
 		if (!instanceId) return
 		await refreshLinkedMap()
 		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
@@ -298,6 +354,9 @@ onMounted(() => {
 	unsubscribeInstanceEvents = appEvents.on('instance', () => {
 		void refreshLinkedMap()
 	})
+	unsubscribePackSocket = subscribeOwyxPackUpdated(() => {
+		void loadCatalog()
+	})
 })
 
 function onVisibilityChange() {
@@ -310,6 +369,7 @@ onUnmounted(() => {
 	if (statusTimer) clearInterval(statusTimer)
 	document.removeEventListener('visibilitychange', onVisibilityChange)
 	unsubscribeInstanceEvents?.()
+	unsubscribePackSocket?.()
 })
 </script>
 
@@ -433,6 +493,20 @@ onUnmounted(() => {
 							<span v-if="server.mcVersion">
 								· {{ formatMessage(messages.version, { version: server.mcVersion }) }}
 							</span>
+							<button
+								v-if="isOwyxServerPackUpdateAvailable(server)"
+								type="button"
+								class="ml-1 cursor-pointer rounded border-0 bg-orange/15 px-1.5 py-0.5 text-xs text-orange underline decoration-dotted underline-offset-2 hover:bg-orange/25"
+								:disabled="busyId === server.id"
+								:title="formatMessage(messages.packUpdateAction)"
+								@click="applyPackUpdate(server)"
+							>
+								{{
+									busyId === server.id
+										? formatMessage(messages.packUpdating)
+										: formatMessage(messages.packUpdateAvailable)
+								}}
+							</button>
 						</p>
 					</div>
 				</div>

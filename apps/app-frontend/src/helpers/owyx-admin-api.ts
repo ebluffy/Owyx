@@ -68,6 +68,8 @@ export type AdminPack = {
 	sourceType?: string
 	iconUrl?: string | null
 	accessMode?: string
+	latestVersion?: string | null
+	sourceInstanceHint?: string | null
 }
 
 export type AdminUser = {

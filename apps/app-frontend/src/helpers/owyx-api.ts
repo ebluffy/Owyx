@@ -27,6 +27,8 @@ export type OwyxServerEntry = {
 	packId?: string
 	/** Optional pack archive sha256 from catalog (E1 cache / reuse). */
 	packSha256?: string
+	/** Catalog pack revision (E2 `packs.latest_version`). */
+	packVersion?: string
 	requiresAccount?: boolean
 	demo?: boolean
 }
@@ -317,6 +319,16 @@ function normalizeEntry(
 						? (nested.source_config as Record<string, unknown>)
 						: null
 			if (cfg?.sha256) return String(cfg.sha256)
+			if (nested?.sha256) return String(nested.sha256)
+			return undefined
+		})(),
+		packVersion: (() => {
+			const fromRoot =
+				raw.packVersion ?? raw.pack_version ?? raw.latestVersion ?? raw.latest_version
+			if (fromRoot) return String(fromRoot)
+			if (nested?.latestVersion) return String(nested.latestVersion)
+			if (nested?.latest_version) return String(nested.latest_version)
+			if (nested?.version) return String(nested.version)
 			return undefined
 		})(),
 		requiresAccount: Boolean(raw.requiresAccount ?? raw.requires_account),

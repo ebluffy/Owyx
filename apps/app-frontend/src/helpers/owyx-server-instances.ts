@@ -2,18 +2,21 @@
  * Link curated Owyx catalog servers to local pack instances under profiles/servers/.
  */
 
+import { invoke } from '@tauri-apps/api/core'
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { exists, mkdir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
+import { exists, mkdir, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
+import { type Ref, ref } from 'vue'
 
 import {
 	install_create_modpack_instance,
+	install_duplicate_instance,
 	install_pack_to_existing_instance,
 	installJobInstanceId,
 	type InstallJobSnapshot,
 	wait_for_install_job,
 } from '@/helpers/install'
-import { list } from '@/helpers/instance'
+import { edit, list, remove as removeInstance } from '@/helpers/instance'
 import {
 	getOwyxClientKey,
 	isOwyxReuseParentPackEnabled,
@@ -27,8 +30,30 @@ import type { AppEvents } from '@/providers/app-events'
 export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 
 const STORAGE_KEY = 'owyx.serverInstanceMap'
+const PACK_META_KEY = 'owyx.serverPackMeta'
+const PACK_UPDATE_DISMISS_KEY = 'owyx.packUpdateDismissed'
 
 type ServerInstanceMap = Record<string, string>
+type ServerPackMeta = { sha256?: string; version?: string; updatedAt: number }
+
+function readPackMetaMap(): Record<string, ServerPackMeta> {
+	try {
+		const raw = localStorage.getItem(PACK_META_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw) as Record<string, ServerPackMeta>
+		return parsed && typeof parsed === 'object' ? parsed : {}
+	} catch {
+		return {}
+	}
+}
+
+function writePackMetaMap(map: Record<string, ServerPackMeta>) {
+	owyxServerPackMeta.value = { ...map }
+	localStorage.setItem(PACK_META_KEY, JSON.stringify(map))
+}
+
+/** Reactive pack-meta map so UI badges update after install/seed (E2-c). */
+export const owyxServerPackMeta: Ref<Record<string, ServerPackMeta>> = ref(readPackMetaMap())
 
 /** In-flight installs keyed by catalog server id — collapses double-click races. */
 const inflightInstalls = new Map<
@@ -144,31 +169,151 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 }
 
 /**
- * Find a non-server library instance that matches this catalog server's
- * Minecraft version + loader (E1 foundation — opt-in via localStorage).
+ * Find a library instance to reuse for this catalog server (E1).
+ * Opt-in via localStorage `owyx.reuseParentPack=1`.
+ * Matches **only** admin-device parent hints stored at publish time
+ * (`owyx.packParentHint:<packId>`), never by loose MC+loader and never
+ * from the public catalog (admin instance ids are not portable).
  */
 export async function findReusableLibraryParent(
-	server: Pick<OwyxServerEntry, 'mcVersion' | 'loader' | 'id'>,
+	server: Pick<OwyxServerEntry, 'id' | 'packId'>,
 ): Promise<GameInstance | null> {
 	if (!isOwyxReuseParentPackEnabled()) return null
-	const mc = (server.mcVersion || '').trim()
-	const loader = (server.loader || '').trim().toLowerCase()
-	if (!mc) return null
+	const packKey = (server.packId || server.id || '').trim()
+	if (!packKey) return null
+	let hint = ''
+	try {
+		hint = localStorage.getItem(`owyx.packParentHint:${packKey}`)?.trim() || ''
+	} catch {
+		hint = ''
+	}
+	if (!hint) return null
 	const instances = await list()
 	const hit = instances.find((inst) => {
 		if (isOwyxServerInstance(inst)) return false
 		if (inst.install_stage !== 'installed') return false
-		if (inst.game_version !== mc) return false
-		if (loader && String(inst.loader || '').toLowerCase() !== loader) return false
-		return true
+		return inst.id === hint
 	})
 	return hit ?? null
 }
 
+/** Remember which library instance published a pack (admin device only, E1). */
+export function rememberPackParentHint(packId: string, instanceId: string) {
+	const id = packId?.trim()
+	const inst = instanceId?.trim()
+	if (!id || !inst) return
+	try {
+		localStorage.setItem(`owyx.packParentHint:${id}`, inst)
+	} catch {
+		/* ignore quota */
+	}
+}
+
+export function rememberInstalledPackMeta(
+	serverId: string,
+	meta: { sha256?: string | null; version?: string | null },
+) {
+	const map = { ...owyxServerPackMeta.value }
+	map[serverId] = {
+		sha256: meta.sha256?.trim().toLowerCase() || undefined,
+		version: meta.version?.trim() || undefined,
+		updatedAt: Date.now(),
+	}
+	writePackMetaMap(map)
+	// Clear dismiss once the catalog revision is actually installed.
+	clearOwyxPackUpdateDismiss(serverId)
+}
+
+/**
+ * Seed local pack meta for pre-E2 installs (E2-c / P3-f).
+ * Prefer marking `__unknown__` over trusting a cache file that may already
+ * be the newer (not-yet-installed) catalog revision.
+ */
+export async function seedPackMetaFromCache(server: OwyxServerEntry): Promise<void> {
+	if (owyxServerPackMeta.value[server.id]) return
+	const linked = await findLinkedOwyxServerInstance(server)
+	if (!linked || linked.install_stage !== 'installed') return
+
+	if (server.packSha256 || server.packVersion) {
+		rememberInstalledPackMeta(server.id, {
+			sha256: undefined,
+			version: '__unknown__',
+		})
+	}
+}
+
+/** True when catalog pack sha/version differs from what this device last installed. */
+export function isOwyxServerPackUpdateAvailable(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	const prev = owyxServerPackMeta.value[server.id]
+	if (!prev) return false
+	if (prev.version === '__unknown__') return true
+	const wantSha = server.packSha256?.trim().toLowerCase() || ''
+	const wantVer = server.packVersion?.trim() || ''
+	if (wantSha && prev.sha256 && wantSha !== prev.sha256) return true
+	if (wantVer && prev.version && wantVer !== prev.version) return true
+	return false
+}
+
+type PackUpdateDismiss = { version?: string; sha256?: string }
+
+function readDismissedMap(): Record<string, PackUpdateDismiss> {
+	try {
+		const raw = sessionStorage.getItem(PACK_UPDATE_DISMISS_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw) as Record<string, PackUpdateDismiss>
+		return parsed && typeof parsed === 'object' ? parsed : {}
+	} catch {
+		return {}
+	}
+}
+
+/** Remember that the user declined updating to this catalog revision (P3-k). */
+export function dismissOwyxPackUpdate(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+) {
+	const map = readDismissedMap()
+	map[server.id] = {
+		version: server.packVersion?.trim() || undefined,
+		sha256: server.packSha256?.trim().toLowerCase() || undefined,
+	}
+	// Session-scoped so a restart (or badge click) can recover (E2-f).
+	sessionStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(map))
+}
+
+export function clearOwyxPackUpdateDismiss(serverId: string) {
+	try {
+		const map = readDismissedMap()
+		if (!map[serverId]) return
+		const { [serverId]: _removed, ...rest } = map
+		sessionStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(rest))
+	} catch {
+		/* ignore */
+	}
+}
+
+export function isOwyxPackUpdateDismissed(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	const d = readDismissedMap()[server.id]
+	if (!d) return false
+	const wantVer = server.packVersion?.trim() || ''
+	const wantSha = server.packSha256?.trim().toLowerCase() || ''
+	return (d.version || '') === wantVer && (d.sha256 || '') === wantSha
+}
+
+/** Show Play confirm only when update is available and not dismissed for this revision. */
+export function shouldPromptOwyxPackUpdate(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	return isOwyxServerPackUpdateAvailable(server) && !isOwyxPackUpdateDismissed(server)
+}
+
+/** Stream SHA-256 via Rust (P3) — does not load the whole pack into JS heap. */
 async function sha256HexOfFile(path: string): Promise<string> {
-	const bytes = await readFile(path)
-	const digest = await crypto.subtle.digest('SHA-256', bytes)
-	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+	const hex = await invoke<string>('plugin:utils|owyx_sha256_file', { path })
+	return String(hex || '').toLowerCase()
 }
 
 /**
@@ -331,13 +476,20 @@ async function installOwyxServerPackInner(
 	server: OwyxServerEntry,
 	apiBase: string,
 	appEvents: AppEvents,
+	opts?: { allowUpdate?: boolean },
 ): Promise<{ instanceId: string; job: InstallJobSnapshot | null }> {
 	const packUrl = resolveOwyxPackUrl(server.packUrl, apiBase)
 	if (!packUrl) {
 		throw new Error('No installable pack URL for this server')
 	}
 	const existing = await findLinkedOwyxServerInstance(server)
-	if (existing?.install_stage === 'installed') {
+	const wantsUpdate =
+		Boolean(existing?.install_stage === 'installed') && isOwyxServerPackUpdateAvailable(server)
+	if (existing?.install_stage === 'installed' && wantsUpdate && !opts?.allowUpdate) {
+		// E2-d: do not silently overwrite player configs — caller must confirm.
+		return { instanceId: existing.id, job: null }
+	}
+	if (existing?.install_stage === 'installed' && !wantsUpdate) {
 		return { instanceId: existing.id, job: null }
 	}
 	if (existing && isInstallingStage(existing.install_stage)) {
@@ -348,16 +500,6 @@ async function installOwyxServerPackInner(
 		}
 	}
 
-	// E1 foundation: detect a reusable library parent (flagged). Full hardlink /
-	// hash-diff install is unfinished — we still download the pack (cache-aware).
-	const reusableParent = await findReusableLibraryParent(server)
-	if (reusableParent) {
-		console.info(
-			`[owyx E1] reusable library instance ${reusableParent.id} matches ${server.id}; ` +
-				'full “use my pack” hardlink path not finished — installing pack with cache reuse',
-		)
-	}
-
 	const filePath = await downloadOwyxPackToTemp(packUrl, server.id, server.packSha256)
 	const filename = filePath.split(/[\\/]/).pop() ?? null
 	const link = owyxServerInstanceLink(server, filename)
@@ -366,9 +508,30 @@ async function installOwyxServerPackInner(
 		link,
 	}
 
+	let orphanDupId: string | null = null
 	try {
 		let job: InstallJobSnapshot
-		if (existing) {
+		const reusableParent = await findReusableLibraryParent(server)
+		if (reusableParent && !existing) {
+			// E1: duplicate parent (content-store hardlinks for managed mods), then
+			// apply the catalog pack for hash-diff materialization of changed files.
+			console.info(
+				`[owyx E1] reusing library instance ${reusableParent.id} for ${server.id} via duplicate + pack apply`,
+			)
+			const dupJob = await install_duplicate_instance(reusableParent.id)
+			const dupDone = await wait_for_install_job(appEvents, dupJob.job_id)
+			const dupId = installJobInstanceId(dupDone)
+			if (!dupId) {
+				throw new Error('Duplicate finished without an instance id')
+			}
+			orphanDupId = dupId
+			await edit(dupId, postEdit)
+			job = await install_pack_to_existing_instance(
+				dupId,
+				{ type: 'fromFile', path: filePath },
+				postEdit,
+			)
+		} else if (existing) {
 			job = await install_pack_to_existing_instance(
 				existing.id,
 				{ type: 'fromFile', path: filePath },
@@ -379,14 +542,25 @@ async function installOwyxServerPackInner(
 		}
 
 		const completed = await wait_for_install_job(appEvents, job.job_id)
-		const instanceId = installJobInstanceId(completed) ?? existing?.id ?? null
+		const instanceId = installJobInstanceId(completed) ?? existing?.id ?? orphanDupId ?? null
 		if (!instanceId) {
 			throw new Error('Install finished without an instance id')
 		}
+		orphanDupId = null
 		rememberOwyxServerInstance(server.id, instanceId)
+		rememberInstalledPackMeta(server.id, {
+			sha256: server.packSha256,
+			version: server.packVersion,
+		})
 		return { instanceId, job: completed }
 	} catch (error) {
-		forgetOwyxServerInstance(server.id)
+		// E2-e: only forget a brand-new link; keep existing server→instance mapping on failed update.
+		if (!existing) {
+			forgetOwyxServerInstance(server.id)
+		}
+		if (orphanDupId) {
+			await removeInstance(orphanDupId).catch(() => undefined)
+		}
 		throw error
 	}
 }
@@ -395,11 +569,12 @@ export async function installOwyxServerPack(
 	server: OwyxServerEntry,
 	apiBase: string,
 	appEvents: AppEvents,
+	opts?: { allowUpdate?: boolean },
 ): Promise<{ instanceId: string; job: InstallJobSnapshot | null }> {
 	const existing = inflightInstalls.get(server.id)
 	if (existing) return existing
 
-	const pending = installOwyxServerPackInner(server, apiBase, appEvents).finally(() => {
+	const pending = installOwyxServerPackInner(server, apiBase, appEvents, opts).finally(() => {
 		inflightInstalls.delete(server.id)
 	})
 	inflightInstalls.set(server.id, pending)
