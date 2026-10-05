@@ -25,8 +25,19 @@ export type OwyxServerEntry = {
 	/** HTTPS pack download URL (from pack.downloadUrl / packUrl). */
 	packUrl?: string
 	packId?: string
+	/** Optional pack archive sha256 from catalog (E1 cache / reuse). */
+	packSha256?: string
 	requiresAccount?: boolean
 	demo?: boolean
+}
+
+/** Feature flag: reuse a matching library instance instead of re-downloading (E1). */
+export function isOwyxReuseParentPackEnabled(): boolean {
+	try {
+		return localStorage.getItem('owyx.reuseParentPack') === '1'
+	} catch {
+		return false
+	}
 }
 
 export type OwyxCatalogResult = {
@@ -296,6 +307,18 @@ function normalizeEntry(
 				: nested?.id
 					? String(nested.id)
 					: undefined,
+		packSha256: (() => {
+			const fromRoot = raw.packSha256 ?? raw.pack_sha256 ?? raw.sha256
+			if (fromRoot) return String(fromRoot)
+			const cfg =
+				nested?.sourceConfig && typeof nested.sourceConfig === 'object'
+					? (nested.sourceConfig as Record<string, unknown>)
+					: nested?.source_config && typeof nested.source_config === 'object'
+						? (nested.source_config as Record<string, unknown>)
+						: null
+			if (cfg?.sha256) return String(cfg.sha256)
+			return undefined
+		})(),
 		requiresAccount: Boolean(raw.requiresAccount ?? raw.requires_account),
 	}
 }

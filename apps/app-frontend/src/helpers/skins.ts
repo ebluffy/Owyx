@@ -171,7 +171,11 @@ export async function get_normalized_skin_texture(skin: Skin): Promise<string> {
 }
 
 export async function normalize_skin_texture(texture: Uint8Array | string): Promise<Uint8Array> {
-	return await invoke('plugin:minecraft-skins|normalize_skin_texture', { texture })
+	// Tauri serializes bytes::Bytes as a plain number[]; coerce so callers get a real Uint8Array.
+	const data = await invoke<ArrayLike<number>>('plugin:minecraft-skins|normalize_skin_texture', {
+		texture,
+	})
+	return data instanceof Uint8Array ? data : new Uint8Array(data)
 }
 
 export async function unequip_skin(): Promise<void> {

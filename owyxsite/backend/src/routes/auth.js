@@ -533,43 +533,26 @@ router.post('/login', [
 
         const loginKey = rawLogin.includes('@') ? rawLogin.toLowerCase() : rawLogin;
 
-        // Browser Host (owyx.site / www) must always pass Turnstile — even if a
-        // copied X-Owyx-Client-Key is replayed. Launcher password login on API
-        // Host may skip captcha only with a valid client key; prefer browser SSO.
-        const { requestHost, parseList } = require('../middleware/clientKey');
-        const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
-        const gotKey = (req.get('x-owyx-client-key') || '').trim();
-        const apiHosts = parseList(process.env.API_HOSTS, 'api.owyx.site');
-        const siteHosts = parseList(process.env.SITE_HOSTS, 'owyx.site,www.owyx.site');
-        const host = requestHost(req);
-        const onApiHost = apiHosts.includes(host);
-        const onSiteHost = siteHosts.includes(host);
-        // Never skip Turnstile on browser Site Host (F7).
-        const launcherClient =
-            !onSiteHost &&
-            onApiHost &&
-            Boolean(expectedKey) &&
-            gotKey === expectedKey;
-
-        if (!launcherClient) {
-            const turnstileResult = await verifyTurnstile(turnstileToken, ip);
-            if (!turnstileResult.success) {
-                return res.status(400).json({
-                    error: turnstileResult.message || 'Проверка капчи не пройдена'
-                });
-            }
-        } else {
-            // Harder brute-force when captcha is skipped (client key is in the build).
-            const keyRate = consumeIp(`login-launcher-key:${ip}:${loginKey}`, {
-                windowMs: 60 * 60 * 1000,
-                max: 3,
+        // G8: X-Owyx-Client-Key is public (shipped in the launcher). It must NOT
+        // skip Turnstile. Prefer browser SSO / device flow for the launcher;
+        // password login always requires captcha on every host.
+        const turnstileResult = await verifyTurnstile(turnstileToken, ip);
+        if (!turnstileResult.success) {
+            return res.status(400).json({
+                error: turnstileResult.message || 'Проверка капчи не пройдена. Войдите через браузер из лаунчера.',
             });
-            if (!keyRate.allowed) {
-                await logLoginAttempt(loginKey, ip, userAgent, false);
-                return res.status(429).json({
-                    error: 'Слишком много попыток входа. Попробуйте через час или войдите через браузер.',
-                });
-            }
+        }
+
+        // Account-scoped limit (independent of IP) against distributed guessing.
+        const accountRate = consumeIp(`login-account:${loginKey}`, {
+            windowMs: 60 * 60 * 1000,
+            max: 10,
+        });
+        if (!accountRate.allowed) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            return res.status(429).json({
+                error: 'Слишком много попыток входа для этого аккаунта. Попробуйте через час или войдите через браузер.',
+            });
         }
 
         // Проверяем количество неудачных попыток
@@ -690,10 +673,29 @@ router.post('/logout', authenticateToken, async (req, res) => {
         
         if (token) {
             // Полностью удаляем сессию (а не просто деактивируем)
-            await db.query(
-                'DELETE FROM user_sessions WHERE token_hash = ANY($1::text[])',
+            const deleted = await db.query(
+                'DELETE FROM user_sessions WHERE token_hash = ANY($1::text[]) RETURNING id',
                 [sessionTokenHashes(token)]
             );
+            const deletedSessionId = deleted.rows[0]?.id;
+
+            // G12: disconnect only this session's sockets (other devices stay online).
+            // user_sessions.id is UUID — pass string, never Number(uuid)→NaN.
+            if (deletedSessionId != null) {
+                try {
+                    const { disconnectUserSockets } = require('../socket');
+                    if (typeof disconnectUserSockets === 'function') {
+                        disconnectUserSockets(
+                            Number(req.user.id),
+                            'logout',
+                            null,
+                            String(deletedSessionId)
+                        );
+                    }
+                } catch (socketErr) {
+                    console.warn('logout: could not disconnect sockets', socketErr?.message || socketErr);
+                }
+            }
 
             // Записываем активность
             await logUserActivity(req.user.id, 'logout', 'Выход из системы', {
@@ -1166,35 +1168,38 @@ router.post('/reset-password', [
         }
 
         const { token, password } = req.body;
-
-        // Проверяем токен
-        const tokenResult = await db.query(
-            'SELECT user_id FROM password_reset_tokens WHERE token = $1 AND expires_at > NOW() AND used = false',
-            [token]
-        );
-
-        if (tokenResult.rows.length === 0) {
-            return res.status(400).json({
-                error: 'Недействительный или просроченный токен'
-            });
-        }
-
-        const userId = tokenResult.rows[0].user_id;
-
-        // Хешируем новый пароль
         const hashedPassword = await bcrypt.hash(password, 12);
 
-        // Обновляем пароль пользователя
-        await db.query(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
-            [hashedPassword, userId]
-        );
-
-        // Помечаем токен как использованный
-        await db.query(
-            'UPDATE password_reset_tokens SET used = true WHERE token = $1',
-            [token]
-        );
+        // Atomically claim token + set password in one transaction (G13).
+        const client = await db.getClient();
+        let userId;
+        try {
+            await client.query('BEGIN');
+            const claim = await client.query(
+                `UPDATE password_reset_tokens
+                 SET used = true
+                 WHERE token = $1 AND used = false AND expires_at > NOW()
+                 RETURNING user_id`,
+                [token]
+            );
+            if (claim.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Недействительный или просроченный токен'
+                });
+            }
+            userId = claim.rows[0].user_id;
+            await client.query(
+                'UPDATE users SET password_hash = $1 WHERE id = $2',
+                [hashedPassword, userId]
+            );
+            await client.query('COMMIT');
+        } catch (txErr) {
+            await client.query('ROLLBACK').catch(() => {});
+            throw txErr;
+        } finally {
+            client.release();
+        }
 
         // Revoke sessions + long-term API tokens after credential rotation
         await revokeUserCredentials(userId);

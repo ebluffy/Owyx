@@ -3,8 +3,8 @@ use super::model::{
     InstallCleanup, InstallErrorContext, InstallErrorView, InstallJobDisplay,
     InstallJobEventKind, InstallJobSnapshot, InstallJobState, InstallJobStatus,
     InstallPhaseDetails, InstallPhaseId, InstallPostInstallEdit,
-    InstallProgress, InstallRequest, InstallRollbackState, InstallTarget,
-    SharedInstanceInstallData,
+    InstallProgress, InstallProgressSecondary, InstallRequest,
+    InstallRollbackState, InstallTarget, SharedInstanceInstallData,
 };
 use super::shared_instance::{
     apply_shared_instance_content, apply_shared_instance_update,
@@ -924,6 +924,11 @@ async fn terminalize_failed_job(
         cleanup: job_state.cleanup.clone(),
     });
 
+    // Emit early so the UI hides Pause/Cancel before the long restore copy.
+    if let Ok(record) = store::update_state(job_id, &job_state, state).await {
+        let _ = emit_install_job(&record.snapshot()).await;
+    }
+
     let cleanup_succeeded = match recovery::apply_cleanup(&job_state, state)
         .await
     {
@@ -1220,10 +1225,17 @@ async fn run_request(
             updates,
         } => {
             lock_instance(&instance_id, state).await?;
-            prepare_update_backup(job_id, job_state, state).await?;
-            crate::state::instances::commands::update_selected_projects(
+            // Fail-fast on bad selections before copying gigabytes for rollback.
+            let plan = crate::state::instances::commands::plan_selected_content_updates(
                 &instance_id,
                 &updates,
+                state,
+            )
+            .await?;
+            prepare_update_backup(job_id, job_state, state).await?;
+            crate::state::instances::commands::apply_selected_content_updates(
+                &instance_id,
+                plan,
                 InstallProgressReporter::new(job_id, job_state.clone()),
                 state,
             )
@@ -1567,12 +1579,42 @@ async fn prepare_update_backup(
             "Instance update rollback state is missing".to_string(),
         )
     })?;
+    let reporter = InstallProgressReporter::new(job_id, job_state.clone());
+    reporter
+        .update(
+            InstallPhaseId::PreparingInstance,
+            Some(InstallProgress {
+                current: 0,
+                total: 1,
+                secondary: Some(InstallProgressSecondary {
+                    current: 0,
+                    total: 1,
+                }),
+            }),
+            InstallPhaseDetails::Instance {
+                name: rollback.instance.instance.name.clone(),
+            },
+        )
+        .await?;
+    let instance_name = rollback.instance.instance.name.clone();
     let staging_dir = recovery::prepare_instance_update_backup(
         job_id,
         &rollback.instance,
         state,
+        Some(&reporter),
     )
     .await?;
+    let snapshot = reporter.persist().await?;
+    job_state.set_progress(snapshot.phase, snapshot.progress, snapshot.details);
+    if matches!(job_state.progress.details, InstallPhaseDetails::Empty) {
+        job_state.set_progress(
+            InstallPhaseId::PreparingInstance,
+            job_state.progress.progress.clone(),
+            InstallPhaseDetails::Instance {
+                name: instance_name,
+            },
+        );
+    }
     job_state.paths.staging_dir = Some(staging_dir);
     let record = store::update_state(job_id, job_state, state).await?;
     emit_install_job(&record.snapshot()).await?;

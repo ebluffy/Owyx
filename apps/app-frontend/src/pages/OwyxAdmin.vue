@@ -5,16 +5,18 @@ import {
 	Combobox,
 	type ComboboxOption,
 	defineMessages,
+	FileTreeSelect,
 	injectNotificationManager,
 	useVIntl,
 } from '@modrinth/ui'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
 	export_instance_mrpack_bytes,
 	get_pack_export_candidates,
 	list as listInstances,
+	type PackExportCandidate,
 } from '@/helpers/instance'
 import {
 	adminBanUser,
@@ -112,6 +114,28 @@ const messages = defineMessages({
 		defaultMessage: 'Select instance',
 	},
 	bindNone: { id: 'owyx.servers.bind-none', defaultMessage: '— no pack —' },
+	exportFilesLabel: {
+		id: 'owyx.admin.export-files-label',
+		defaultMessage: 'Files to include in server pack',
+	},
+	kubejsMissingWarn: {
+		id: 'owyx.admin.kubejs-missing-warn',
+		defaultMessage:
+			'This instance has a kubejs/ folder, but it is not selected for export. Friends may get empty KubeJS scripts and Forge registry desync.',
+	},
+	packVersionLabel: {
+		id: 'owyx.admin.pack-version-label',
+		defaultMessage: 'Pack version',
+	},
+	updateServerPack: {
+		id: 'owyx.admin.update-server-pack',
+		defaultMessage: 'Update server pack (E2 preview)',
+	},
+	updateServerPackHint: {
+		id: 'owyx.admin.update-server-pack-hint',
+		defaultMessage:
+			'E2 unfinished: publishes a new pack version string. Apply migration 018_pack_versions.sql on VPS for version history.',
+	},
 	createServer: { id: 'owyx.servers.create-server', defaultMessage: 'Publish server' },
 	creating: { id: 'owyx.servers.creating', defaultMessage: 'Publishing…' },
 	openSiteAdmin: { id: 'owyx.admin.open-site', defaultMessage: 'Open full site admin' },
@@ -201,7 +225,18 @@ const formPort = ref('25565')
 const formMc = ref<string | null>('1.21.1')
 const formLoader = ref<string | null>('vanilla')
 const formNotes = ref('')
+const formPackVersion = ref('1.0.0')
 const formInstanceId = ref<string | null>(null)
+/** E2 preview: show “update pack” controls when localStorage owyx.e2UpdatePack=1 */
+const e2UpdatePackEnabled = ref(false)
+const publishExportFiles = shallowRef<PackExportCandidate[]>([])
+const publishIncludedPaths = ref<string[]>([])
+const publishExcludedPaths = ref<string[]>([])
+const publishFileTreeKey = ref(0)
+const publishFilesLoadId = ref(0)
+const publishDirectoryEntries = new Map<string, PackExportCandidate[]>()
+const publishCurrentDirectory = ref('')
+const publishHasKubejsOnDisk = ref(false)
 
 const packName = ref('')
 const packMc = ref('1.21.1')
@@ -305,22 +340,111 @@ watch(adminTab, (tab) => {
 	}
 })
 
-watch(formInstanceId, (id) => {
-	const inst = instances.value.find((i) => i.id === id)
-	if (!inst) return
-	if (inst.game_version) formMc.value = inst.game_version
-	if (inst.loader) formLoader.value = String(inst.loader).toLowerCase()
+const publishKubejsOmitted = computed(() => {
+	if (!publishHasKubejsOnDisk.value) return false
+	const included = publishIncludedPaths.value
+	return !included.some((p) => {
+		const normalized = p.replaceAll('\\', '/')
+		return normalized === 'kubejs' || normalized.startsWith('kubejs/')
+	})
 })
 
+watch(formInstanceId, (id) => {
+	const inst = instances.value.find((i) => i.id === id)
+	if (!inst) {
+		resetPublishExportState()
+		return
+	}
+	if (inst.game_version) formMc.value = inst.game_version
+	if (inst.loader) formLoader.value = String(inst.loader).toLowerCase()
+	void loadPublishExportCandidates(inst.id).catch(handleError)
+})
+
+function resetPublishExportState() {
+	publishExportFiles.value = []
+	publishIncludedPaths.value = []
+	publishExcludedPaths.value = []
+	publishFileTreeKey.value += 1
+	publishDirectoryEntries.clear()
+	publishCurrentDirectory.value = ''
+	publishHasKubejsOnDisk.value = false
+	publishFilesLoadId.value += 1
+}
+
+function normalizePublishExportPath(path: string) {
+	return path.replaceAll('\\', '/').split('/').filter(Boolean).join('/')
+}
+
+async function loadPublishExportCandidates(instanceId: string) {
+	const loadId = ++publishFilesLoadId.value
+	publishExportFiles.value = []
+	publishIncludedPaths.value = []
+	publishExcludedPaths.value = []
+	publishDirectoryEntries.clear()
+	publishCurrentDirectory.value = ''
+	publishHasKubejsOnDisk.value = false
+
+	const candidates = await get_pack_export_candidates(instanceId)
+	if (loadId !== publishFilesLoadId.value) return
+
+	publishHasKubejsOnDisk.value = candidates.some(
+		(c) => c.path === 'kubejs' || c.path.startsWith('kubejs/'),
+	)
+	publishExportFiles.value = candidates
+	publishDirectoryEntries.set('', candidates)
+	publishCurrentDirectory.value = ''
+	publishIncludedPaths.value = candidates
+		.filter((file) => !file.disabled && file.defaultSelected)
+		.map((file) => file.path)
+	publishExcludedPaths.value = candidates
+		.filter((file) => !file.disabled && !file.defaultSelected)
+		.map((file) => file.path)
+	publishFileTreeKey.value += 1
+}
+
+async function loadPublishExportDirectory(path: string) {
+	const inst = instances.value.find((i) => i.id === formInstanceId.value)
+	if (!inst) return
+	const normalizedPath = normalizePublishExportPath(path)
+	publishCurrentDirectory.value = normalizedPath
+
+	const cachedEntries = publishDirectoryEntries.get(normalizedPath)
+	if (cachedEntries) {
+		publishExportFiles.value = cachedEntries
+		return
+	}
+
+	const loadId = publishFilesLoadId.value
+	publishExportFiles.value = []
+	try {
+		const childItems = await get_pack_export_candidates(inst.id, normalizedPath || undefined)
+		if (loadId !== publishFilesLoadId.value) return
+		publishDirectoryEntries.set(normalizedPath, childItems)
+		if (publishCurrentDirectory.value === normalizedPath) {
+			publishExportFiles.value = childItems
+		}
+	} catch {
+		if (publishCurrentDirectory.value === normalizedPath) publishExportFiles.value = []
+	}
+}
+
 async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fileName: string }> {
-	const candidates = await get_pack_export_candidates(inst.id)
-	const included = candidates.filter((c) => c.defaultSelected).map((c) => c.path)
-	const excluded = candidates.filter((c) => !c.defaultSelected).map((c) => c.path)
+	if (!publishIncludedPaths.value.length && formInstanceId.value === inst.id) {
+		await loadPublishExportCandidates(inst.id)
+	}
+	const included =
+		formInstanceId.value === inst.id && publishIncludedPaths.value.length
+			? [...publishIncludedPaths.value]
+			: (await get_pack_export_candidates(inst.id))
+					.filter((c) => c.defaultSelected)
+					.map((c) => c.path)
+	const excluded = formInstanceId.value === inst.id ? [...publishExcludedPaths.value] : []
+	const version = (formPackVersion.value || '1.0.0').trim() || '1.0.0'
 	const bytes = await export_instance_mrpack_bytes(
 		inst.id,
 		included,
 		excluded,
-		'1.0.0',
+		version,
 		formNotes.value || 'Published from Owyx launcher',
 		inst.name,
 	)
@@ -345,7 +469,7 @@ async function publishServer() {
 			statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
 			const published = await publishLibraryPackToCatalog({
 				name: `${formName.value.trim()} pack`,
-				minecraft: formMc.value.trim() || inst.game_version || '1.21.1',
+				minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 				loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
 				description: formNotes.value || `From library: ${inst.name}`,
 				file: blob,
@@ -358,7 +482,7 @@ async function publishServer() {
 			name: formName.value.trim(),
 			address: formAddress.value.trim(),
 			port: parseInt(formPort.value, 10) || 25565,
-			minecraft: formMc.value.trim() || '1.21.1',
+			minecraft: (formMc.value ?? '').trim() || '1.21.1',
 			loader: formLoader.value || 'vanilla',
 			packId,
 			published: true,
@@ -368,6 +492,57 @@ async function publishServer() {
 		formAddress.value = ''
 		formNotes.value = ''
 		formInstanceId.value = null
+		bumpPackVersion()
+		resetPublishExportState()
+		await loadCatalogAdmin()
+	} catch (e) {
+		handleError(e)
+		statusMsg.value = e instanceof Error ? e.message : String(e)
+	} finally {
+		busy.value = false
+	}
+}
+
+/** SemVer-ish bump of the last numeric segment (E2). */
+function bumpPackVersion() {
+	const current = (formPackVersion.value || '1.0.0').trim()
+	const parts = current.split('.')
+	const last = parts[parts.length - 1]
+	if (/^\d+$/.test(last)) {
+		parts[parts.length - 1] = String(Number(last) + 1)
+		formPackVersion.value = parts.join('.')
+	} else {
+		formPackVersion.value = `${current}.1`
+	}
+}
+
+/**
+ * E2 preview: re-export attached instance and create a new catalog pack entry
+ * with the current version string. Full “update existing pack + notify clients”
+ * needs migration 018 on VPS (not applied by the agent).
+ */
+async function updateServerPackPreview() {
+	const inst = instances.value.find((i) => i.id === formInstanceId.value)
+	if (!inst) {
+		statusMsg.value = 'Select a library instance first'
+		return
+	}
+	busy.value = true
+	statusMsg.value = formatMessage(messages.publishExport)
+	try {
+		const { blob, fileName } = await exportInstancePack(inst)
+		const sizeMb = Math.max(1, Math.round(blob.size / (1024 * 1024)))
+		statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
+		const published = await publishLibraryPackToCatalog({
+			name: `${formName.value.trim() || inst.name} pack`,
+			minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
+			loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
+			description: formNotes.value || `Update ${formPackVersion.value} from library: ${inst.name}`,
+			file: blob,
+			fileName,
+		})
+		statusMsg.value = `E2 preview: published pack ${published.packId} as ${formPackVersion.value}. ${formatMessage(messages.updateServerPackHint)}`
+		bumpPackVersion()
 		await loadCatalogAdmin()
 	} catch (e) {
 		handleError(e)
@@ -476,6 +651,11 @@ onMounted(() => {
 	if (!isAdmin.value) {
 		void router.replace('/owyx-servers')
 		return
+	}
+	try {
+		e2UpdatePackEnabled.value = localStorage.getItem('owyx.e2UpdatePack') === '1'
+	} catch {
+		e2UpdatePackEnabled.value = false
 	}
 	void loadInstances()
 	void loadGameVersions()
@@ -606,6 +786,14 @@ onMounted(() => {
 							:search-placeholder="formatMessage(messages.bindInstanceSearch)"
 						/>
 					</label>
+					<label class="flex flex-col gap-1 text-sm">
+						<span class="text-secondary">{{ formatMessage(messages.packVersionLabel) }}</span>
+						<input
+							v-model="formPackVersion"
+							placeholder="1.0.0"
+							class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
+						/>
+					</label>
 					<label class="flex flex-col gap-1 text-sm sm:col-span-2">
 						<span class="text-secondary">{{ formatMessage(messages.serverDesc) }}</span>
 						<input
@@ -613,6 +801,26 @@ onMounted(() => {
 							class="rounded-lg border border-solid border-surface-5 bg-surface-3 px-3 py-2 text-primary"
 						/>
 					</label>
+				</div>
+				<div v-if="formInstanceId" class="flex flex-col gap-2 min-w-0">
+					<p class="m-0 text-sm font-medium text-contrast">
+						{{ formatMessage(messages.exportFilesLabel) }}
+					</p>
+					<p
+						v-if="publishKubejsOmitted"
+						class="m-0 rounded-lg border border-solid border-orange/40 bg-orange/10 px-3 py-2 text-sm text-orange"
+					>
+						{{ formatMessage(messages.kubejsMissingWarn) }}
+					</p>
+					<FileTreeSelect
+						:key="publishFileTreeKey"
+						v-model="publishIncludedPaths"
+						v-model:excluded-paths="publishExcludedPaths"
+						class="min-w-0"
+						:items="publishExportFiles"
+						lazy
+						@navigate="loadPublishExportDirectory"
+					/>
 				</div>
 				<div class="flex flex-wrap gap-2">
 					<Button
@@ -627,7 +835,18 @@ onMounted(() => {
 								: formatMessage(messages.createServer)
 						}}
 					</Button>
+					<Button
+						v-if="e2UpdatePackEnabled && formInstanceId"
+						type="outlined"
+						:disabled="busy"
+						@click="updateServerPackPreview"
+					>
+						{{ formatMessage(messages.updateServerPack) }}
+					</Button>
 				</div>
+				<p v-if="e2UpdatePackEnabled" class="m-0 text-xs text-secondary">
+					{{ formatMessage(messages.updateServerPackHint) }}
+				</p>
 				<p v-if="statusMsg" class="m-0 text-sm text-secondary">{{ statusMsg }}</p>
 			</section>
 

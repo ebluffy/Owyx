@@ -27,7 +27,7 @@ use super::apply_content_install::{
 use super::check_content_updates::{ContentUpdate, check_content_updates};
 
 #[derive(Clone, Debug)]
-struct BulkUpdatePlan {
+pub(crate) struct BulkUpdatePlan {
     project_updates: Vec<PlannedProjectUpdate>,
     dependency_additions: Vec<PlannedDependencyInstall>,
 }
@@ -155,9 +155,19 @@ async fn apply_content_update(
     Ok(new_path)
 }
 
-pub(crate) async fn update_selected_projects(
+/// Plan bulk content updates without applying them.
+/// Call this *before* the instance backup so bad selections fail fast.
+pub(crate) async fn plan_selected_content_updates(
     instance_id: &str,
     updates: &[ContentUpdateSelection],
+    state: &State,
+) -> crate::Result<BulkUpdatePlan> {
+    plan_bulk_update(instance_id, updates, state).await
+}
+
+pub(crate) async fn apply_selected_content_updates(
+    instance_id: &str,
+    plan: BulkUpdatePlan,
     reporter: InstallProgressReporter,
     state: &State,
 ) -> crate::Result<()> {
@@ -168,7 +178,6 @@ pub(crate) async fn update_selected_projects(
             InstallPhaseDetails::Empty,
         )
         .await?;
-    let plan = plan_bulk_update(instance_id, updates, state).await?;
     apply_bulk_update(instance_id, plan, reporter, state).await
 }
 
@@ -416,32 +425,44 @@ async fn plan_bulk_update(
 
     let mut paths = HashSet::new();
     let mut updates = Vec::with_capacity(selections.len());
+    let mut skipped_missing = Vec::new();
     for selection in selections {
-        if !updateable_paths.contains(&selection.project_path)
-            || !paths.insert(&selection.project_path)
-        {
-            return Err(crate::state::content_store::input(
-                "Selected content cannot be updated",
-            ));
+        if !paths.insert(&selection.project_path) {
+            return Err(crate::state::content_store::input(format!(
+                "Selected content is listed twice: {}",
+                selection.project_path
+            )));
         }
-        let project = installed
+        if !updateable_paths.contains(&selection.project_path) {
+            return Err(crate::state::content_store::input(format!(
+                "Selected content cannot be updated: {}",
+                selection.project_path
+            )));
+        }
+        let Some(project) = installed
             .iter()
             .find(|project| project.relative_path == selection.project_path)
-            .ok_or_else(|| {
-                crate::state::content_store::input(
-                    "Selected content is no longer installed",
-                )
-            })?;
+        else {
+            // Stale selection after a prior failed update/rename — skip, don't fail the batch.
+            tracing::warn!(
+                path = %selection.project_path,
+                "Skipping content update; file is no longer installed"
+            );
+            skipped_missing.push(selection.project_path.clone());
+            continue;
+        };
         let project_id = project.project_id.clone().ok_or_else(|| {
-            crate::state::content_store::input(
-                "Selected content has no Modrinth project",
-            )
+            crate::state::content_store::input(format!(
+                "Selected content has no Modrinth project: {}",
+                selection.project_path
+            ))
         })?;
         let current_version_id =
             project.version_id.clone().ok_or_else(|| {
-                crate::state::content_store::input(
-                    "Selected content has no Modrinth version",
-                )
+                crate::state::content_store::input(format!(
+                    "Selected content has no Modrinth version: {}",
+                    selection.project_path
+                ))
             })?;
         updates.push(ContentUpdate {
             project_id,
@@ -451,6 +472,12 @@ async fn plan_bulk_update(
         });
     }
     if updates.is_empty() {
+        if !skipped_missing.is_empty() {
+            return Err(crate::state::content_store::input(format!(
+                "Selected content is no longer installed: {}",
+                skipped_missing.join(", ")
+            )));
+        }
         return Ok(BulkUpdatePlan {
             project_updates: Vec::new(),
             dependency_additions: Vec::new(),

@@ -1,8 +1,9 @@
-use super::events::emit_install_job;
+use super::events::{InstallProgressReporter, emit_install_job};
 use super::model::{
     InstallCleanup, InstallErrorView, InstallInterruptReason,
     InstallJobDisplay, InstallJobEventKind, InstallJobState, InstallJobStatus,
-    InstallPhaseDetails, InstallPhaseId, InstallRequest, InstallTarget,
+    InstallPhaseDetails, InstallPhaseId, InstallProgress,
+    InstallProgressSecondary, InstallRequest, InstallTarget,
 };
 use super::store;
 use crate::event::InstancePayloadType;
@@ -13,15 +14,32 @@ use crate::state::{
     ContentSetSyncProvider, ContentSetSyncState, InstanceFile,
     InstanceMetadata, State,
 };
-use async_walkdir::WalkDir;
+use async_walkdir::{Filtering, WalkDir};
 use chrono::Utc;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 const SHARED_INSTANCE_ROLLBACK_FILE: &str = "rollback.json";
 const SHARED_INSTANCE_ROLLBACK_INSTANCE_DIR: &str = "instance";
+const SHARED_INSTANCE_ROLLBACK_PRESERVED_DIR: &str = "preserved";
+
+/// Heavy / recreatable paths skipped during update backups.
+/// Restore stashes these aside before wiping the instance so worlds/caches
+/// are not deleted when they were never copied into the backup.
+const BACKUP_OMIT_PATH_PREFIXES: &[&str] = &[
+    "logs",
+    "crash-reports",
+    "screenshots",
+    "saves",
+    ".fabric",
+    ".bobby",
+    ".voxy",
+    "mods/mcef-cache",
+    "mods/mcef-libraries",
+];
 
 #[derive(Deserialize, Serialize)]
 struct SharedInstanceUpdateRollback {
@@ -35,6 +53,7 @@ pub(super) async fn prepare_instance_update_backup(
     job_id: Uuid,
     metadata: &InstanceMetadata,
     state: &State,
+    reporter: Option<&InstallProgressReporter>,
 ) -> crate::Result<PathBuf> {
     let _lease = state.content_store.lease().await;
     let _content_lock =
@@ -102,7 +121,7 @@ pub(super) async fn prepare_instance_update_backup(
                 bindings.iter().any(|binding| binding.file_id == file.id)
             })
             .map(crate::state::content_store::content_file_path)
-            .collect();
+            .collect::<HashSet<_>>();
         let retained = bindings
             .iter()
             .map(|binding| binding.blob_sha512.clone())
@@ -121,6 +140,8 @@ pub(super) async fn prepare_instance_update_backup(
             &staging_dir.join(SHARED_INSTANCE_ROLLBACK_INSTANCE_DIR),
             &skipped,
             state,
+            reporter,
+            true,
         )
         .await?;
         crate::util::io::write(
@@ -258,16 +279,24 @@ async fn restore_instance_update(
             ));
         }
     }
+    let preserved_root =
+        staging_dir.join(SHARED_INSTANCE_ROLLBACK_PRESERVED_DIR);
+    stash_omitted_instance_paths(&instance_path, &preserved_root, state)
+        .await?;
     if tokio::fs::try_exists(&instance_path).await? {
         crate::util::io::remove_dir_all(&instance_path).await?;
     }
     copy_directory(
         &backup_path,
         &instance_path,
-        &std::collections::HashSet::new(),
+        &HashSet::new(),
         state,
+        None,
+        false,
     )
     .await?;
+    restore_omitted_instance_paths(&instance_path, &preserved_root, state)
+        .await?;
     content_rows::restore_instance_content_snapshot(
         &rollback.instance.instance.id,
         &snapshot.files,
@@ -360,15 +389,244 @@ async fn restore_instance_metadata(
     Ok(())
 }
 
+fn is_backup_omitted_path(relative: &str) -> bool {
+    BACKUP_OMIT_PATH_PREFIXES.iter().any(|prefix| {
+        relative == *prefix
+            || relative
+                .strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    })
+}
+
+/// Top-level (or nested) directory that should not be descended into.
+fn is_backup_omitted_dir(relative: &str) -> bool {
+    !relative.is_empty() && is_backup_omitted_path(relative)
+}
+
+fn backup_walk_filter(
+    source: PathBuf,
+    skipped: std::sync::Arc<HashSet<String>>,
+    omit_heavy_paths: bool,
+) -> impl FnMut(
+    async_walkdir::DirEntry,
+) -> std::pin::Pin<
+    Box<dyn std::future::Future<Output = Filtering> + Send>,
+> + Send
++ 'static {
+    move |entry| {
+        let source = source.clone();
+        let skipped = skipped.clone();
+        Box::pin(async move {
+            let entry_path = entry.path();
+            let Ok(relative_path) = entry_path.strip_prefix(&source) else {
+                return Filtering::Continue;
+            };
+            let relative = relative_path
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            if relative.is_empty() {
+                return Filtering::Continue;
+            }
+            if skipped.contains(&relative) {
+                let is_dir = entry
+                    .file_type()
+                    .await
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or(false);
+                return if is_dir {
+                    Filtering::IgnoreDir
+                } else {
+                    Filtering::Ignore
+                };
+            }
+            if omit_heavy_paths && is_backup_omitted_dir(&relative) {
+                let is_dir = entry
+                    .file_type()
+                    .await
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or(false);
+                return if is_dir {
+                    Filtering::IgnoreDir
+                } else {
+                    Filtering::Ignore
+                };
+            }
+            Filtering::Continue
+        })
+    }
+}
+
+async fn stash_omitted_instance_paths(
+    instance_path: &Path,
+    preserved_root: &Path,
+    state: &State,
+) -> crate::Result<()> {
+    if !tokio::fs::try_exists(instance_path).await? {
+        return Ok(());
+    }
+    for prefix in BACKUP_OMIT_PATH_PREFIXES {
+        let source = instance_path.join(prefix);
+        if !tokio::fs::try_exists(&source).await? {
+            continue;
+        }
+        let destination = preserved_root.join(prefix);
+        if let Some(parent) = destination.parent() {
+            crate::util::io::create_dir_all(parent).await?;
+        }
+        if tokio::fs::try_exists(&destination).await? {
+            crate::util::io::remove_dir_all(&destination).await?;
+        }
+        // rename keeps worlds/caches off the wiped instance path
+        if let Err(error) = tokio::fs::rename(&source, &destination).await {
+            // Cross-device fallback: copy then remove.
+            tracing::warn!(
+                "Could not move omitted backup path {} aside ({error}); copying instead",
+                source.display()
+            );
+            copy_directory(
+                &source,
+                &destination,
+                &HashSet::new(),
+                state,
+                None,
+                false,
+            )
+            .await?;
+            crate::util::io::remove_dir_all(&source).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn restore_omitted_instance_paths(
+    instance_path: &Path,
+    preserved_root: &Path,
+    state: &State,
+) -> crate::Result<()> {
+    if !tokio::fs::try_exists(preserved_root).await? {
+        return Ok(());
+    }
+    for prefix in BACKUP_OMIT_PATH_PREFIXES {
+        let source = preserved_root.join(prefix);
+        if !tokio::fs::try_exists(&source).await? {
+            continue;
+        }
+        let destination = instance_path.join(prefix);
+        if let Some(parent) = destination.parent() {
+            crate::util::io::create_dir_all(parent).await?;
+        }
+        if tokio::fs::try_exists(&destination).await? {
+            crate::util::io::remove_dir_all(&destination).await?;
+        }
+        if let Err(error) = tokio::fs::rename(&source, &destination).await {
+            tracing::warn!(
+                "Could not restore omitted path {} ({error}); copying instead",
+                destination.display()
+            );
+            copy_directory(
+                &source,
+                &destination,
+                &HashSet::new(),
+                state,
+                None,
+                false,
+            )
+            .await?;
+            let _ = crate::util::io::remove_dir_all(&source).await;
+        }
+    }
+    let _ = crate::util::io::remove_dir_all(preserved_root).await;
+    Ok(())
+}
+
+async fn measure_backup_totals(
+    source: &Path,
+    skipped: &HashSet<String>,
+) -> crate::Result<(u64, u64)> {
+    let mut total_bytes = 0u64;
+    let mut total_files = 0u64;
+    // Prune heavy/skipped dirs so we do not metadata-walk multi-GB worlds (G3).
+    let mut walker = WalkDir::new(source).filter(backup_walk_filter(
+        source.to_path_buf(),
+        std::sync::Arc::new(skipped.clone()),
+        true,
+    ));
+    while let Some(entry) = walker.next().await {
+        let entry = entry.map_err(|error| {
+            crate::ErrorKind::FSError(format!(
+                "Failed to measure instance backup path: {error}"
+            ))
+        })?;
+        let entry_path = entry.path();
+        let relative_path = entry_path.strip_prefix(source)?;
+        let relative = relative_path
+            .components()
+            .map(|part| part.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        if relative.is_empty() {
+            continue;
+        }
+        let file_type = entry.file_type().await?;
+        if file_type.is_file() || file_type.is_symlink() {
+            total_files += 1;
+            if file_type.is_file() {
+                let meta = tokio::fs::metadata(&entry_path).await.ok();
+                total_bytes += meta.map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    Ok((total_bytes, total_files))
+}
+
 async fn copy_directory(
     source: &Path,
     target: &Path,
-    skipped: &std::collections::HashSet<String>,
+    skipped: &HashSet<String>,
     state: &State,
+    reporter: Option<&InstallProgressReporter>,
+    omit_heavy_paths: bool,
 ) -> crate::Result<()> {
     crate::util::io::create_dir_all(target).await?;
-    let mut walker = WalkDir::new(source);
+
+    let (total_bytes, total_files) = if reporter.is_some() {
+        measure_backup_totals(source, skipped).await?
+    } else {
+        (0, 0)
+    };
+    if let Some(reporter) = reporter {
+        reporter
+            .update(
+                InstallPhaseId::PreparingInstance,
+                Some(InstallProgress {
+                    current: 0,
+                    total: total_bytes.max(1),
+                    secondary: Some(InstallProgressSecondary {
+                        current: 0,
+                        total: total_files.max(1),
+                    }),
+                }),
+                InstallPhaseDetails::Empty,
+            )
+            .await?;
+    }
+
+    let mut copied_bytes = 0u64;
+    let mut copied_files = 0u64;
+    let mut walker = WalkDir::new(source).filter(backup_walk_filter(
+        source.to_path_buf(),
+        std::sync::Arc::new(skipped.clone()),
+        omit_heavy_paths,
+    ));
     while let Some(entry) = walker.next().await {
+        if reporter.is_some()
+            && let Ok(control) =
+                super::control::CURRENT_INSTALL.try_with(Clone::clone)
+        {
+            control.checkpoint().await?;
+        }
         let entry = entry.map_err(|error| {
             crate::ErrorKind::FSError(format!(
                 "Failed to read instance backup path: {error}"
@@ -381,7 +639,7 @@ async fn copy_directory(
             .map(|part| part.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
             .join("/");
-        if skipped.contains(&relative) {
+        if relative.is_empty() {
             continue;
         }
         let target_path = target.join(relative_path);
@@ -389,14 +647,53 @@ async fn copy_directory(
         if file_type.is_dir() {
             crate::util::io::create_dir_all(&target_path).await?;
         } else if file_type.is_file() {
+            let size = tokio::fs::metadata(&entry_path)
+                .await
+                .map(|m| m.len())
+                .unwrap_or(0);
             crate::util::fetch::copy(
                 &entry_path,
                 &target_path,
                 &state.io_semaphore,
             )
             .await?;
+            copied_bytes = copied_bytes.saturating_add(size);
+            copied_files = copied_files.saturating_add(1);
+            if let Some(reporter) = reporter {
+                reporter
+                    .update(
+                        InstallPhaseId::PreparingInstance,
+                        Some(InstallProgress {
+                            current: copied_bytes.min(total_bytes.max(1)),
+                            total: total_bytes.max(1),
+                            secondary: Some(InstallProgressSecondary {
+                                current: copied_files.min(total_files.max(1)),
+                                total: total_files.max(1),
+                            }),
+                        }),
+                        InstallPhaseDetails::Empty,
+                    )
+                    .await?;
+            }
         } else if file_type.is_symlink() {
             copy_symlink(&entry_path, &target_path).await?;
+            copied_files = copied_files.saturating_add(1);
+            if let Some(reporter) = reporter {
+                reporter
+                    .update(
+                        InstallPhaseId::PreparingInstance,
+                        Some(InstallProgress {
+                            current: copied_bytes.min(total_bytes.max(1)),
+                            total: total_bytes.max(1),
+                            secondary: Some(InstallProgressSecondary {
+                                current: copied_files.min(total_files.max(1)),
+                                total: total_files.max(1),
+                            }),
+                        }),
+                        InstallPhaseDetails::Empty,
+                    )
+                    .await?;
+            }
         }
     }
 
@@ -416,7 +713,7 @@ async fn copy_symlink(source: &Path, target: &Path) -> crate::Result<()> {
             })?
             .join(link_target),
     );
-    let link_target = crate::state::content_store::relative_link(
+    let relative_link = crate::state::content_store::relative_link(
         &absolute,
         target.parent().ok_or_else(|| {
             crate::state::content_store::input("Invalid backup target")
@@ -424,19 +721,185 @@ async fn copy_symlink(source: &Path, target: &Path) -> crate::Result<()> {
     );
 
     #[cfg(unix)]
-    tokio::fs::symlink(link_target, target).await?;
+    tokio::fs::symlink(relative_link, target).await?;
 
     #[cfg(windows)]
     {
-        let metadata = tokio::fs::metadata(source).await?;
-        if metadata.is_dir() {
-            tokio::fs::symlink_dir(link_target, target).await?;
+        let metadata = tokio::fs::metadata(&absolute).await.map_err(|error| {
+            crate::ErrorKind::FSError(format!(
+                "Failed to read symlink target {} while backing up {}: {error}",
+                absolute.display(),
+                source.display()
+            ))
+        })?;
+        let symlink_result = if metadata.is_dir() {
+            tokio::fs::symlink_dir(&relative_link, target).await
         } else {
-            tokio::fs::symlink_file(link_target, target).await?;
+            tokio::fs::symlink_file(&relative_link, target).await
+        };
+        match symlink_result {
+            Ok(()) => {}
+            Err(error)
+                if crate::state::content_store::link_unavailable(&error) =>
+            {
+                tracing::warn!(
+                    target: "theseus::install::recovery",
+                    "No symlink privilege while backing up {} (os error {:?}). Copying file/folder instead. Enable Windows Developer Mode to keep symlinks.",
+                    source.display(),
+                    error.raw_os_error(),
+                );
+                materialize_resolved_path(&absolute, target, metadata.is_dir())
+                    .await
+                    .map_err(|copy_error| {
+                        crate::ErrorKind::FSError(format!(
+                            "Failed to copy {} after symlink privilege error (os error 1314). Enable Windows Developer Mode, or free disk space, then retry. Details: {copy_error}",
+                            source.display()
+                        ))
+                        .as_error()
+                    })?;
+            }
+            Err(error) => {
+                return Err(crate::ErrorKind::FSError(format!(
+                    "Failed to recreate symlink for {}: {error}",
+                    source.display()
+                ))
+                .into());
+            }
         }
     }
 
     Ok(())
+}
+
+/// Copy the resolved symlink target when creating a symlink is not allowed.
+#[cfg(windows)]
+async fn materialize_resolved_path(
+    source: &Path,
+    target: &Path,
+    is_dir: bool,
+) -> crate::Result<()> {
+    if is_dir {
+        crate::util::io::create_dir_all(target).await?;
+        let mut read_dir =
+            tokio::fs::read_dir(source).await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to read {}: {error}",
+                    source.display()
+                ))
+            })?;
+        while let Some(entry) =
+            read_dir.next_entry().await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to read {}: {error}",
+                    source.display()
+                ))
+            })?
+        {
+            let entry_path = entry.path();
+            let entry_target = target.join(entry.file_name());
+            let file_type = entry.file_type().await.map_err(|error| {
+                crate::ErrorKind::FSError(format!(
+                    "Failed to inspect {}: {error}",
+                    entry_path.display()
+                ))
+            })?;
+            if file_type.is_dir() {
+                Box::pin(materialize_resolved_path(
+                    &entry_path,
+                    &entry_target,
+                    true,
+                ))
+                .await?;
+            } else if file_type.is_symlink() {
+                // Nested symlinks: prefer materializing their targets too.
+                Box::pin(copy_symlink(&entry_path, &entry_target)).await?;
+            } else {
+                crate::state::content_store::writable_copy(
+                    &entry_path,
+                    &entry_target,
+                )
+                .await?;
+            }
+        }
+    } else {
+        if let Some(parent) = target.parent() {
+            crate::util::io::create_dir_all(parent).await?;
+        }
+        crate::state::content_store::writable_copy(source, target).await?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod backup_omit_tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn omits_heavy_and_recreatable_roots() {
+        assert!(is_backup_omitted_path("logs"));
+        assert!(is_backup_omitted_path("logs/latest.log"));
+        assert!(is_backup_omitted_path("crash-reports/crash.txt"));
+        assert!(is_backup_omitted_path("saves"));
+        assert!(is_backup_omitted_path("saves/world"));
+        assert!(is_backup_omitted_path(".bobby/cache"));
+        assert!(is_backup_omitted_path("screenshots/a.png"));
+        assert!(!is_backup_omitted_path("mods"));
+        assert!(!is_backup_omitted_path("mods/example.jar"));
+        assert!(!is_backup_omitted_path("config/foo.toml"));
+        assert!(!is_backup_omitted_path("config/saves.cfg"));
+        assert!(!is_backup_omitted_path("kubejs/startup_scripts/a.js"));
+    }
+
+    #[tokio::test]
+    async fn measure_skips_descending_into_saves() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("mods")).unwrap();
+        fs::write(root.join("mods/a.jar"), b"mod").unwrap();
+        fs::create_dir_all(root.join("saves/huge/nested")).unwrap();
+        // Many files under saves — must not be counted when pruned.
+        for i in 0..50 {
+            fs::write(
+                root.join(format!("saves/huge/nested/chunk-{i}.dat")),
+                vec![0u8; 64],
+            )
+            .unwrap();
+        }
+        let (bytes, files) =
+            measure_backup_totals(root, &HashSet::new()).await.unwrap();
+        assert_eq!(files, 1, "only mods/a.jar should be measured");
+        assert_eq!(bytes, 3);
+    }
+}
+
+#[cfg(test)]
+mod symlink_tests {
+    use super::*;
+
+    #[test]
+    fn link_unavailable_detects_privilege_errors() {
+        let denied = std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "privilege",
+        );
+        assert!(crate::state::content_store::link_unavailable(&denied));
+        if cfg!(windows) {
+            let error = std::io::Error::from_raw_os_error(1314);
+            assert!(crate::state::content_store::link_unavailable(&error));
+        }
+    }
+
+    #[test]
+    fn symlink_fallback_error_mentions_developer_mode() {
+        let message = format!(
+            "Failed to copy {} after symlink privilege error (os error 1314). Enable Windows Developer Mode, or free disk space, then retry. Details: disk full",
+            Path::new("mods/example.jar").display()
+        );
+        assert!(message.contains("Developer Mode"));
+        assert!(message.contains("1314"));
+    }
 }
 
 pub async fn recover_interrupted_jobs(state: &State) -> crate::Result<()> {

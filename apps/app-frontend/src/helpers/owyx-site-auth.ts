@@ -234,42 +234,14 @@ export class OwyxSiteAuthError extends Error {
 	}
 }
 
-export async function loginOwyxSite(login: string, password: string): Promise<OwyxSiteSession> {
-	const base = apiBase()
-	const key = getOwyxClientKey()
-	if (!key.trim()) {
-		throw new OwyxSiteAuthError(
-			'missing_client_key',
-			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
-		)
-	}
-	const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/login`, {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify({ login: login.trim(), password, remember: true }),
-		signal: AbortSignal.timeout(12000),
-	})
-	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
-	if (!res.ok || !data.token) {
-		const code = String(data.error ?? '')
-		if (code === 'unauthorized_client' || (res.status === 401 && code.includes('unauthorized'))) {
-			throw new OwyxSiteAuthError(
-				'unauthorized_client',
-				'Invalid or missing client key (unauthorized_client). Set X-Owyx-Client-Key under Owyx Servers.',
-			)
-		}
-		const err = String(data.error ?? data.message ?? `Login failed (${res.status})`)
-		throw new Error(err)
-	}
-	const userRaw = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<
-		string,
-		unknown
-	>
-	const user = mapUser(userRaw)
-	const token = String(data.token)
-	persistSession(token, user)
-	const refreshed = await fetchOwyxSiteMe(token)
-	return refreshed ?? { token, user }
+/**
+ * Password login from the launcher is disabled (G8): the API always requires
+ * Turnstile, and the launcher has no captcha widget. Use browser SSO instead.
+ */
+export async function loginOwyxSite(_login: string, _password: string): Promise<OwyxSiteSession> {
+	void _login
+	void _password
+	return loginOwyxSiteViaBrowser()
 }
 
 function randomOwyxAuthState(): string {

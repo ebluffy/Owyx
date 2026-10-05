@@ -52,7 +52,8 @@ pub(crate) fn input(message: impl Into<String>) -> crate::Error {
     crate::ErrorKind::InputError(message.into()).into()
 }
 
-#[cfg(windows)]
+// Used by Windows symlink fallback paths and by unit tests on all platforms.
+#[cfg(any(windows, test))]
 pub(crate) use adapters::filesystem::link_unavailable;
 
 pub(crate) use adapters::sqlite::StoredFileMetadata;

@@ -14,6 +14,10 @@ const messages = defineMessages({
 		id: 'app.action-bar.install.updating-shared-content',
 		defaultMessage: 'Updating shared content',
 	},
+	backingUpInstance: {
+		id: 'app.action-bar.install.backing-up-instance',
+		defaultMessage: 'Backing up instance',
+	},
 })
 
 const kindMessages = defineMessages({
@@ -184,6 +188,10 @@ const failureSummaryMessages = defineMessages({
 		id: 'app.action-bar.install.summary.instance-error',
 		defaultMessage: "Couldn't prepare instance",
 	},
+	contentNoLongerInstalled: {
+		id: 'app.action-bar.install.summary.content-no-longer-installed',
+		defaultMessage: 'Selected mod is no longer installed. Refresh the list and try again.',
+	},
 	cleanupIncomplete: {
 		id: 'app.action-bar.install.summary.cleanup-incomplete',
 		defaultMessage: "Cleanup didn't finish",
@@ -315,6 +323,14 @@ export function useInstallJobDisplay() {
 		if (job.kind === 'update_shared_instance' && job.phase === 'downloading_content') {
 			return formatMessage(messages.updatingSharedContent)
 		}
+		if (
+			(job.kind === 'bulk_update_content' ||
+				job.kind === 'update_shared_instance' ||
+				job.kind === 'install_pack_to_existing_instance') &&
+			job.phase === 'preparing_instance'
+		) {
+			return formatMessage(messages.backingUpInstance)
+		}
 		return formatMessage(phaseMessages[job.phase])
 	}
 
@@ -352,6 +368,13 @@ export function useInstallJobDisplay() {
 					? failureSummaryMessages.packDownloadFailed
 					: failureSummaryMessages.downloadFailed,
 			)
+		}
+		if (
+			errMsg.includes('no longer installed') ||
+			errMsg.includes('cannot be updated') ||
+			errMsg.includes('listed twice')
+		) {
+			return formatMessage(failureSummaryMessages.contentNoLongerInstalled)
 		}
 		if (code === 'pack_error') {
 			return formatMessage(

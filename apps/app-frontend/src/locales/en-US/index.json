@@ -14,6 +14,9 @@
   "app.action-bar.hide-more-running-instances": {
     "message": "Hide more running instances"
   },
+  "app.action-bar.install.backing-up-instance": {
+    "message": "Backing up instance"
+  },
   "app.action-bar.install.copied-details": {
     "message": "Copied"
   },
@@ -43,6 +46,9 @@
   },
   "app.action-bar.install.summary.content-download-failed": {
     "message": "Couldn't download files"
+  },
+  "app.action-bar.install.summary.content-no-longer-installed": {
+    "message": "Selected mod is no longer installed. Refresh the list and try again."
   },
   "app.action-bar.install.summary.corrupt-download": {
     "message": "Downloaded file is corrupt"
@@ -4638,10 +4644,7 @@
     "message": "Create an account"
   },
   "modal.owyx-account-required.description": {
-    "message": "Use the same login (or email) and password as on owyx.site. Microsoft sign-in is optional for licensed skins."
-  },
-  "modal.owyx-account-required.email": {
-    "message": "Login or email"
+    "message": "Sign in via owyx.site in your browser (captcha-safe). Password login from the launcher is disabled. Microsoft sign-in is optional for licensed skins."
   },
   "modal.owyx-account-required.error.missing-client-key": {
     "message": "Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key."
@@ -4651,12 +4654,6 @@
   },
   "modal.owyx-account-required.header": {
     "message": "Account required"
-  },
-  "modal.owyx-account-required.password": {
-    "message": "Password"
-  },
-  "modal.owyx-account-required.sign-in-button": {
-    "message": "Sign in to Owyx"
   },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Sign in to your Owyx account"
@@ -4669,9 +4666,6 @@
   },
   "modal.owyx-account-required.support-prompt": {
     "message": "Need help? Visit <support>owyx.site</support>."
-  },
-  "modal.owyx-account-required.waiting": {
-    "message": "Signing in to Owyx…"
   },
   "modal.owyx-account-required.waiting-browser": {
     "message": "Finish sign-in in your browser…"
@@ -4712,8 +4706,14 @@
   "owyx.admin.draft": {
     "message": "Draft"
   },
+  "owyx.admin.export-files-label": {
+    "message": "Files to include in server pack"
+  },
   "owyx.admin.forbidden": {
     "message": "Admin role required."
+  },
+  "owyx.admin.kubejs-missing-warn": {
+    "message": "This instance has a kubejs/ folder, but it is not selected for export. Friends may get empty KubeJS scripts and Forge registry desync."
   },
   "owyx.admin.news-summary": {
     "message": "Summary"
@@ -4735,6 +4735,9 @@
   },
   "owyx.admin.pack-url": {
     "message": "Archive URL"
+  },
+  "owyx.admin.pack-version-label": {
+    "message": "Pack version"
   },
   "owyx.admin.packs": {
     "message": "Packs"
@@ -4777,6 +4780,12 @@
   },
   "owyx.admin.title": {
     "message": "Admin panel"
+  },
+  "owyx.admin.update-server-pack": {
+    "message": "Update server pack (E2 preview)"
+  },
+  "owyx.admin.update-server-pack-hint": {
+    "message": "E2 unfinished: publishes a new pack version string. Apply migration 018_pack_versions.sql on VPS for version history."
   },
   "owyx.instance.csl.body": {
     "message": "Writes CustomSkinLoader config pointing at https://owyx.site/api/csl/ (public, no client key). Localhost API builds use your configured API base instead. Install the CustomSkinLoader mod in this instance (Fabric/Forge/NeoForge)."

@@ -108,8 +108,8 @@ export function useDownloadManager() {
 				status: job.status,
 				paused: job.paused,
 				canceling: job.canceling,
-				canPause: job.can_pause,
-				canCancel: job.can_cancel,
+				canPause: job.can_pause && job.phase !== 'rolling_back',
+				canCancel: job.can_cancel && job.phase !== 'rolling_back',
 				title: display.getTitle(job, instance?.name),
 				iconUrl: getIconUrl(job.display?.icon) ?? instance?.icon ?? null,
 				text: display.getText(job),
@@ -314,13 +314,14 @@ export function useDownloadManager() {
 	}
 
 	async function cancel(id: string) {
-		if (!jobs.value.get(id)?.can_cancel) return
+		const current = jobs.value.get(id)
+		if (!current?.can_cancel || current.phase === 'rolling_back') return
 		await runJobAction(id, () => install_job_cancel(id))
 	}
 
 	async function togglePause(id: string) {
 		const current = jobs.value.get(id)
-		if (!current?.can_pause) return
+		if (!current?.can_pause || current.phase === 'rolling_back') return
 		await runJobAction(id, () => (current.paused ? install_job_resume(id) : install_job_pause(id)))
 	}
 

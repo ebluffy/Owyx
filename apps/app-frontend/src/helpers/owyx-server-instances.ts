@@ -3,7 +3,7 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { mkdir, remove, writeFile } from '@tauri-apps/plugin-fs'
+import { exists, mkdir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
@@ -14,7 +14,12 @@ import {
 	wait_for_install_job,
 } from '@/helpers/install'
 import { list } from '@/helpers/instance'
-import { getOwyxClientKey, type OwyxServerEntry, resolveOwyxPackUrl } from '@/helpers/owyx-api'
+import {
+	getOwyxClientKey,
+	isOwyxReuseParentPackEnabled,
+	type OwyxServerEntry,
+	resolveOwyxPackUrl,
+} from '@/helpers/owyx-api'
 import { getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
 import type { GameInstance, InstanceLink } from '@/helpers/types'
 import type { AppEvents } from '@/providers/app-events'
@@ -139,10 +144,85 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 }
 
 /**
- * Cache curated packs under app data `owyx-packs/` (in Tauri fs scope).
+ * Find a non-server library instance that matches this catalog server's
+ * Minecraft version + loader (E1 foundation — opt-in via localStorage).
  */
-export async function downloadOwyxPackToTemp(packUrl: string, serverId: string): Promise<string> {
+export async function findReusableLibraryParent(
+	server: Pick<OwyxServerEntry, 'mcVersion' | 'loader' | 'id'>,
+): Promise<GameInstance | null> {
+	if (!isOwyxReuseParentPackEnabled()) return null
+	const mc = (server.mcVersion || '').trim()
+	const loader = (server.loader || '').trim().toLowerCase()
+	if (!mc) return null
+	const instances = await list()
+	const hit = instances.find((inst) => {
+		if (isOwyxServerInstance(inst)) return false
+		if (inst.install_stage !== 'installed') return false
+		if (inst.game_version !== mc) return false
+		if (loader && String(inst.loader || '').toLowerCase() !== loader) return false
+		return true
+	})
+	return hit ?? null
+}
+
+async function sha256HexOfFile(path: string): Promise<string> {
+	const bytes = await readFile(path)
+	const digest = await crypto.subtle.digest('SHA-256', bytes)
+	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Cache curated packs under app data `owyx-packs/` (in Tauri fs scope).
+ * Reuses the cached file only when Content-Length matches, and packSha256
+ * matches when provided. Without length (and without sha) — always re-download.
+ */
+export async function downloadOwyxPackToTemp(
+	packUrl: string,
+	serverId: string,
+	expectedSha256?: string | null,
+): Promise<string> {
 	const headers = packDownloadHeaders(packUrl)
+	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
+	const MAX_PACK_BYTES = 512 * 1024 * 1024
+	const dir = await join(await appDataDir(), 'owyx-packs')
+	await mkdir(dir, { recursive: true })
+	const ext = packFileExtension(packUrl)
+	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
+	const wantSha = expectedSha256?.trim().toLowerCase() || ''
+
+	// E1: skip re-download only when we can prove the cache is complete.
+	try {
+		if (await exists(path)) {
+			const fileStat = await stat(path)
+			let expected = 0
+			try {
+				const head = await tauriFetch(packUrl, {
+					method: 'HEAD',
+					headers,
+					signal: AbortSignal.timeout(15_000),
+				})
+				expected = Number(head.headers.get('content-length') || 0)
+			} catch {
+				expected = 0
+			}
+			if (fileStat.size >= 32) {
+				if (Number.isFinite(expected) && expected > 0 && fileStat.size !== expected) {
+					await remove(path).catch(() => undefined)
+				} else if (wantSha) {
+					const got = await sha256HexOfFile(path)
+					if (got === wantSha) return path
+					await remove(path).catch(() => undefined)
+				} else if (Number.isFinite(expected) && expected > 0 && fileStat.size === expected) {
+					// Size matches Content-Length; no sha available in catalog yet.
+					return path
+				}
+				// No Content-Length and no sha → never trust the cache.
+			}
+		}
+	} catch {
+		/* fall through to download */
+	}
+
 	let res: Response
 	try {
 		res = await tauriFetch(packUrl, {
@@ -160,8 +240,6 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	if (!res.ok) {
 		throw new Error(`Pack download failed (${res.status})`)
 	}
-	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
-	const MAX_PACK_BYTES = 512 * 1024 * 1024
 	const contentLength = Number(res.headers.get('content-length') || 0)
 	if (Number.isFinite(contentLength) && contentLength > MAX_PACK_BYTES) {
 		throw new Error(
@@ -171,10 +249,6 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 	const body = res.body
 	if (!body) throw new Error('Pack download returned no body')
 
-	const dir = await join(await appDataDir(), 'owyx-packs')
-	await mkdir(dir, { recursive: true })
-	const ext = packFileExtension(packUrl)
-	const path = await join(dir, `${sanitizePackFileId(serverId)}.${ext}`)
 	let totalBytes = 0
 	try {
 		const reader = body.getReader()
@@ -207,6 +281,15 @@ export async function downloadOwyxPackToTemp(packUrl: string, serverId: string):
 			reader.releaseLock()
 		}
 		if (totalBytes < 32) throw new Error('Pack download was empty')
+		if (Number.isFinite(contentLength) && contentLength > 0 && totalBytes !== contentLength) {
+			throw new Error(`Pack download incomplete (${totalBytes} bytes, expected ${contentLength})`)
+		}
+		if (wantSha) {
+			const got = await sha256HexOfFile(path)
+			if (got !== wantSha) {
+				throw new Error('Pack sha256 mismatch after download')
+			}
+		}
 		return path
 	} catch (error) {
 		await remove(path).catch(() => undefined)
@@ -265,7 +348,17 @@ async function installOwyxServerPackInner(
 		}
 	}
 
-	const filePath = await downloadOwyxPackToTemp(packUrl, server.id)
+	// E1 foundation: detect a reusable library parent (flagged). Full hardlink /
+	// hash-diff install is unfinished — we still download the pack (cache-aware).
+	const reusableParent = await findReusableLibraryParent(server)
+	if (reusableParent) {
+		console.info(
+			`[owyx E1] reusable library instance ${reusableParent.id} matches ${server.id}; ` +
+				'full “use my pack” hardlink path not finished — installing pack with cache reuse',
+		)
+	}
+
+	const filePath = await downloadOwyxPackToTemp(packUrl, server.id, server.packSha256)
 	const filename = filePath.split(/[\\/]/).pop() ?? null
 	const link = owyxServerInstanceLink(server, filename)
 	const postEdit = {

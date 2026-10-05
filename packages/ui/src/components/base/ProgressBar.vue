@@ -76,7 +76,7 @@ const percent = computed(() => props.progress / props.max)
 			aria-valuemin="0"
 			aria-valuemax="100"
 			:aria-label="label || undefined"
-			class="flex h-2 w-full overflow-hidden rounded-full"
+			class="relative flex h-2 w-full overflow-hidden rounded-full"
 			:class="[colors[props.color].bg]"
 		>
 			<div
@@ -84,10 +84,10 @@ const percent = computed(() => props.progress / props.max)
 				:class="[
 					colors[props.color].fg,
 					{ 'progress-bar--waiting': waiting },
-					{ 'progress-bar--gradient-border': gradientBorder },
+					{ 'progress-bar--gradient-border': gradientBorder && !waiting },
 					striped ? `progress-bar--striped--${color}` : '',
 				]"
-				:style="!waiting ? { width: `${percent * 100}%` } : {}"
+				:style="!waiting ? { width: `${percent * 100}%` } : undefined"
 			></div>
 		</div>
 	</div>
@@ -98,25 +98,27 @@ const percent = computed(() => props.progress / props.max)
 }
 
 .progress-bar--waiting {
-	animation: progress-bar-waiting 1s linear infinite;
-	position: relative;
+	/* Animate via transform (compositor) — left/width caused leftover “blue dots”
+	   on overloaded GPUs when frames were dropped (G4). */
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 0;
+	width: 35%;
+	will-change: transform;
+	animation: progress-bar-waiting 1.1s ease-in-out infinite;
 }
 
 @keyframes progress-bar-waiting {
 	0% {
-		left: -50%;
-		width: 20%;
-	}
-	50% {
-		width: 60%;
+		transform: translateX(-100%);
 	}
 	100% {
-		left: 100%;
-		width: 20%;
+		transform: translateX(320%);
 	}
 }
 
-.progress-bar--gradient-border {
+.progress-bar--gradient-border:not(.progress-bar--waiting) {
 	position: relative;
 
 	&::after {

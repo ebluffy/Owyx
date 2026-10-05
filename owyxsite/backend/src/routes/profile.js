@@ -403,12 +403,28 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
                 position: 'centre',
             });
         } else if (cropData) {
-            const { scale, rotation, flipX, offsetX, offsetY, cropSize } = cropData;
-            
-            // Вычисляем размеры для кропа
-            const scaledWidth = Math.round(metadata.width * scale);
-            const scaledHeight = Math.round(metadata.height * scale);
-            
+            const { flipX, offsetX, offsetY, cropSize } = cropData;
+            const scaleRaw = Number(cropData.scale);
+            const rotationRaw = Number(cropData.rotation);
+            // G14: clamp scale/rotation and intermediate pixel count.
+            const scale = Number.isFinite(scaleRaw)
+                ? Math.min(8, Math.max(0.1, scaleRaw))
+                : 1;
+            const rotation = Number.isFinite(rotationRaw)
+                ? ((rotationRaw % 360) + 360) % 360
+                : 0;
+            const srcW = Math.max(1, Number(metadata.width) || 1);
+            const srcH = Math.max(1, Number(metadata.height) || 1);
+            let scaledWidth = Math.round(srcW * scale);
+            let scaledHeight = Math.round(srcH * scale);
+            const MAX_INTERMEDIATE_PIXELS = 16_000_000; // ~16 MP
+            const pixels = scaledWidth * scaledHeight;
+            if (pixels > MAX_INTERMEDIATE_PIXELS) {
+                const factor = Math.sqrt(MAX_INTERMEDIATE_PIXELS / pixels);
+                scaledWidth = Math.max(1, Math.round(scaledWidth * factor));
+                scaledHeight = Math.max(1, Math.round(scaledHeight * factor));
+            }
+
             // Начальная обработка: масштабирование и поворот
             sharpInstance = sharpInstance.resize(scaledWidth, scaledHeight);
             

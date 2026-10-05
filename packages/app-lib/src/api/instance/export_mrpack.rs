@@ -32,6 +32,13 @@ const DEFAULT_SELECTED_EXPORT_PATH_PREFIXES: &[&str] = &[
     "resourcepacks",
     "shaderpacks",
     "config",
+    // Server / modpack scripting & datapack loaders (needed for Forge registry sync).
+    "kubejs",
+    "defaultconfigs",
+    "scripts",
+    "global_packs",
+    "openloader",
+    "paxi",
 ];
 const EXPORT_CANDIDATE_METADATA_CONCURRENCY: usize = 32;
 const EXPORT_COPY_BUFFER_SIZE: usize = 256 * 1024;
@@ -750,4 +757,72 @@ pub async fn create_mrpack_json(
         files,
         dependencies,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(s: &str) -> SafeRelativeUtf8UnixPathBuf {
+        SafeRelativeUtf8UnixPathBuf::try_from(s.to_string())
+            .expect("valid relative path")
+    }
+
+    #[test]
+    fn default_publish_export_includes_kubejs_startup_scripts() {
+        assert!(is_default_selected_export_candidate(&path(
+            "kubejs/startup_scripts/example.js"
+        )));
+        assert!(is_default_selected_export_candidate(&path(
+            "kubejs/server_scripts/recipes.js"
+        )));
+        assert!(is_default_selected_export_candidate(&path(
+            "defaultconfigs"
+        )));
+        assert!(is_default_selected_export_candidate(&path(
+            "scripts/foo.zs"
+        )));
+        assert!(is_default_selected_export_candidate(&path(
+            "global_packs/required_data"
+        )));
+        assert!(is_default_selected_export_candidate(&path("openloader")));
+        assert!(is_default_selected_export_candidate(&path(
+            "paxi/datapacks"
+        )));
+    }
+
+    #[test]
+    fn default_publish_export_skips_saves_logs_crash_reports() {
+        assert!(!is_default_selected_export_candidate(&path("saves")));
+        assert!(!is_default_selected_export_candidate(&path(
+            "saves/world/level.dat"
+        )));
+        assert!(!is_default_selected_export_candidate(&path("logs")));
+        assert!(!is_default_selected_export_candidate(&path(
+            "crash-reports"
+        )));
+    }
+
+    #[test]
+    fn kubejs_paths_are_exportable_not_stripped_by_never_list() {
+        assert!(is_path_exportable(&path("kubejs")));
+        assert!(is_path_exportable(&path(
+            "kubejs/startup_scripts/example.js"
+        )));
+        assert!(is_path_exportable(&path("defaultconfigs")));
+        assert!(is_path_exportable(&path("scripts")));
+    }
+
+    #[test]
+    fn install_mrpack_override_prefix_keeps_kubejs_relative_path() {
+        // install_mrpack.rs strips "overrides/" / "client-overrides/" then writes
+        // the remainder under the instance path — kubejs/** must survive.
+        let zip_entry = "overrides/kubejs/startup_scripts/example.js";
+        let relative = zip_entry
+            .strip_prefix("overrides/")
+            .or_else(|| zip_entry.strip_prefix("client-overrides/"))
+            .expect("override prefix");
+        assert_eq!(relative, "kubejs/startup_scripts/example.js");
+        assert!(is_default_selected_export_candidate(&path(relative)));
+    }
 }

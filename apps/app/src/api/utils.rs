@@ -77,6 +77,47 @@ pub async fn owyx_site_session_set(payload: String) -> Result<()> {
         )
         .await?;
     }
+    #[cfg(windows)]
+    {
+        // Best-effort NTFS ACL: drop inheritance, grant only the current user.
+        // Profile dirs are already user-scoped; this hardens against overly open
+        // inherited ACEs (G10). Failure is non-fatal.
+        if let Err(error) = restrict_windows_file_acl(&path).await {
+            tracing::warn!(
+                path = %path.display(),
+                "Could not tighten site_session.json ACL: {error}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+async fn restrict_windows_file_acl(
+    path: &std::path::Path,
+) -> std::io::Result<()> {
+    let username = std::env::var_os("USERNAME").ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "USERNAME env var missing",
+        )
+    })?;
+    let grant = format!("{}:(F)", username.to_string_lossy());
+    let status = tokio::process::Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r"])
+        .arg(&grant)
+        .output()
+        .await?;
+    if !status.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!(
+                "icacls failed: {}",
+                String::from_utf8_lossy(&status.stderr)
+            ),
+        ));
+    }
     Ok(())
 }
 

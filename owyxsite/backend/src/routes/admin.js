@@ -145,6 +145,14 @@ router.post('/users/:id/ban', authenticateToken, requireRole(['admin']), async (
             WHERE id = $2
         `, [reason, id]);
         await db.query(`DELETE FROM user_sessions WHERE user_id = $1`, [id]);
+        try {
+            const { disconnectUserSockets } = require('../socket');
+            if (typeof disconnectUserSockets === 'function') {
+                disconnectUserSockets(Number(id), 'banned');
+            }
+        } catch {
+            /* socket optional in tests */
+        }
         await db.query(`
             INSERT INTO admin_logs (admin_id, action, details, target_user_id)
             VALUES ($1, 'user_banned', $2, $3)
