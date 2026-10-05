@@ -11,16 +11,18 @@ import {
 
 type FakeSocket = {
 	connected: boolean
+	active: boolean
 	handlers: Map<string, Function[]>
 	on: (event: string, fn: Function) => FakeSocket
 	removeAllListeners: () => void
 	disconnect: () => void
 }
 
-function makeFakeSocket(opts?: { connected?: boolean }): FakeSocket {
+function makeFakeSocket(opts?: { connected?: boolean; active?: boolean }): FakeSocket {
 	const handlers = new Map<string, Function[]>()
 	return {
 		connected: opts?.connected ?? true,
+		active: opts?.active ?? true,
 		handlers,
 		on(event, fn) {
 			const list = handlers.get(event) || []
@@ -33,6 +35,7 @@ function makeFakeSocket(opts?: { connected?: boolean }): FakeSocket {
 		},
 		disconnect() {
 			this.connected = false
+			this.active = false
 		},
 	}
 }
@@ -45,6 +48,7 @@ describe('owyx-pack-socket P3-b3/b4', () => {
 	let ioCalls: Array<{ origin: string; opts: Record<string, unknown> }> = []
 	let sockets: FakeSocket[] = []
 	let nextConnected = true
+	let nextActive = true
 
 	afterEach(() => {
 		__resetOwyxPackSocketForTests()
@@ -55,6 +59,7 @@ describe('owyx-pack-socket P3-b3/b4', () => {
 		ioCalls = []
 		sockets = []
 		nextConnected = true
+		nextActive = true
 	})
 
 	function installMocks() {
@@ -75,7 +80,7 @@ describe('owyx-pack-socket P3-b3/b4', () => {
 			},
 			io: ((origin: string, opts: Record<string, unknown>) => {
 				ioCalls.push({ origin, opts })
-				const s = makeFakeSocket({ connected: nextConnected })
+				const s = makeFakeSocket({ connected: nextConnected, active: nextActive })
 				sockets.push(s)
 				return s as unknown as ReturnType<typeof orig.io>
 			}) as typeof packSocketDeps.io,
@@ -125,14 +130,34 @@ describe('owyx-pack-socket P3-b3/b4', () => {
 	it('skips force-reconnect while socket is still connecting (P3-b4)', () => {
 		installMocks()
 		nextConnected = false
+		nextActive = true
 		token = 'same-jwt'
 		const unsub = subscribeOwyxPackUpdated(() => {})
 		assert.equal(ioCalls.length, 1)
 		assert.equal(sockets[0].connected, false)
+		assert.equal(sockets[0].active, true)
 
 		for (const cb of [...sessionChangedCbs]) cb()
 		assert.equal(ioCalls.length, 1, 'no churn while connecting with same token')
 		assert.equal(sockets[0].connected, false)
+
+		unsub()
+	})
+
+	it('recreates socket after hard reject leaves active=false (P3-b6)', () => {
+		installMocks()
+		nextConnected = false
+		nextActive = false
+		token = 'same-jwt'
+		const unsub = subscribeOwyxPackUpdated(() => {})
+		assert.equal(ioCalls.length, 1)
+		assert.equal(sockets[0].active, false)
+
+		nextConnected = true
+		nextActive = true
+		for (const cb of [...sessionChangedCbs]) cb()
+		assert.equal(ioCalls.length, 2, 'dead socket must be replaced')
+		assert.equal(sockets[1].active, true)
 
 		unsub()
 	})

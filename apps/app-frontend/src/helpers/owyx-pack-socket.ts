@@ -96,9 +96,11 @@ function ensureSocket(): Socket | null {
 		closeSocket()
 		return null
 	}
-	// P3-b4: keep an in-flight / reconnecting socket when the token is unchanged
-	// (`connected` is false during autoConnect and backoff — do not tear it down).
-	if (socket && socketToken === token) return socket
+	// P3-b4 / P3-b6: reuse only while the manager is still alive (`active`).
+	// `connected` is false during autoConnect and backoff — keep those.
+	// After a hard middleware reject, socket.io sets `active === false` and
+	// will not auto-reconnect — must recreate on the next ensureSocket call.
+	if (socket?.active && socketToken === token) return socket
 
 	closeSocket()
 	socketToken = token
@@ -127,7 +129,10 @@ function ensureSocket(): Socket | null {
 	})
 	socket.on('connect_error', (err: Error) => {
 		const msg = String(err?.message || '')
-		if (/invalid token|authentication required|banned/i.test(msg)) {
+		const authReject = /invalid token|authentication required|banned/i.test(msg)
+		// P3-b6: middleware rejects (e.g. "Server misconfigured") leave active=false
+		// with no auto-reconnect — drop the dead handle so the next ensure can recreate.
+		if (authReject || socket?.active === false) {
 			closeSocket()
 		}
 	})
