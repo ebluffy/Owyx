@@ -31,6 +31,7 @@ export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 
 const STORAGE_KEY = 'owyx.serverInstanceMap'
 const PACK_META_KEY = 'owyx.serverPackMeta'
+const PACK_UPDATE_DISMISS_KEY = 'owyx.packUpdateDismissed'
 
 type ServerInstanceMap = Record<string, string>
 type ServerPackMeta = { sha256?: string; version?: string; updatedAt: number }
@@ -219,6 +220,16 @@ export function rememberInstalledPackMeta(
 		updatedAt: Date.now(),
 	}
 	writePackMetaMap(map)
+	// Clear dismiss once the catalog revision is actually installed.
+	try {
+		const dismissed = readDismissedMap()
+		if (dismissed[serverId]) {
+			const { [serverId]: _removed, ...rest } = dismissed
+			localStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(rest))
+		}
+	} catch {
+		/* ignore */
+	}
 }
 
 /**
@@ -251,6 +262,48 @@ export function isOwyxServerPackUpdateAvailable(
 	if (wantSha && prev.sha256 && wantSha !== prev.sha256) return true
 	if (wantVer && prev.version && wantVer !== prev.version) return true
 	return false
+}
+
+type PackUpdateDismiss = { version?: string; sha256?: string }
+
+function readDismissedMap(): Record<string, PackUpdateDismiss> {
+	try {
+		const raw = localStorage.getItem(PACK_UPDATE_DISMISS_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw) as Record<string, PackUpdateDismiss>
+		return parsed && typeof parsed === 'object' ? parsed : {}
+	} catch {
+		return {}
+	}
+}
+
+/** Remember that the user declined updating to this catalog revision (P3-k). */
+export function dismissOwyxPackUpdate(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+) {
+	const map = readDismissedMap()
+	map[server.id] = {
+		version: server.packVersion?.trim() || undefined,
+		sha256: server.packSha256?.trim().toLowerCase() || undefined,
+	}
+	localStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(map))
+}
+
+export function isOwyxPackUpdateDismissed(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	const d = readDismissedMap()[server.id]
+	if (!d) return false
+	const wantVer = server.packVersion?.trim() || ''
+	const wantSha = server.packSha256?.trim().toLowerCase() || ''
+	return (d.version || '') === wantVer && (d.sha256 || '') === wantSha
+}
+
+/** Show Play confirm only when update is available and not dismissed for this revision. */
+export function shouldPromptOwyxPackUpdate(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	return isOwyxServerPackUpdateAvailable(server) && !isOwyxPackUpdateDismissed(server)
 }
 
 /** Stream SHA-256 via Rust (P3) — does not load the whole pack into JS heap. */

@@ -16,11 +16,14 @@ import {
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import {
+	dismissOwyxPackUpdate,
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
 	isOwyxServerPackUpdateAvailable,
 	seedPackMetaFromCache,
+	shouldPromptOwyxPackUpdate,
 } from '@/helpers/owyx-server-instances'
+import { subscribeOwyxPackUpdated } from '@/helpers/owyx-pack-socket'
 import type { GameInstance } from '@/helpers/types'
 import {
 	ensureManagedServerWorldExists,
@@ -124,6 +127,7 @@ const settingsInstance = ref<GameInstance | null>(null)
 const settingsModal = ref<InstanceType<typeof InstanceSettingsModal> | null>(null)
 let statusTimer: ReturnType<typeof setInterval> | null = null
 let unsubscribeInstanceEvents: (() => void) | null = null
+let unsubscribePackSocket: (() => void) | null = null
 
 const hasServers = computed(() => servers.value.length > 0)
 
@@ -291,8 +295,11 @@ async function playServer(server: OwyxServerEntry) {
 	try {
 		await navigator.clipboard.writeText(server.address).catch(() => undefined)
 		let allowUpdate = false
-		if (isOwyxServerPackUpdateAvailable(server) && hasLinkedInstance(server)) {
+		if (shouldPromptOwyxPackUpdate(server) && hasLinkedInstance(server)) {
 			allowUpdate = window.confirm(formatMessage(messages.packUpdateConfirm, { name: server.name }))
+			if (!allowUpdate) {
+				dismissOwyxPackUpdate(server)
+			}
 		}
 		const instanceId = await ensurePackInstalled(server, { allowUpdate })
 		if (!instanceId) return
@@ -322,6 +329,9 @@ onMounted(() => {
 	unsubscribeInstanceEvents = appEvents.on('instance', () => {
 		void refreshLinkedMap()
 	})
+	unsubscribePackSocket = subscribeOwyxPackUpdated(() => {
+		void loadCatalog()
+	})
 })
 
 function onVisibilityChange() {
@@ -334,6 +344,7 @@ onUnmounted(() => {
 	if (statusTimer) clearInterval(statusTimer)
 	document.removeEventListener('visibilitychange', onVisibilityChange)
 	unsubscribeInstanceEvents?.()
+	unsubscribePackSocket?.()
 })
 </script>
 

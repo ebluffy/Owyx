@@ -782,6 +782,17 @@ function packVersionShaConflict(priorSha, newSha) {
   return Boolean(priorSha && newSha && priorSha !== newSha);
 }
 
+/**
+ * Decide whether ingest should rename into finalPath or reuse an existing file (E2-b2).
+ * @returns {{ rename: boolean, trackCreatedForRollback: boolean }}
+ */
+function planIngestFile({ finalExists }) {
+  if (finalExists) {
+    return { rename: false, trackCreatedForRollback: false };
+  }
+  return { rename: true, trackCreatedForRollback: true };
+}
+
 packsAdmin.post(
   '/:id/ingest',
   (req, res, next) => {
@@ -870,13 +881,16 @@ packsAdmin.post(
     } catch {
       finalExists = false;
     }
-    if (finalExists) {
+    const plan = planIngestFile({ finalExists });
+    if (!plan.rename) {
       await fs.promises.unlink(req.file.path).catch(() => {});
       stagedPath = null;
     } else {
       await fs.promises.rename(req.file.path, finalPath);
       stagedPath = null;
-      createdFinalPath = finalPath;
+      if (plan.trackCreatedForRollback) {
+        createdFinalPath = finalPath;
+      }
     }
 
     const url = `/uploads/packs/${finalName}`;
@@ -948,14 +962,31 @@ packsAdmin.post(
       note: 'Файл на этом сайте. Для очень больших складов задайте http_zip URL мини-ПК вручную.',
     });
   } catch (error) {
+    // P3-j: unlink while FOR UPDATE is still held (before ROLLBACK), and never
+    // delete a file that packs.source_config already references (committed race).
+    if (createdFinalPath) {
+      const urlPath = `/uploads/packs/${path.basename(createdFinalPath)}`;
+      let referenced = false;
+      try {
+        const check = await client.query(
+          `SELECT 1 FROM packs WHERE id = $1 AND source_config->>'url' = $2 LIMIT 1`,
+          [req.params.id, urlPath],
+        );
+        referenced = Boolean(check.rows[0]);
+      } catch {
+        referenced = true;
+      }
+      if (!referenced) {
+        await fs.promises.unlink(createdFinalPath).catch(() => {});
+      }
+      createdFinalPath = null;
+    }
     try {
       await client.query('ROLLBACK');
     } catch {
       /* ignore */
     }
-    if (stagedPath) fs.promises.unlink(stagedPath).catch(() => {});
-    // Only unlink a file this request created — never delete a pre-existing live archive (E2-b2).
-    if (createdFinalPath) fs.promises.unlink(createdFinalPath).catch(() => {});
+    if (stagedPath) await fs.promises.unlink(stagedPath).catch(() => {});
     sendError(res, error, 'Не удалось принять архив');
   } finally {
     client.release();
@@ -1250,4 +1281,5 @@ module.exports = {
   MAX_PACK_BYTES,
   packIngestFinalName,
   packVersionShaConflict,
+  planIngestFile,
 };

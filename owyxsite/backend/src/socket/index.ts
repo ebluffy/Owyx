@@ -148,11 +148,26 @@ export function broadcastPackUpdated(
 }
 
 export function initSocket(httpServer: HttpServer) {
-  const corsOrigin = process.env.CORS_ORIGIN
-    ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())
-    : process.env.NODE_ENV === 'production'
-      ? [process.env.FRONTEND_URL || 'https://owyx.site']
-      : ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:3001'];
+  const corsOrigin = [
+    ...new Set([
+      ...(process.env.CORS_ORIGIN
+        ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim()).filter(Boolean)
+        : process.env.NODE_ENV === 'production'
+          ? [process.env.FRONTEND_URL || 'https://owyx.site', 'https://www.owyx.site']
+          : [
+              'http://localhost:3000',
+              'http://127.0.0.1:3000',
+              'http://localhost:3001',
+              'http://127.0.0.1:3001',
+            ]),
+      // Tauri webview origins (launcher pack_updated subscriber).
+      'https://tauri.localhost',
+      'http://tauri.localhost',
+      'tauri://localhost',
+      'http://localhost:1420',
+      'http://127.0.0.1:1420',
+    ]),
+  ];
 
   const io = new Server(httpServer, {
     cors: {

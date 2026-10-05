@@ -5,7 +5,11 @@
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { packIngestFinalName, packVersionShaConflict } = require('./catalog')
+const {
+	packIngestFinalName,
+	packVersionShaConflict,
+	planIngestFile,
+} = require('./catalog')
 
 describe('packIngestFinalName', () => {
 	it('uses content-addressed name with sha prefix', () => {
@@ -16,10 +20,7 @@ describe('packIngestFinalName', () => {
 
 	it('keeps the same path for identical content (safe re-upload)', () => {
 		const sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-		assert.equal(
-			packIngestFinalName('x', sha, 'zip'),
-			packIngestFinalName('x', sha, 'zip'),
-		)
+		assert.equal(packIngestFinalName('x', sha, 'zip'), packIngestFinalName('x', sha, 'zip'))
 	})
 })
 
@@ -39,25 +40,18 @@ describe('packVersionShaConflict', () => {
 	})
 })
 
-describe('ingest rollback policy (E2-b2 contract)', () => {
-	it('only new files are eligible for rollback unlink', () => {
-		// Documented contract mirrored by catalog.js ingest handler:
-		// createdFinalPath is set only after rename into a missing path;
-		// if finalPath already existed, createdFinalPath stays null.
-		const finalExists = true
-		let createdFinalPath = null
-		if (!finalExists) {
-			createdFinalPath = '/uploads/packs/id-sha.zip'
-		}
-		assert.equal(createdFinalPath, null)
+describe('planIngestFile (E2-b2)', () => {
+	it('reuses live file and does not track rollback when final already exists', () => {
+		assert.deepEqual(planIngestFile({ finalExists: true }), {
+			rename: false,
+			trackCreatedForRollback: false,
+		})
 	})
 
-	it('marks created file for unlink when rename creates it', () => {
-		const finalExists = false
-		let createdFinalPath = null
-		if (!finalExists) {
-			createdFinalPath = '/uploads/packs/id-sha.zip'
-		}
-		assert.equal(createdFinalPath, '/uploads/packs/id-sha.zip')
+	it('renames and tracks created path when final is missing', () => {
+		assert.deepEqual(planIngestFile({ finalExists: false }), {
+			rename: true,
+			trackCreatedForRollback: true,
+		})
 	})
 })
