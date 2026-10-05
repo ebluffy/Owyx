@@ -18,6 +18,7 @@ import {
 import {
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
+	isOwyxServerPackUpdateAvailable,
 } from '@/helpers/owyx-server-instances'
 import type { GameInstance } from '@/helpers/types'
 import {
@@ -60,6 +61,10 @@ const messages = defineMessages({
 	settingsNeedInstall: {
 		id: 'owyx.servers.settings-need-install',
 		defaultMessage: 'Download the pack first (Play), then open Settings.',
+	},
+	packUpdateAvailable: {
+		id: 'owyx.servers.pack-update-available',
+		defaultMessage: 'Pack update available',
 	},
 	settingsModalNotReady: {
 		id: 'owyx.servers.settings-modal-not-ready',
@@ -432,6 +437,12 @@ onUnmounted(() => {
 							</span>
 							<span v-if="server.mcVersion">
 								· {{ formatMessage(messages.version, { version: server.mcVersion }) }}
+							</span>
+							<span
+								v-if="isOwyxServerPackUpdateAvailable(server)"
+								class="ml-1 rounded bg-orange/15 px-1.5 py-0.5 text-xs text-orange"
+							>
+								{{ formatMessage(messages.packUpdateAvailable) }}
 							</span>
 						</p>
 					</div>

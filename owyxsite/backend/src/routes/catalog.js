@@ -310,7 +310,9 @@ function publicPack(req, row) {
     sourceType: type,
     manifestUrl: row.manifest_url ? absoluteAsset(req, row.manifest_url) : null,
     accessMode: row.access_mode || 'open',
+    latestVersion: row.latest_version || null,
   };
+  if (cfg.sha256) out.sha256 = cfg.sha256;
   if (type === 'http_zip' || type === 'local_ingest') {
     if (cfg.url) {
       out.downloadUrl = isLocalPackUploadUrl(cfg.url)
@@ -319,7 +321,6 @@ function publicPack(req, row) {
     } else {
       out.downloadUrl = null;
     }
-    if (cfg.sha256) out.sha256 = cfg.sha256;
   } else if (type === 'http_manifest') {
     out.manifestUrl = absoluteAsset(req, cfg.manifestUrl || row.manifest_url);
   } else if (type === 'google_drive') {
@@ -382,6 +383,8 @@ function adminPack(row) {
     manifestUrl: row.manifest_url,
     published: Boolean(row.published),
     accessMode: row.access_mode || 'open',
+    latestVersion: row.latest_version || null,
+    sourceInstanceHint: row.source_instance_hint || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by,
@@ -492,7 +495,7 @@ async function listPublishedServers(req) {
             p.icon_url AS p_icon_url, p.description AS p_description,
             p.source_type AS p_source_type, p.source_config AS p_source_config,
             p.manifest_url AS p_manifest_url, p.published AS p_published,
-            p.access_mode AS p_access_mode
+            p.access_mode AS p_access_mode, p.latest_version AS p_latest_version
      FROM servers s
      LEFT JOIN packs p ON p.id = s.pack_id
      WHERE s.published = true
@@ -514,6 +517,7 @@ async function listPublishedServers(req) {
           manifest_url: row.p_manifest_url,
           published: row.p_published,
           access_mode: row.p_access_mode,
+          latest_version: row.p_latest_version,
         }
       : null;
     if (packRow) {
@@ -771,6 +775,10 @@ packsAdmin.post(
         error: `Приложите zip (поле archive), до ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} МБ`,
       });
     }
+    const versionRaw = String(req.body?.version || '').trim().slice(0, 64);
+    const version = versionRaw || null;
+    const changelog = String(req.body?.changelog || '').slice(0, 4000);
+    const sourceHint = String(req.body?.sourceInstanceHint || '').trim().slice(0, 128) || null;
     const sha256 = await sha256File(req.file.path);
     const size = req.file.size || (await fs.promises.stat(req.file.path)).size;
     const isMrpack = String(req.file.originalname || '').toLowerCase().endsWith('.mrpack');
@@ -779,20 +787,60 @@ packsAdmin.post(
     await fs.promises.rename(req.file.path, finalPath);
     const url = `/uploads/packs/${finalName}`;
     const result = await db.query(
-      `UPDATE packs SET source_type=$2, source_config=$3::jsonb, manifest_url=$4, updated_at=NOW()
+      `UPDATE packs SET source_type=$2, source_config=$3::jsonb, manifest_url=$4,
+        latest_version=COALESCE($5, latest_version),
+        source_instance_hint=COALESCE($6, source_instance_hint),
+        updated_at=NOW()
        WHERE id=$1 RETURNING *`,
       [
         req.params.id,
         isMrpack ? 'mrpack' : 'http_zip',
         JSON.stringify({ url, sha256, size, ingest: 'local' }),
         `/api/launcher/v1/packs/${req.params.id}/manifest`,
+        version,
+        sourceHint,
       ]
     );
+    if (version) {
+      await db.query(
+        `INSERT INTO pack_versions (pack_id, version, changelog, sha256, file_size, source_config, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+         ON CONFLICT (pack_id, version) DO UPDATE SET
+           changelog = EXCLUDED.changelog,
+           sha256 = EXCLUDED.sha256,
+           file_size = EXCLUDED.file_size,
+           source_config = EXCLUDED.source_config,
+           created_by = COALESCE(EXCLUDED.created_by, pack_versions.created_by)`,
+        [
+          req.params.id,
+          version,
+          changelog,
+          sha256,
+          size,
+          JSON.stringify({ url, sha256, size, ingest: 'local', sourceInstanceHint: sourceHint }),
+          req.user?.id || null,
+        ]
+      );
+    }
+    try {
+      const { broadcastPackUpdated } = require('../socket');
+      if (typeof broadcastPackUpdated === 'function') {
+        broadcastPackUpdated({
+          packId: req.params.id,
+          version: version || result.rows[0]?.latest_version || null,
+          sha256,
+          size,
+        });
+      }
+    } catch (notifyErr) {
+      console.warn('pack_updated broadcast skipped', notifyErr?.message || notifyErr);
+    }
     res.json({
       success: true,
       pack: adminPack(result.rows[0]),
       downloadUrl: url,
       sha256,
+      version: version || result.rows[0]?.latest_version || null,
       note: 'Файл на этом сайте. Для очень больших складов задайте http_zip URL мини-ПК вручную.',
     });
   } catch (error) {

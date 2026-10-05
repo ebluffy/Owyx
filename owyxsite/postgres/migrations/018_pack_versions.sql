@@ -1,5 +1,5 @@
 -- Pack version history for «Обновить сборку сервера» (E2).
--- DO NOT apply from the agent — owner runs this on the VPS:
+-- Apply on VPS when upgrading:
 --   docker compose exec -T postgres psql -U owyx_user -d owyx_db < postgres/migrations/018_pack_versions.sql
 --
 -- Idempotent.

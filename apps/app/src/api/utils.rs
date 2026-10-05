@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tauri::Manager;
 use tauri::Runtime;
 use tauri_plugin_opener::OpenerExt;
@@ -6,6 +7,7 @@ use theseus::{
     handler,
     prelude::{CommandPayload, DirectoryInfo, app_db_backup_dir},
 };
+use tokio::io::AsyncReadExt;
 
 use crate::api::{Result, TheseusSerializableError};
 use dashmap::DashMap;
@@ -36,6 +38,7 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_session_clear,
             owyx_site_browser_login,
             owyx_site_browser_login_cancel,
+            owyx_sha256_file,
         ])
         .build()
 }
@@ -59,6 +62,49 @@ pub async fn owyx_site_session_get() -> Result<Option<String>> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(err.into()),
     }
+}
+
+/// Stream SHA-256 of a local file without loading it into RAM (P3).
+/// Restricted to the launcher settings/config trees (pack cache: `owyx-packs/`).
+#[tauri::command]
+pub async fn owyx_sha256_file(path: String) -> Result<String> {
+    let requested = PathBuf::from(&path);
+    let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
+        theseus::Error::from(theseus::ErrorKind::InputError(format!(
+            "cannot open path for sha256: {err}"
+        )))
+    })?;
+    let state = theseus::State::get().await?;
+    let settings = tokio::fs::canonicalize(&state.directories.settings_dir)
+        .await
+        .unwrap_or_else(|_| state.directories.settings_dir.clone());
+    let config = tokio::fs::canonicalize(&state.directories.config_dir)
+        .await
+        .unwrap_or_else(|_| state.directories.config_dir.clone());
+    if !(canonical.starts_with(&settings) || canonical.starts_with(&config)) {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "sha256 path must be under the launcher data directory".to_string(),
+        ))
+        .into());
+    }
+    let meta = tokio::fs::metadata(&canonical).await?;
+    if !meta.is_file() {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "sha256 path is not a file".to_string(),
+        ))
+        .into());
+    }
+    let mut file = tokio::fs::File::open(&canonical).await?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 256 * 1024];
+    loop {
+        let n = file.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[tauri::command]

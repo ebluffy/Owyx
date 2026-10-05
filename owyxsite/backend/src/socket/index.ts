@@ -104,6 +104,23 @@ export function disconnectUserSockets(
   }
 }
 
+/** Notify connected site clients that a catalog pack revision changed (E2). */
+export function broadcastPackUpdated(payload: {
+  packId: string;
+  version?: string | null;
+  sha256?: string | null;
+  size?: number | null;
+}) {
+  if (!ioRef) return;
+  ioRef.emit('pack_updated', {
+    packId: payload.packId,
+    version: payload.version || null,
+    sha256: payload.sha256 || null,
+    size: payload.size ?? null,
+    at: new Date().toISOString(),
+  });
+}
+
 export function initSocket(httpServer: HttpServer) {
   const corsOrigin = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((s) => s.trim())

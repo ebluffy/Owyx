@@ -3,17 +3,19 @@
  */
 
 import { appDataDir, join } from '@tauri-apps/api/path'
-import { exists, mkdir, readFile, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
+import { exists, mkdir, remove, stat, writeFile } from '@tauri-apps/plugin-fs'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
 	install_create_modpack_instance,
+	install_duplicate_instance,
 	install_pack_to_existing_instance,
 	installJobInstanceId,
 	type InstallJobSnapshot,
 	wait_for_install_job,
 } from '@/helpers/install'
-import { list } from '@/helpers/instance'
+import { edit, list } from '@/helpers/instance'
 import {
 	getOwyxClientKey,
 	isOwyxReuseParentPackEnabled,
@@ -27,6 +29,7 @@ import type { AppEvents } from '@/providers/app-events'
 export const OWYX_SERVER_LINK_PREFIX = 'owyx-server:'
 
 const STORAGE_KEY = 'owyx.serverInstanceMap'
+const PACK_META_KEY = 'owyx.serverPackMeta'
 
 type ServerInstanceMap = Record<string, string>
 
@@ -145,7 +148,7 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 
 /**
  * Find a non-server library instance that matches this catalog server's
- * Minecraft version + loader (E1 foundation — opt-in via localStorage).
+ * Minecraft version + loader (E1 — opt-in via localStorage `owyx.reuseParentPack=1`).
  */
 export async function findReusableLibraryParent(
 	server: Pick<OwyxServerEntry, 'mcVersion' | 'loader' | 'id'>,
@@ -165,10 +168,50 @@ export async function findReusableLibraryParent(
 	return hit ?? null
 }
 
+type ServerPackMeta = { sha256?: string; version?: string; updatedAt: number }
+
+function readPackMetaMap(): Record<string, ServerPackMeta> {
+	try {
+		const raw = localStorage.getItem(PACK_META_KEY)
+		if (!raw) return {}
+		const parsed = JSON.parse(raw) as Record<string, ServerPackMeta>
+		return parsed && typeof parsed === 'object' ? parsed : {}
+	} catch {
+		return {}
+	}
+}
+
+export function rememberInstalledPackMeta(
+	serverId: string,
+	meta: { sha256?: string | null; version?: string | null },
+) {
+	const map = readPackMetaMap()
+	map[serverId] = {
+		sha256: meta.sha256?.trim().toLowerCase() || undefined,
+		version: meta.version?.trim() || undefined,
+		updatedAt: Date.now(),
+	}
+	localStorage.setItem(PACK_META_KEY, JSON.stringify(map))
+}
+
+/** True when catalog pack sha/version differs from what this device last installed. */
+export function isOwyxServerPackUpdateAvailable(
+	server: Pick<OwyxServerEntry, 'id' | 'packSha256' | 'packVersion'>,
+): boolean {
+	const map = readPackMetaMap()
+	const prev = map[server.id]
+	if (!prev) return false
+	const wantSha = server.packSha256?.trim().toLowerCase() || ''
+	const wantVer = server.packVersion?.trim() || ''
+	if (wantSha && prev.sha256 && wantSha !== prev.sha256) return true
+	if (wantVer && prev.version && wantVer !== prev.version) return true
+	return false
+}
+
+/** Stream SHA-256 via Rust (P3) — does not load the whole pack into JS heap. */
 async function sha256HexOfFile(path: string): Promise<string> {
-	const bytes = await readFile(path)
-	const digest = await crypto.subtle.digest('SHA-256', bytes)
-	return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+	const hex = await invoke<string>('plugin:utils|owyx_sha256_file', { path })
+	return String(hex || '').toLowerCase()
 }
 
 /**
@@ -337,7 +380,9 @@ async function installOwyxServerPackInner(
 		throw new Error('No installable pack URL for this server')
 	}
 	const existing = await findLinkedOwyxServerInstance(server)
-	if (existing?.install_stage === 'installed') {
+	const wantsUpdate =
+		Boolean(existing?.install_stage === 'installed') && isOwyxServerPackUpdateAvailable(server)
+	if (existing?.install_stage === 'installed' && !wantsUpdate) {
 		return { instanceId: existing.id, job: null }
 	}
 	if (existing && isInstallingStage(existing.install_stage)) {
@@ -346,16 +391,6 @@ async function installOwyxServerPackInner(
 			rememberOwyxServerInstance(server.id, finished.id)
 			return { instanceId: finished.id, job: null }
 		}
-	}
-
-	// E1 foundation: detect a reusable library parent (flagged). Full hardlink /
-	// hash-diff install is unfinished — we still download the pack (cache-aware).
-	const reusableParent = await findReusableLibraryParent(server)
-	if (reusableParent) {
-		console.info(
-			`[owyx E1] reusable library instance ${reusableParent.id} matches ${server.id}; ` +
-				'full “use my pack” hardlink path not finished — installing pack with cache reuse',
-		)
 	}
 
 	const filePath = await downloadOwyxPackToTemp(packUrl, server.id, server.packSha256)
@@ -368,7 +403,26 @@ async function installOwyxServerPackInner(
 
 	try {
 		let job: InstallJobSnapshot
-		if (existing) {
+		const reusableParent = await findReusableLibraryParent(server)
+		if (reusableParent && !existing) {
+			// E1: duplicate parent (content-store hardlinks for managed mods), then
+			// apply the catalog pack for hash-diff materialization of changed files.
+			console.info(
+				`[owyx E1] reusing library instance ${reusableParent.id} for ${server.id} via duplicate + pack apply`,
+			)
+			const dupJob = await install_duplicate_instance(reusableParent.id)
+			const dupDone = await wait_for_install_job(appEvents, dupJob.job_id)
+			const dupId = installJobInstanceId(dupDone)
+			if (!dupId) {
+				throw new Error('Duplicate finished without an instance id')
+			}
+			await edit(dupId, postEdit)
+			job = await install_pack_to_existing_instance(
+				dupId,
+				{ type: 'fromFile', path: filePath },
+				postEdit,
+			)
+		} else if (existing) {
 			job = await install_pack_to_existing_instance(
 				existing.id,
 				{ type: 'fromFile', path: filePath },
@@ -384,6 +438,10 @@ async function installOwyxServerPackInner(
 			throw new Error('Install finished without an instance id')
 		}
 		rememberOwyxServerInstance(server.id, instanceId)
+		rememberInstalledPackMeta(server.id, {
+			sha256: server.packSha256,
+			version: server.packVersion,
+		})
 		return { instanceId, job: completed }
 	} catch (error) {
 		forgetOwyxServerInstance(server.id)

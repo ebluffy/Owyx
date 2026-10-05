@@ -394,6 +394,7 @@ fn main() {
                         "owyx_site_session_clear",
                         "owyx_site_browser_login",
                         "owyx_site_browser_login_cancel",
+                        "owyx_sha256_file",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,
