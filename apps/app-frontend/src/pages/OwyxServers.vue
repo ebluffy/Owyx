@@ -24,8 +24,17 @@ import {
 	seedPackMetaFromCache,
 	shouldPromptOwyxPackUpdate,
 } from '@/helpers/owyx-server-instances'
-import { subscribeOwyxPackUpdated } from '@/helpers/owyx-pack-socket'
+import {
+	installOwyxPackSocketDeps,
+	subscribeOwyxPackUpdated,
+} from '@/helpers/owyx-pack-socket'
+import {
+	getStoredOwyxSiteSession,
+	onOwyxSiteSessionChanged,
+	onOwyxSiteSessionCleared,
+} from '@/helpers/owyx-site-auth'
 import type { GameInstance } from '@/helpers/types'
+import { io } from 'socket.io-client'
 import {
 	ensureManagedServerWorldExists,
 	get_server_status,
@@ -353,6 +362,20 @@ onMounted(() => {
 	// Library changes (install/uninstall/delete) invalidate the linked-instance map.
 	unsubscribeInstanceEvents = appEvents.on('instance', () => {
 		void refreshLinkedMap()
+	})
+	installOwyxPackSocketDeps({
+		io,
+		getToken: () => getStoredOwyxSiteSession()?.token?.trim() || '',
+		getOrigin: () => {
+			const base = sanitizeOwyxApiBase(getStoredOwyxApiBase())
+			try {
+				return new URL(base).origin
+			} catch {
+				return base.replace(/\/$/, '')
+			}
+		},
+		onSessionCleared: onOwyxSiteSessionCleared,
+		onSessionChanged: onOwyxSiteSessionChanged,
 	})
 	unsubscribePackSocket = subscribeOwyxPackUpdated(() => {
 		void loadCatalog()

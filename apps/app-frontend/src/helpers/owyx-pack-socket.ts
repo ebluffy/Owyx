@@ -1,16 +1,12 @@
 /**
  * Subscribe to site `pack_updated` socket events (E2 / P3-b).
- * Requires a signed-in Owyx JWT; reconnects when the session changes (P3-b2).
+ * Requires a signed-in Owyx JWT; reconnects when the session changes (P3-b3).
+ *
+ * Auth/API deps are injectable so node:test can cover reconnect without Vite aliases.
+ * Call {@link installOwyxPackSocketDeps} once from the app (OwyxServers) before subscribe.
  */
 
 import { io, type Socket } from 'socket.io-client'
-
-import { getStoredOwyxApiBase, sanitizeOwyxApiBase } from '@/helpers/owyx-api'
-import {
-	getStoredOwyxSiteSession,
-	onOwyxSiteSessionChanged,
-	onOwyxSiteSessionCleared,
-} from '@/helpers/owyx-site-auth'
 
 export type OwyxPackUpdatedEvent = {
 	packId: string
@@ -20,48 +16,79 @@ export type OwyxPackUpdatedEvent = {
 	at?: string
 }
 
+export type OwyxPackSocketDeps = {
+	io: typeof io
+	getToken: () => string
+	getOrigin: () => string
+	onSessionCleared: (cb: () => void) => () => void
+	onSessionChanged: (cb: () => void) => () => void
+}
+
 let socket: Socket | null = null
+/** Last token used to open the current socket — skip force-reconnect if unchanged. */
+let socketToken: string | null = null
 const listeners = new Set<(event: OwyxPackUpdatedEvent) => void>()
 let unsubSessionCleared: (() => void) | null = null
 let unsubSessionChanged: (() => void) | null = null
 
-function apiOrigin(): string {
-	const base = sanitizeOwyxApiBase(getStoredOwyxApiBase())
-	try {
-		return new URL(base).origin
-	} catch {
-		return base.replace(/\/$/, '')
-	}
+/** Injectable for unit tests (P3-b3) and app wiring. */
+export const packSocketDeps: OwyxPackSocketDeps = {
+	io,
+	getToken: () => '',
+	getOrigin: () => 'https://api.owyx.site',
+	onSessionCleared: () => () => {},
+	onSessionChanged: () => () => {},
+}
+
+export function installOwyxPackSocketDeps(partial: Partial<OwyxPackSocketDeps>) {
+	Object.assign(packSocketDeps, partial)
 }
 
 function bindSessionHooks() {
 	if (!unsubSessionCleared) {
-		unsubSessionCleared = onOwyxSiteSessionCleared(() => {
-			teardownOwyxPackSocket()
+		unsubSessionCleared = packSocketDeps.onSessionCleared(() => {
+			closeSocket()
 		})
 	}
 	if (!unsubSessionChanged) {
-		unsubSessionChanged = onOwyxSiteSessionChanged(() => {
-			if (listeners.size > 0) ensureSocket({ force: true })
+		unsubSessionChanged = packSocketDeps.onSessionChanged(() => {
+			if (listeners.size > 0) ensureSocket()
 		})
 	}
 }
 
-function ensureSocket(opts?: { force?: boolean }): Socket | null {
-	const token = getStoredOwyxSiteSession()?.token?.trim()
+function unbindSessionHooks() {
+	unsubSessionCleared?.()
+	unsubSessionCleared = null
+	unsubSessionChanged?.()
+	unsubSessionChanged = null
+}
+
+/** Close the live socket only — keep session hooks so login can reconnect (P3-b3). */
+function closeSocket() {
+	if (socket) {
+		socket.removeAllListeners()
+		socket.disconnect()
+		socket = null
+	}
+	socketToken = null
+}
+
+function ensureSocket(): Socket | null {
+	bindSessionHooks()
+	const token = packSocketDeps.getToken()
 	if (!token) {
-		teardownOwyxPackSocket()
+		closeSocket()
 		return null
 	}
-	if (socket?.connected && !opts?.force) return socket
+	if (socket?.connected && socketToken === token) return socket
 
-	teardownOwyxPackSocket({ keepHooks: true })
-	bindSessionHooks()
-	socket = io(apiOrigin(), {
+	closeSocket()
+	socketToken = token
+	socket = packSocketDeps.io(packSocketDeps.getOrigin(), {
 		path: '/socket.io',
-		// Fresh token on every (re)connect — static auth dies after rotation (P3-b2).
 		auth: (cb: (data: { token: string }) => void) => {
-			cb({ token: getStoredOwyxSiteSession()?.token?.trim() || '' })
+			cb({ token: packSocketDeps.getToken() })
 		},
 		transports: ['websocket', 'polling'],
 		autoConnect: true,
@@ -79,12 +106,12 @@ function ensureSocket(opts?: { force?: boolean }): Socket | null {
 		}
 	})
 	socket.on('session_revoked', () => {
-		teardownOwyxPackSocket()
+		closeSocket()
 	})
 	socket.on('connect_error', (err: Error) => {
 		const msg = String(err?.message || '')
 		if (/invalid token|authentication required|banned/i.test(msg)) {
-			teardownOwyxPackSocket()
+			closeSocket()
 		}
 	})
 	return socket
@@ -98,20 +125,21 @@ export function subscribeOwyxPackUpdated(
 	ensureSocket()
 	return () => {
 		listeners.delete(listener)
-		if (listeners.size === 0) teardownOwyxPackSocket()
+		if (listeners.size === 0) {
+			closeSocket()
+			unbindSessionHooks()
+		}
 	}
 }
 
-export function teardownOwyxPackSocket(opts?: { keepHooks?: boolean }) {
-	if (socket) {
-		socket.removeAllListeners()
-		socket.disconnect()
-		socket = null
-	}
-	if (!opts?.keepHooks) {
-		unsubSessionCleared?.()
-		unsubSessionCleared = null
-		unsubSessionChanged?.()
-		unsubSessionChanged = null
-	}
+/** Public full teardown (socket + hooks). Prefer unsubscribe when listeners remain. */
+export function teardownOwyxPackSocket() {
+	closeSocket()
+	unbindSessionHooks()
+}
+
+/** Test helper — reset module state between cases. */
+export function __resetOwyxPackSocketForTests() {
+	teardownOwyxPackSocket()
+	listeners.clear()
 }

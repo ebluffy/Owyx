@@ -801,6 +801,36 @@ function shouldUnlinkCreatedIngestFile({ referenced }) {
   return !referenced;
 }
 
+/**
+ * Ingest catch path (P3-j2 / P3-c): ROLLBACK TO SAVEPOINT → referenced SELECT → unlink decision.
+ * Exported so unit tests can drive a mock `client.query` through the real branch order.
+ * @param {{ query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }> }} client
+ * @returns {Promise<{ shouldUnlink: boolean, referenced: boolean, urlPath: string }>}
+ */
+async function resolveIngestRollbackUnlink(client, { packId, createdFinalPath }) {
+  const urlPath = `/uploads/packs/${path.basename(createdFinalPath)}`;
+  try {
+    await client.query('ROLLBACK TO SAVEPOINT ingest_write');
+  } catch {
+    /* savepoint may be missing if failure was before it */
+  }
+  let referenced = false;
+  try {
+    const check = await client.query(
+      `SELECT 1 FROM packs WHERE id = $1 AND source_config->>'url' = $2 LIMIT 1`,
+      [packId, urlPath],
+    );
+    referenced = Boolean(check.rows[0]);
+  } catch {
+    referenced = true;
+  }
+  return {
+    shouldUnlink: shouldUnlinkCreatedIngestFile({ referenced }),
+    referenced,
+    urlPath,
+  };
+}
+
 packsAdmin.post(
   '/:id/ingest',
   (req, res, next) => {
@@ -975,23 +1005,11 @@ packsAdmin.post(
     // P3-j2: restore from SAVEPOINT so SELECT works (aborted txn otherwise), then
     // unlink only when the live catalog does not already reference the file.
     if (createdFinalPath) {
-      const urlPath = `/uploads/packs/${path.basename(createdFinalPath)}`;
-      try {
-        await client.query('ROLLBACK TO SAVEPOINT ingest_write');
-      } catch {
-        /* savepoint may be missing if failure was before it */
-      }
-      let referenced = false;
-      try {
-        const check = await client.query(
-          `SELECT 1 FROM packs WHERE id = $1 AND source_config->>'url' = $2 LIMIT 1`,
-          [req.params.id, urlPath],
-        );
-        referenced = Boolean(check.rows[0]);
-      } catch {
-        referenced = true;
-      }
-      if (shouldUnlinkCreatedIngestFile({ referenced })) {
+      const { shouldUnlink } = await resolveIngestRollbackUnlink(client, {
+        packId: req.params.id,
+        createdFinalPath,
+      });
+      if (shouldUnlink) {
         await fs.promises.unlink(createdFinalPath).catch(() => {});
       }
       createdFinalPath = null;
@@ -1298,4 +1316,5 @@ module.exports = {
   packVersionShaConflict,
   planIngestFile,
   shouldUnlinkCreatedIngestFile,
+  resolveIngestRollbackUnlink,
 };
