@@ -17,8 +17,9 @@ node --test owyxsite/backend/src/routes/catalog-ingest.test.js
 # 3) i18n — required whenever defineMessages / formatMessage strings change
 pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force
 pnpm scripts i18n-icu-contract prune-local --check
+# Every en-US key must exist in ru-RU (Crowdin pull is skipped without secrets):
+node -e "const en=require('./apps/app-frontend/src/locales/en-US/index.json'); const ru=require('./apps/app-frontend/src/locales/ru-RU/index.json'); const m=Object.keys(en).filter(k=>!ru[k]); if(m.length){console.error('ru-RU missing',m.length,'keys:\n'+m.join('\n')); process.exit(1)} console.log('ru-RU covers all en-US keys')"
 git diff --exit-code -- apps/app-frontend/src/locales/*/index.json
-# Also add ru-RU translations for new owyx.* keys (Crowdin pull is skipped without secrets).
 
 # 4) Rust fmt (apps/app) when touching apps/app/src/**
 # cargo fmt --manifest-path apps/app/Cargo.toml
@@ -30,6 +31,11 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 ---
 
 ## Entries
+
+### 2026-10-05 · PR #165 · AR round 11 · I18N-2
+
+- **I18N-2:** `app.action-bar.install.backing-up-instance` and `app.action-bar.install.summary.content-no-longer-installed` (from #164) were in en-US but not ru-RU. Prior pass only checked `owyx.*`.
+- **Fix:** translate both; gate now fails if **any** en-US key is missing from ru-RU (not only `owyx.*`).
 
 ### 2026-10-05 · PR #165 · AR round 10 · I18N-1 / DOC-1 / DOC-2
 

@@ -14,6 +14,9 @@
   "app.action-bar.hide-more-running-instances": {
     "message": "Скрыть другие активные сборки"
   },
+  "app.action-bar.install.backing-up-instance": {
+    "message": "Создание резервной копии инстанции"
+  },
   "app.action-bar.install.copied-details": {
     "message": "Скопировано"
   },
@@ -43,6 +46,9 @@
   },
   "app.action-bar.install.summary.content-download-failed": {
     "message": "Не удалось скачать файлы"
+  },
+  "app.action-bar.install.summary.content-no-longer-installed": {
+    "message": "Выбранный мод больше не установлен. Обновите список и попробуйте снова."
   },
   "app.action-bar.install.summary.corrupt-download": {
     "message": "Скачанный файл повреждён"

@@ -60,7 +60,10 @@ pnpm turbo run intl:extract --filter=@modrinth/app-frontend --force
 pnpm scripts i18n-icu-contract prune-local --check
 git add apps/app-frontend/src/locales
 ```
-Для новых `owyx.*` ключей сразу добавляй перевод в `ru-RU/index.json` (Crowdin pull без секретов пропускается).
+Для **любых** новых ключей в `en-US` сразу добавляй перевод в `ru-RU/index.json` (Crowdin pull без секретов пропускается). Проверка покрытия:
+```bash
+node -e "const en=require('./apps/app-frontend/src/locales/en-US/index.json'); const ru=require('./apps/app-frontend/src/locales/ru-RU/index.json'); const m=Object.keys(en).filter(k=>!ru[k]); if(m.length){console.error(m.join('\n')); process.exit(1)}"
+```
 Журнал реальных падений: [`CI_FAILURE_LOG.md`](./CI_FAILURE_LOG.md).
 
 ### 2.4. ClickHouse / Labrinth Docker Services на форках
