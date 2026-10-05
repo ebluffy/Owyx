@@ -16,6 +16,7 @@ import {
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import {
+	clearOwyxPackUpdateDismiss,
 	dismissOwyxPackUpdate,
 	findLinkedOwyxServerInstance,
 	installOwyxServerPack,
@@ -69,6 +70,14 @@ const messages = defineMessages({
 	packUpdateAvailable: {
 		id: 'owyx.servers.pack-update-available',
 		defaultMessage: 'Pack update available',
+	},
+	packUpdateAction: {
+		id: 'owyx.servers.pack-update-action',
+		defaultMessage: 'Update pack',
+	},
+	packUpdating: {
+		id: 'owyx.servers.pack-updating',
+		defaultMessage: 'Updating pack…',
 	},
 	packUpdateConfirm: {
 		id: 'owyx.servers.pack-update-confirm',
@@ -273,6 +282,22 @@ async function ensurePackInstalled(
 	return instanceId
 }
 
+/** Explicit update path from the badge (E2-f) — clears dismiss and applies pack. */
+async function applyPackUpdate(server: OwyxServerEntry) {
+	if (busyId.value) return
+	busyId.value = server.id
+	try {
+		clearOwyxPackUpdateDismiss(server.id)
+		const instanceId = await ensurePackInstalled(server, { allowUpdate: true })
+		if (!instanceId) return
+		await refreshLinkedMap()
+	} catch (e) {
+		handleError(e)
+	} finally {
+		busyId.value = null
+	}
+}
+
 async function playServer(server: OwyxServerEntry) {
 	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
 		const reason = owyx.session.value.user.accessReason || ''
@@ -468,12 +493,20 @@ onUnmounted(() => {
 							<span v-if="server.mcVersion">
 								· {{ formatMessage(messages.version, { version: server.mcVersion }) }}
 							</span>
-							<span
+							<button
 								v-if="isOwyxServerPackUpdateAvailable(server)"
-								class="ml-1 rounded bg-orange/15 px-1.5 py-0.5 text-xs text-orange"
+								type="button"
+								class="ml-1 cursor-pointer rounded border-0 bg-orange/15 px-1.5 py-0.5 text-xs text-orange underline decoration-dotted underline-offset-2 hover:bg-orange/25"
+								:disabled="busyId === server.id"
+								:title="formatMessage(messages.packUpdateAction)"
+								@click="applyPackUpdate(server)"
 							>
-								{{ formatMessage(messages.packUpdateAvailable) }}
-							</span>
+								{{
+									busyId === server.id
+										? formatMessage(messages.packUpdating)
+										: formatMessage(messages.packUpdateAvailable)
+								}}
+							</button>
 						</p>
 					</div>
 				</div>

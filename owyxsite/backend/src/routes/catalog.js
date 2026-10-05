@@ -793,6 +793,14 @@ function planIngestFile({ finalExists }) {
   return { rename: true, trackCreatedForRollback: true };
 }
 
+/**
+ * Decide whether a newly created ingest file may be unlinked on rollback (P3-j2).
+ * Caller must restore a usable transaction (ROLLBACK TO SAVEPOINT) before checking.
+ */
+function shouldUnlinkCreatedIngestFile({ referenced }) {
+  return !referenced;
+}
+
 packsAdmin.post(
   '/:id/ingest',
   (req, res, next) => {
@@ -902,6 +910,7 @@ packsAdmin.post(
       sourceInstanceHint: sourceHint,
     };
 
+    await client.query('SAVEPOINT ingest_write');
     const result = await client.query(
       `UPDATE packs SET source_type=$2, source_config=$3::jsonb, manifest_url=$4,
         latest_version=COALESCE($5, latest_version),
@@ -933,6 +942,7 @@ packsAdmin.post(
         ],
       );
     }
+    await client.query('RELEASE SAVEPOINT ingest_write');
     await client.query('COMMIT');
     createdFinalPath = null;
 
@@ -962,10 +972,15 @@ packsAdmin.post(
       note: 'Файл на этом сайте. Для очень больших складов задайте http_zip URL мини-ПК вручную.',
     });
   } catch (error) {
-    // P3-j: unlink while FOR UPDATE is still held (before ROLLBACK), and never
-    // delete a file that packs.source_config already references (committed race).
+    // P3-j2: restore from SAVEPOINT so SELECT works (aborted txn otherwise), then
+    // unlink only when the live catalog does not already reference the file.
     if (createdFinalPath) {
       const urlPath = `/uploads/packs/${path.basename(createdFinalPath)}`;
+      try {
+        await client.query('ROLLBACK TO SAVEPOINT ingest_write');
+      } catch {
+        /* savepoint may be missing if failure was before it */
+      }
       let referenced = false;
       try {
         const check = await client.query(
@@ -976,7 +991,7 @@ packsAdmin.post(
       } catch {
         referenced = true;
       }
-      if (!referenced) {
+      if (shouldUnlinkCreatedIngestFile({ referenced })) {
         await fs.promises.unlink(createdFinalPath).catch(() => {});
       }
       createdFinalPath = null;
@@ -1282,4 +1297,5 @@ module.exports = {
   packIngestFinalName,
   packVersionShaConflict,
   planIngestFile,
+  shouldUnlinkCreatedIngestFile,
 };

@@ -221,15 +221,7 @@ export function rememberInstalledPackMeta(
 	}
 	writePackMetaMap(map)
 	// Clear dismiss once the catalog revision is actually installed.
-	try {
-		const dismissed = readDismissedMap()
-		if (dismissed[serverId]) {
-			const { [serverId]: _removed, ...rest } = dismissed
-			localStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(rest))
-		}
-	} catch {
-		/* ignore */
-	}
+	clearOwyxPackUpdateDismiss(serverId)
 }
 
 /**
@@ -268,7 +260,7 @@ type PackUpdateDismiss = { version?: string; sha256?: string }
 
 function readDismissedMap(): Record<string, PackUpdateDismiss> {
 	try {
-		const raw = localStorage.getItem(PACK_UPDATE_DISMISS_KEY)
+		const raw = sessionStorage.getItem(PACK_UPDATE_DISMISS_KEY)
 		if (!raw) return {}
 		const parsed = JSON.parse(raw) as Record<string, PackUpdateDismiss>
 		return parsed && typeof parsed === 'object' ? parsed : {}
@@ -286,7 +278,19 @@ export function dismissOwyxPackUpdate(
 		version: server.packVersion?.trim() || undefined,
 		sha256: server.packSha256?.trim().toLowerCase() || undefined,
 	}
-	localStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(map))
+	// Session-scoped so a restart (or badge click) can recover (E2-f).
+	sessionStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(map))
+}
+
+export function clearOwyxPackUpdateDismiss(serverId: string) {
+	try {
+		const map = readDismissedMap()
+		if (!map[serverId]) return
+		const { [serverId]: _removed, ...rest } = map
+		sessionStorage.setItem(PACK_UPDATE_DISMISS_KEY, JSON.stringify(rest))
+	} catch {
+		/* ignore */
+	}
 }
 
 export function isOwyxPackUpdateDismissed(

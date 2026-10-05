@@ -9,6 +9,7 @@ const {
 	packIngestFinalName,
 	packVersionShaConflict,
 	planIngestFile,
+	shouldUnlinkCreatedIngestFile,
 } = require('./catalog')
 
 describe('packIngestFinalName', () => {
@@ -53,5 +54,15 @@ describe('planIngestFile (E2-b2)', () => {
 			rename: true,
 			trackCreatedForRollback: true,
 		})
+	})
+})
+
+describe('shouldUnlinkCreatedIngestFile (P3-j2)', () => {
+	it('unlinks orphans that are not referenced by packs.source_config', () => {
+		assert.equal(shouldUnlinkCreatedIngestFile({ referenced: false }), true)
+	})
+
+	it('keeps the file when catalog already points at it', () => {
+		assert.equal(shouldUnlinkCreatedIngestFile({ referenced: true }), false)
 	})
 })

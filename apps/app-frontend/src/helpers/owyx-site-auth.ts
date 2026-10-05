@@ -186,10 +186,28 @@ export function onOwyxSiteSessionCleared(listener: SessionClearedListener): () =
 	}
 }
 
+type SessionChangedListener = (session: OwyxSiteSession) => void
+const sessionChangedListeners = new Set<SessionChangedListener>()
+
+/** Fired after a successful login / token refresh (P3-b2 pack socket reconnect). */
+export function onOwyxSiteSessionChanged(listener: SessionChangedListener): () => void {
+	sessionChangedListeners.add(listener)
+	return () => {
+		sessionChangedListeners.delete(listener)
+	}
+}
+
 function persistSession(token: string, user: OwyxSiteUser) {
 	memorySession = { token, user }
 	hydratePromise = Promise.resolve(memorySession)
 	void writeOsSession(memorySession)
+	for (const listener of sessionChangedListeners) {
+		try {
+			listener(memorySession)
+		} catch {
+			/* ignore listener errors */
+		}
+	}
 }
 
 function mapUser(
