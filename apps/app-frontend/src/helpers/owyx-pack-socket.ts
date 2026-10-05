@@ -3,7 +3,7 @@
  * Requires a signed-in Owyx JWT; reconnects when the session changes (P3-b3).
  *
  * Auth/API deps are injectable so node:test can cover reconnect without Vite aliases.
- * Call {@link installOwyxPackSocketDeps} once from the app (OwyxServers) before subscribe.
+ * Call {@link installOwyxPackSocketDeps} once at app bootstrap (`main.js`) before any subscribe.
  */
 
 import { io, type Socket } from 'socket.io-client'
@@ -30,11 +30,24 @@ let socketToken: string | null = null
 const listeners = new Set<(event: OwyxPackUpdatedEvent) => void>()
 let unsubSessionCleared: (() => void) | null = null
 let unsubSessionChanged: (() => void) | null = null
+let depsInstalled = false
+let warnedMissingDeps = false
+
+function warnIfDepsMissing(fn: string) {
+	if (depsInstalled || warnedMissingDeps) return
+	warnedMissingDeps = true
+	console.warn(
+		`[owyx-pack-socket] ${fn}: deps not installed — call installOwyxPackSocketDeps() at app bootstrap`,
+	)
+}
 
 /** Injectable for unit tests (P3-b3) and app wiring. */
 export const packSocketDeps: OwyxPackSocketDeps = {
 	io,
-	getToken: () => '',
+	getToken: () => {
+		warnIfDepsMissing('getToken')
+		return ''
+	},
 	getOrigin: () => 'https://api.owyx.site',
 	onSessionCleared: () => () => {},
 	onSessionChanged: () => () => {},
@@ -42,6 +55,8 @@ export const packSocketDeps: OwyxPackSocketDeps = {
 
 export function installOwyxPackSocketDeps(partial: Partial<OwyxPackSocketDeps>) {
 	Object.assign(packSocketDeps, partial)
+	depsInstalled = true
+	warnedMissingDeps = false
 }
 
 function bindSessionHooks() {
@@ -81,7 +96,9 @@ function ensureSocket(): Socket | null {
 		closeSocket()
 		return null
 	}
-	if (socket?.connected && socketToken === token) return socket
+	// P3-b4: keep an in-flight / reconnecting socket when the token is unchanged
+	// (`connected` is false during autoConnect and backoff — do not tear it down).
+	if (socket && socketToken === token) return socket
 
 	closeSocket()
 	socketToken = token
@@ -142,4 +159,14 @@ export function teardownOwyxPackSocket() {
 export function __resetOwyxPackSocketForTests() {
 	teardownOwyxPackSocket()
 	listeners.clear()
+	depsInstalled = false
+	warnedMissingDeps = false
+	packSocketDeps.io = io
+	packSocketDeps.getToken = () => {
+		warnIfDepsMissing('getToken')
+		return ''
+	}
+	packSocketDeps.getOrigin = () => 'https://api.owyx.site'
+	packSocketDeps.onSessionCleared = () => () => {}
+	packSocketDeps.onSessionChanged = () => () => {}
 }

@@ -3,6 +3,7 @@ import { afterEach, describe, it } from 'node:test'
 
 import {
 	__resetOwyxPackSocketForTests,
+	installOwyxPackSocketDeps,
 	packSocketDeps,
 	subscribeOwyxPackUpdated,
 	teardownOwyxPackSocket,
@@ -16,10 +17,10 @@ type FakeSocket = {
 	disconnect: () => void
 }
 
-function makeFakeSocket(): FakeSocket {
+function makeFakeSocket(opts?: { connected?: boolean }): FakeSocket {
 	const handlers = new Map<string, Function[]>()
 	return {
-		connected: true,
+		connected: opts?.connected ?? true,
 		handlers,
 		on(event, fn) {
 			const list = handlers.get(event) || []
@@ -36,13 +37,14 @@ function makeFakeSocket(): FakeSocket {
 	}
 }
 
-describe('owyx-pack-socket P3-b3', () => {
+describe('owyx-pack-socket P3-b3/b4', () => {
 	const orig = { ...packSocketDeps }
 	let token = ''
 	let sessionClearedCbs: Array<() => void> = []
 	let sessionChangedCbs: Array<() => void> = []
 	let ioCalls: Array<{ origin: string; opts: Record<string, unknown> }> = []
 	let sockets: FakeSocket[] = []
+	let nextConnected = true
 
 	afterEach(() => {
 		__resetOwyxPackSocketForTests()
@@ -52,29 +54,32 @@ describe('owyx-pack-socket P3-b3', () => {
 		sessionChangedCbs = []
 		ioCalls = []
 		sockets = []
+		nextConnected = true
 	})
 
 	function installMocks() {
-		packSocketDeps.getToken = () => token
-		packSocketDeps.getOrigin = () => 'https://api.owyx.site'
-		packSocketDeps.onSessionCleared = (cb) => {
-			sessionClearedCbs.push(cb)
-			return () => {
-				sessionClearedCbs = sessionClearedCbs.filter((x) => x !== cb)
-			}
-		}
-		packSocketDeps.onSessionChanged = (cb) => {
-			sessionChangedCbs.push(cb)
-			return () => {
-				sessionChangedCbs = sessionChangedCbs.filter((x) => x !== cb)
-			}
-		}
-		packSocketDeps.io = ((origin: string, opts: Record<string, unknown>) => {
-			ioCalls.push({ origin, opts })
-			const s = makeFakeSocket()
-			sockets.push(s)
-			return s as unknown as ReturnType<typeof orig.io>
-		}) as typeof packSocketDeps.io
+		installOwyxPackSocketDeps({
+			getToken: () => token,
+			getOrigin: () => 'https://api.owyx.site',
+			onSessionCleared: (cb) => {
+				sessionClearedCbs.push(cb)
+				return () => {
+					sessionClearedCbs = sessionClearedCbs.filter((x) => x !== cb)
+				}
+			},
+			onSessionChanged: (cb) => {
+				sessionChangedCbs.push(cb)
+				return () => {
+					sessionChangedCbs = sessionChangedCbs.filter((x) => x !== cb)
+				}
+			},
+			io: ((origin: string, opts: Record<string, unknown>) => {
+				ioCalls.push({ origin, opts })
+				const s = makeFakeSocket({ connected: nextConnected })
+				sockets.push(s)
+				return s as unknown as ReturnType<typeof orig.io>
+			}) as typeof packSocketDeps.io,
+		})
 	}
 
 	it('keeps session hooks when subscribe runs before login, then connects on persist', () => {
@@ -113,6 +118,21 @@ describe('owyx-pack-socket P3-b3', () => {
 
 		for (const cb of [...sessionChangedCbs]) cb()
 		assert.equal(ioCalls.length, 1, 'no second io() for same token')
+
+		unsub()
+	})
+
+	it('skips force-reconnect while socket is still connecting (P3-b4)', () => {
+		installMocks()
+		nextConnected = false
+		token = 'same-jwt'
+		const unsub = subscribeOwyxPackUpdated(() => {})
+		assert.equal(ioCalls.length, 1)
+		assert.equal(sockets[0].connected, false)
+
+		for (const cb of [...sessionChangedCbs]) cb()
+		assert.equal(ioCalls.length, 1, 'no churn while connecting with same token')
+		assert.equal(sockets[0].connected, false)
 
 		unsub()
 	})
