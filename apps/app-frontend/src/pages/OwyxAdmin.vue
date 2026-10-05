@@ -50,6 +50,7 @@ import {
 	setStoredOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { createOwyxCatalogServer, publishLibraryPackToCatalog } from '@/helpers/owyx-friends'
+import { rememberPackParentHint } from '@/helpers/owyx-server-instances'
 import { get_game_versions } from '@/helpers/tags'
 import type { GameInstance } from '@/helpers/types'
 import { useRootBreadcrumb } from '@/providers/breadcrumbs'
@@ -283,18 +284,18 @@ const instanceOptions = computed<ComboboxOption<string | null>[]>(() => [
 	})),
 ])
 
-	const updatePackOptions = computed<ComboboxOption<string | null>[]>(() => {
-		const ingestible = new Set(['local_ingest', 'http_zip', 'mrpack'])
-		return [
-			{ value: null, label: formatMessage(messages.bindNone) },
-			...packs.value
-				.filter((pack) => !pack.sourceType || ingestible.has(String(pack.sourceType)))
-				.map((pack) => ({
-					value: pack.id,
-					label: `${pack.name}${pack.latestVersion ? ` · ${pack.latestVersion}` : ''} (${pack.id})`,
-				})),
-		]
-	})
+const updatePackOptions = computed<ComboboxOption<string | null>[]>(() => {
+	const ingestible = new Set(['local_ingest', 'http_zip', 'mrpack'])
+	return [
+		{ value: null, label: formatMessage(messages.bindNone) },
+		...packs.value
+			.filter((pack) => !pack.sourceType || ingestible.has(String(pack.sourceType)))
+			.map((pack) => ({
+				value: pack.id,
+				label: `${pack.name}${pack.latestVersion ? ` · ${pack.latestVersion}` : ''} (${pack.id})`,
+			})),
+	]
+})
 
 async function loadCatalogAdmin() {
 	loading.value = true
@@ -495,8 +496,10 @@ async function publishServer() {
 				description: formNotes.value || `From library: ${inst.name}`,
 				file: blob,
 				fileName,
+				sourceInstanceHint: inst.id,
 			})
 			packId = published.packId
+			rememberPackParentHint(published.packId, inst.id)
 		}
 		statusMsg.value = formatMessage(messages.publishCreate)
 		const server = await createOwyxCatalogServer({
@@ -575,6 +578,7 @@ async function updateServerPack() {
 			changelog: formPackChangelog.value || '',
 			sourceInstanceHint: inst.id,
 		})
+		rememberPackParentHint(published.packId, inst.id)
 		statusMsg.value = `Updated pack ${published.packId} → ${published.version || version}`
 		bumpPackVersion()
 		await loadCatalogAdmin()

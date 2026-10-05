@@ -168,15 +168,24 @@ function packDownloadHeaders(packUrl: string): HeadersInit | undefined {
 }
 
 /**
-	 * Find the library instance that last published this pack (E1).
-	 * Opt-in via localStorage `owyx.reuseParentPack=1`.
-	 * Matches **only** by `packSourceInstanceHint` — never by loose MC+loader.
-	 */
+ * Find a library instance to reuse for this catalog server (E1).
+ * Opt-in via localStorage `owyx.reuseParentPack=1`.
+ * Matches **only** admin-device parent hints stored at publish time
+ * (`owyx.packParentHint:<packId>`), never by loose MC+loader and never
+ * from the public catalog (admin instance ids are not portable).
+ */
 export async function findReusableLibraryParent(
-	server: Pick<OwyxServerEntry, 'id' | 'packSourceInstanceHint'>,
+	server: Pick<OwyxServerEntry, 'id' | 'packId'>,
 ): Promise<GameInstance | null> {
 	if (!isOwyxReuseParentPackEnabled()) return null
-	const hint = (server.packSourceInstanceHint || '').trim()
+	const packKey = (server.packId || server.id || '').trim()
+	if (!packKey) return null
+	let hint = ''
+	try {
+		hint = localStorage.getItem(`owyx.packParentHint:${packKey}`)?.trim() || ''
+	} catch {
+		hint = ''
+	}
 	if (!hint) return null
 	const instances = await list()
 	const hit = instances.find((inst) => {
@@ -185,6 +194,18 @@ export async function findReusableLibraryParent(
 		return inst.id === hint
 	})
 	return hit ?? null
+}
+
+/** Remember which library instance published a pack (admin device only, E1). */
+export function rememberPackParentHint(packId: string, instanceId: string) {
+	const id = packId?.trim()
+	const inst = instanceId?.trim()
+	if (!id || !inst) return
+	try {
+		localStorage.setItem(`owyx.packParentHint:${id}`, inst)
+	} catch {
+		/* ignore quota */
+	}
 }
 
 export function rememberInstalledPackMeta(
@@ -201,30 +222,14 @@ export function rememberInstalledPackMeta(
 }
 
 /**
-	 * Seed local pack meta from the on-disk cache so pre-E2 installs get update badges (E2-c).
-	 * If the cache is missing but the instance is installed, mark version as unknown so
-	 * a catalog sha/version still surfaces the update badge.
-	 */
+ * Seed local pack meta for pre-E2 installs (E2-c / P3-f).
+ * Prefer marking `__unknown__` over trusting a cache file that may already
+ * be the newer (not-yet-installed) catalog revision.
+ */
 export async function seedPackMetaFromCache(server: OwyxServerEntry): Promise<void> {
 	if (owyxServerPackMeta.value[server.id]) return
 	const linked = await findLinkedOwyxServerInstance(server)
 	if (!linked || linked.install_stage !== 'installed') return
-
-	const dir = await join(await appDataDir(), 'owyx-packs')
-	for (const ext of ['mrpack', 'zip'] as const) {
-		const path = await join(dir, `${sanitizePackFileId(server.id)}.${ext}`)
-		try {
-			if (!(await exists(path))) continue
-			const sha = await sha256HexOfFile(path)
-			rememberInstalledPackMeta(server.id, {
-				sha256: sha,
-				version: undefined,
-			})
-			return
-		} catch {
-			/* try next ext */
-		}
-	}
 
 	if (server.packSha256 || server.packVersion) {
 		rememberInstalledPackMeta(server.id, {
@@ -240,6 +245,7 @@ export function isOwyxServerPackUpdateAvailable(
 ): boolean {
 	const prev = owyxServerPackMeta.value[server.id]
 	if (!prev) return false
+	if (prev.version === '__unknown__') return true
 	const wantSha = server.packSha256?.trim().toLowerCase() || ''
 	const wantVer = server.packVersion?.trim() || ''
 	if (wantSha && prev.sha256 && wantSha !== prev.sha256) return true
@@ -491,7 +497,10 @@ async function installOwyxServerPackInner(
 		})
 		return { instanceId, job: completed }
 	} catch (error) {
-		forgetOwyxServerInstance(server.id)
+		// E2-e: only forget a brand-new link; keep existing server→instance mapping on failed update.
+		if (!existing) {
+			forgetOwyxServerInstance(server.id)
+		}
 		if (orphanDupId) {
 			await removeInstance(orphanDupId).catch(() => undefined)
 		}

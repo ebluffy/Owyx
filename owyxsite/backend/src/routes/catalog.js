@@ -311,7 +311,6 @@ function publicPack(req, row) {
     manifestUrl: row.manifest_url ? absoluteAsset(req, row.manifest_url) : null,
     accessMode: row.access_mode || 'open',
     latestVersion: row.latest_version || null,
-    sourceInstanceHint: row.source_instance_hint || cfg.sourceInstanceHint || null,
   };
   if (cfg.sha256) out.sha256 = cfg.sha256;
   if (type === 'http_zip' || type === 'local_ingest') {
@@ -804,26 +803,17 @@ packsAdmin.post(
   },
   async (req, res) => {
   let stagedPath = req.file?.path || null;
-  let committedPath = null;
+  /** Set only when this request created a new final file that must be rolled back. */
+  let createdFinalPath = null;
   const client = await db.getClient();
   try {
-    const existing = await client.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
-    if (!existing.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
     if (!req.file) {
       return res.status(400).json({
         error: `Приложите zip (поле archive), до ${Math.round(MAX_PACK_BYTES / (1024 * 1024))} МБ`,
       });
     }
-    const prev = existing.rows[0];
-    const prevType = String(prev.source_type || '');
-    if (!['local_ingest', 'http_zip', 'mrpack'].includes(prevType) && prevType) {
-      // Do not silently convert remote warehouses to local uploads.
-      const err = new Error(
-        `ingest запрещён для source_type=${prevType}; используйте local_ingest/http_zip/mrpack`,
-      );
-      err.status = 400;
-      throw err;
-    }
+    stagedPath = req.file.path;
+
     const versionRaw = String(req.body?.version || '').trim().slice(0, 64);
     const version = versionRaw || null;
     const changelog = String(req.body?.changelog || '').slice(0, 4000);
@@ -832,7 +822,6 @@ packsAdmin.post(
     const size = req.file.size || (await fs.promises.stat(req.file.path)).size;
     const isMrpack = String(req.file.originalname || '').toLowerCase().endsWith('.mrpack');
     const ext = isMrpack ? 'mrpack' : 'zip';
-    // Content-addressed name so each revision keeps its own file (E2-b).
     const finalName = packIngestFinalName(req.params.id, sha256, ext);
     const finalPath = path.join(ingestDir, finalName);
     if (!finalPath.startsWith(ingestDir)) {
@@ -841,21 +830,27 @@ packsAdmin.post(
       throw err;
     }
     await fs.promises.mkdir(ingestDir, { recursive: true });
-    await fs.promises.rename(req.file.path, finalPath);
-    stagedPath = null;
-    committedPath = finalPath;
-    const url = `/uploads/packs/${finalName}`;
-    const sourceConfig = {
-      url,
-      sha256,
-      size,
-      ingest: 'local',
-      sourceInstanceHint: sourceHint,
-    };
+
+    await client.query('BEGIN');
+    const locked = await client.query(`SELECT * FROM packs WHERE id = $1 FOR UPDATE`, [req.params.id]);
+    if (!locked.rows[0]) {
+      const err = new Error('Пак не найден');
+      err.status = 404;
+      throw err;
+    }
+    const prev = locked.rows[0];
+    const prevType = String(prev.source_type || '');
+    if (!['local_ingest', 'http_zip', 'mrpack'].includes(prevType) && prevType) {
+      const err = new Error(
+        `ingest запрещён для source_type=${prevType}; используйте local_ingest/http_zip/mrpack`,
+      );
+      err.status = 400;
+      throw err;
+    }
 
     if (version) {
       const prior = await client.query(
-        `SELECT sha256 FROM pack_versions WHERE pack_id = $1 AND version = $2`,
+        `SELECT sha256 FROM pack_versions WHERE pack_id = $1 AND version = $2 FOR UPDATE`,
         [req.params.id, version],
       );
       if (prior.rows[0] && packVersionShaConflict(prior.rows[0].sha256, sha256)) {
@@ -867,7 +862,32 @@ packsAdmin.post(
       }
     }
 
-    await client.query('BEGIN');
+    // Same content already on disk — keep the live file; drop only the staged upload (E2-b2).
+    let finalExists = false;
+    try {
+      await fs.promises.access(finalPath, fs.constants.F_OK);
+      finalExists = true;
+    } catch {
+      finalExists = false;
+    }
+    if (finalExists) {
+      await fs.promises.unlink(req.file.path).catch(() => {});
+      stagedPath = null;
+    } else {
+      await fs.promises.rename(req.file.path, finalPath);
+      stagedPath = null;
+      createdFinalPath = finalPath;
+    }
+
+    const url = `/uploads/packs/${finalName}`;
+    const sourceConfig = {
+      url,
+      sha256,
+      size,
+      ingest: 'local',
+      sourceInstanceHint: sourceHint,
+    };
+
     const result = await client.query(
       `UPDATE packs SET source_type=$2, source_config=$3::jsonb, manifest_url=$4,
         latest_version=COALESCE($5, latest_version),
@@ -900,10 +920,7 @@ packsAdmin.post(
       );
     }
     await client.query('COMMIT');
-    committedPath = null; // success — keep the file
-
-    // Best-effort: keep previous content-addressed file if different (history).
-    // Do not delete older revisions here — owner GC policy later.
+    createdFinalPath = null;
 
     try {
       const { broadcastPackUpdated } = require('../socket');
@@ -937,7 +954,8 @@ packsAdmin.post(
       /* ignore */
     }
     if (stagedPath) fs.promises.unlink(stagedPath).catch(() => {});
-    if (committedPath) fs.promises.unlink(committedPath).catch(() => {});
+    // Only unlink a file this request created — never delete a pre-existing live archive (E2-b2).
+    if (createdFinalPath) fs.promises.unlink(createdFinalPath).catch(() => {});
     sendError(res, error, 'Не удалось принять архив');
   } finally {
     client.release();
@@ -1111,7 +1129,7 @@ async function ensureCatalogSchema() {
   await db.query(`CREATE INDEX IF NOT EXISTS packs_published_idx ON public.packs (published)`);
   await db.query(`CREATE INDEX IF NOT EXISTS servers_published_sort_idx ON public.servers (published, sort_order, name)`);
   await db.query(`CREATE INDEX IF NOT EXISTS catalog_acl_resource_idx ON public.catalog_acl (resource_type, resource_id)`);
-  // E2 / migration 018 — apply here so deploy order cannot break catalog SELECTs.
+  // E2 / migration 018 — apply here so deploy order cannot break catalog SELECT queries.
   await db.query(`
     CREATE TABLE IF NOT EXISTS public.pack_versions (
       id BIGSERIAL PRIMARY KEY,

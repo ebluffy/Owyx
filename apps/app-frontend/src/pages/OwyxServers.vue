@@ -70,7 +70,7 @@ const messages = defineMessages({
 	packUpdateConfirm: {
 		id: 'owyx.servers.pack-update-confirm',
 		defaultMessage:
-			'A new pack version is available for “{name}”. Update now? (Cancel keeps your current install.)',
+			'A new pack version is available for “{name}”. Updating may overwrite configs and options.txt. Update now? (Cancel keeps your current install.)',
 	},
 	settingsModalNotReady: {
 		id: 'owyx.servers.settings-modal-not-ready',
@@ -178,10 +178,11 @@ async function loadCatalog() {
 			demoFallback: getOwyxDemoFlag(),
 			allowLocalFallback: getOwyxLocalApiFallback(),
 		})
-			servers.value = result.servers
-			apiBase.value = getStoredOwyxApiBase()
-			await Promise.all(result.servers.map((s) => seedPackMetaFromCache(s).catch(() => undefined)))
-			if (result.fromFallback && result.servers.length === 0) {
+		servers.value = result.servers
+		apiBase.value = getStoredOwyxApiBase()
+		// Don't block catalog paint on hashing/seeding (P3-g); badge is reactive.
+		void Promise.all(result.servers.map((s) => seedPackMetaFromCache(s).catch(() => undefined)))
+		if (result.fromFallback && result.servers.length === 0) {
 			loadError.value = formatMessage(messages.unreachable)
 		}
 		void refreshAllStatuses()
@@ -244,72 +245,70 @@ async function refreshAllStatuses() {
 	await Promise.all(servers.value.map((s) => pingOne(s)))
 }
 
-	async function ensurePackInstalled(
-		server: OwyxServerEntry,
-		opts?: { allowUpdate?: boolean },
-	): Promise<string | null> {
-		if (!hasPack(server)) {
-			handleError(new Error(formatMessage(messages.noPackUrl)))
-			return null
-		}
-		const existing = await findLinkedOwyxServerInstance(server)
-		if (existing?.install_stage === 'installed') {
-			const needsUpdate = isOwyxServerPackUpdateAvailable(server)
-			if (!needsUpdate || !opts?.allowUpdate) {
-				return existing.id
-			}
-		}
-		const { instanceId } = await installOwyxServerPack(
-			server,
-			sanitizeOwyxApiBase(apiBase.value),
-			appEvents,
-			opts,
-		)
-		return instanceId
+async function ensurePackInstalled(
+	server: OwyxServerEntry,
+	opts?: { allowUpdate?: boolean },
+): Promise<string | null> {
+	if (!hasPack(server)) {
+		handleError(new Error(formatMessage(messages.noPackUrl)))
+		return null
 	}
+	const existing = await findLinkedOwyxServerInstance(server)
+	if (existing?.install_stage === 'installed') {
+		const needsUpdate = isOwyxServerPackUpdateAvailable(server)
+		if (!needsUpdate || !opts?.allowUpdate) {
+			return existing.id
+		}
+	}
+	const { instanceId } = await installOwyxServerPack(
+		server,
+		sanitizeOwyxApiBase(apiBase.value),
+		appEvents,
+		opts,
+	)
+	return instanceId
+}
 
-	async function playServer(server: OwyxServerEntry) {
-		if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
-			const reason = owyx.session.value.user.accessReason || ''
-			const text =
-				reason === 'banned'
-					? formatMessage(messages.accessBanned)
-					: reason === 'inactive'
-						? formatMessage(messages.accessInactive)
-						: reason && reason !== 'ok'
-							? reason
-							: formatMessage(messages.accessUnavailable)
-			handleError(new Error(text))
-			return
-		}
-		if (server.requiresAccount && !owyx.isSignedIn.value) {
-			await owyx.signIn()
-			if (!owyx.isSignedIn.value) return
-		}
-		busyId.value = server.id
-		try {
-			await navigator.clipboard.writeText(server.address).catch(() => undefined)
-			let allowUpdate = false
-			if (isOwyxServerPackUpdateAvailable(server) && hasLinkedInstance(server)) {
-				allowUpdate = window.confirm(
-					formatMessage(messages.packUpdateConfirm, { name: server.name }),
-				)
-			}
-			const instanceId = await ensurePackInstalled(server, { allowUpdate })
-			if (!instanceId) return
-			await refreshLinkedMap()
-			await ensureManagedServerWorldExists(instanceId, server.name, server.address)
-			try {
-				await start_join_server(instanceId, server.address)
-			} catch {
-				await router.push(`/instance/${encodeURIComponent(instanceId)}`)
-			}
-		} catch (e) {
-			handleError(e)
-		} finally {
-			busyId.value = null
-		}
+async function playServer(server: OwyxServerEntry) {
+	if (owyx.isSignedIn.value && owyx.session.value?.user.serverAccess === false) {
+		const reason = owyx.session.value.user.accessReason || ''
+		const text =
+			reason === 'banned'
+				? formatMessage(messages.accessBanned)
+				: reason === 'inactive'
+					? formatMessage(messages.accessInactive)
+					: reason && reason !== 'ok'
+						? reason
+						: formatMessage(messages.accessUnavailable)
+		handleError(new Error(text))
+		return
 	}
+	if (server.requiresAccount && !owyx.isSignedIn.value) {
+		await owyx.signIn()
+		if (!owyx.isSignedIn.value) return
+	}
+	busyId.value = server.id
+	try {
+		await navigator.clipboard.writeText(server.address).catch(() => undefined)
+		let allowUpdate = false
+		if (isOwyxServerPackUpdateAvailable(server) && hasLinkedInstance(server)) {
+			allowUpdate = window.confirm(formatMessage(messages.packUpdateConfirm, { name: server.name }))
+		}
+		const instanceId = await ensurePackInstalled(server, { allowUpdate })
+		if (!instanceId) return
+		await refreshLinkedMap()
+		await ensureManagedServerWorldExists(instanceId, server.name, server.address)
+		try {
+			await start_join_server(instanceId, server.address)
+		} catch {
+			await router.push(`/instance/${encodeURIComponent(instanceId)}`)
+		}
+	} catch (e) {
+		handleError(e)
+	} finally {
+		busyId.value = null
+	}
+}
 
 onMounted(() => {
 	void loadCatalog()

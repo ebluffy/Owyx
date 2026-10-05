@@ -310,7 +310,9 @@ httpServer.listen(PORT, async () => {
       await catalogRoutes.ensureCatalogSchema();
       console.log('Catalog schema ready');
     } catch (error: any) {
-      console.warn('Catalog schema ensure skipped:', error.message);
+      // E2 columns are required for listPublishedServers — fail startup rather than serve a broken catalog.
+      console.error('Catalog schema ensure failed (refusing to start):', error.message || error);
+      process.exit(1);
     }
     try {
       const friendsRoutes = require('./routes/friends');
