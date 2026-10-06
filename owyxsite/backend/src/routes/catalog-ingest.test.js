@@ -12,7 +12,45 @@ const {
 	shouldUnlinkCreatedIngestFile,
 	resolveIngestRollbackUnlink,
 	normalizeSource,
+	mergePackSourceForUpdate,
 } = require('./catalog')
+
+describe('mergePackSourceForUpdate (AR-11b)', () => {
+	const sha = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+	const prev = {
+		source_type: 'mrpack',
+		source_config: {
+			url: 'https://api.owyx.site/uploads/packs/x.mrpack',
+			sha256: sha,
+			size: 1234567,
+			ingest: 'local',
+			sourceInstanceHint: 'My Instance',
+		},
+	}
+
+	it('published:true without source leaves config unchanged', () => {
+		const out = mergePackSourceForUpdate(prev, { published: true })
+		assert.equal(out.sourceTouched, false)
+		assert.equal(out.sourceType, 'mrpack')
+		assert.equal(out.sourceConfig.sha256, sha)
+		assert.equal(out.sourceConfig.size, 1234567)
+		assert.equal(out.sourceConfig.ingest, 'local')
+		assert.equal(out.sourceConfig.sourceInstanceHint, 'My Instance')
+	})
+
+	it('mrpack source with same url keeps sha256/size/ingest/hint', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: { type: 'mrpack', config: { url: prev.source_config.url } },
+		})
+		assert.equal(out.sourceTouched, true)
+		assert.equal(out.sourceType, 'mrpack')
+		assert.equal(out.sourceConfig.url, prev.source_config.url)
+		assert.equal(out.sourceConfig.sha256, sha)
+		assert.equal(out.sourceConfig.size, 1234567)
+		assert.equal(out.sourceConfig.ingest, 'local')
+		assert.equal(out.sourceConfig.sourceInstanceHint, 'My Instance')
+	})
+})
 
 describe('normalizeSource mrpack (AR-11)', () => {
 	it('preserves sha256, size, and sourceInstanceHint from ingest', () => {

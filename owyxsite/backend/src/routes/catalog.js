@@ -449,6 +449,64 @@ function readPackBody(body) {
   };
 }
 
+/**
+ * Resolve final source_type / source_config for packsAdmin PUT (AR-11 / AR-11b).
+ * - No source fields in body → keep prev verbatim (launcher publish flip).
+ * - mrpack with same url → carry sha256/size/hint/ingest from prev (site admin edit).
+ * - sftp → carry password when omitted.
+ */
+function mergePackSourceForUpdate(prev, body) {
+  const sourceTouched =
+    body.sourceType !== undefined ||
+    body.sourceConfig !== undefined ||
+    body.source !== undefined;
+  if (!sourceTouched) {
+    return {
+      sourceTouched: false,
+      sourceType: prev.source_type,
+      sourceConfig: parseConfig(prev.source_config),
+    };
+  }
+
+  let sourceType = body.sourceType || body.source?.type || prev.source_type;
+  let rawConfig = body.sourceConfig || body.source?.config || prev.source_config;
+
+  if (prev.source_type === 'sftp' && String(sourceType || '').toLowerCase() === 'sftp') {
+    const nextCfg = parseConfig(rawConfig);
+    const prevCfg = parseConfig(prev.source_config);
+    if (!nextCfg.password && prevCfg.password) nextCfg.password = prevCfg.password;
+    rawConfig = nextCfg;
+  }
+
+  if (
+    String(prev.source_type || '').toLowerCase() === 'mrpack' &&
+    String(sourceType || '').toLowerCase() === 'mrpack'
+  ) {
+    const nextCfg = parseConfig(rawConfig);
+    const prevCfg = parseConfig(prev.source_config);
+    const nextUrl = String(nextCfg.url || nextCfg.downloadUrl || '');
+    const prevUrl = String(prevCfg.url || prevCfg.downloadUrl || '');
+    if (nextUrl && prevUrl && nextUrl === prevUrl) {
+      if (!nextCfg.sha256 && prevCfg.sha256) nextCfg.sha256 = prevCfg.sha256;
+      if ((nextCfg.size == null || nextCfg.size === '') && prevCfg.size != null) {
+        nextCfg.size = prevCfg.size;
+      }
+      if (!nextCfg.sourceInstanceHint && prevCfg.sourceInstanceHint) {
+        nextCfg.sourceInstanceHint = prevCfg.sourceInstanceHint;
+      }
+      if (!nextCfg.ingest && prevCfg.ingest) nextCfg.ingest = prevCfg.ingest;
+      rawConfig = nextCfg;
+    }
+  }
+
+  const normalized = normalizeSource(sourceType, rawConfig);
+  return {
+    sourceTouched: true,
+    sourceType: normalized.type,
+    sourceConfig: normalized.config,
+  };
+}
+
 function readServerBody(body) {
   const name = String(body.name || '').trim();
   if (name.length < 2 || name.length > 120) {
@@ -683,37 +741,20 @@ packsAdmin.put('/:id', async (req, res) => {
     const existing = await db.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
     const prev = existing.rows[0];
-    // Do not re-normalize source when the client only flips metadata (e.g. published).
-    // normalizeSource(mrpack) used to drop sha256/size written by ingest.
-    const sourceTouched =
-      req.body.sourceType !== undefined ||
-      req.body.sourceConfig !== undefined ||
-      req.body.source !== undefined;
+    const sourcePart = mergePackSourceForUpdate(prev, req.body);
     const merged = {
       name: req.body.name !== undefined ? req.body.name : prev.name,
       minecraft: req.body.minecraft !== undefined ? req.body.minecraft : prev.minecraft,
       loader: req.body.loader !== undefined ? req.body.loader : prev.loader,
       iconUrl: req.body.iconUrl !== undefined ? req.body.iconUrl : prev.icon_url,
       description: req.body.description !== undefined ? req.body.description : prev.description,
-      sourceType: sourceTouched
-        ? req.body.sourceType || req.body.source?.type || prev.source_type
-        : prev.source_type,
-      sourceConfig: sourceTouched
-        ? req.body.sourceConfig || req.body.source?.config || prev.source_config
-        : prev.source_config,
+      sourceType: sourcePart.sourceType,
+      sourceConfig: sourcePart.sourceConfig,
       manifestUrl: req.body.manifestUrl !== undefined ? req.body.manifestUrl : prev.manifest_url,
       published: req.body.published !== undefined ? req.body.published : prev.published,
       accessMode: req.body.accessMode !== undefined ? req.body.accessMode : prev.access_mode || 'open',
     };
-    if (sourceTouched && prev.source_type === 'sftp' && merged.sourceType === 'sftp') {
-      const nextCfg = parseConfig(merged.sourceConfig);
-      const prevCfg = parseConfig(prev.source_config);
-      if (!nextCfg.password && prevCfg.password) nextCfg.password = prevCfg.password;
-      merged.sourceConfig = nextCfg;
-    }
     const body = readPackBody(merged);
-    const sourceType = sourceTouched ? body.source.type : prev.source_type;
-    const sourceConfig = sourceTouched ? body.source.config : parseConfig(prev.source_config);
     const result = await db.query(
       `UPDATE packs SET name=$2, minecraft=$3, loader=$4, icon_url=$5, description=$6,
         source_type=$7, source_config=$8::jsonb, manifest_url=$9, published=$10, access_mode=$11, updated_at=NOW()
@@ -725,8 +766,8 @@ packsAdmin.put('/:id', async (req, res) => {
         body.loader,
         body.iconUrl,
         body.description,
-        sourceType,
-        JSON.stringify(sourceConfig),
+        sourcePart.sourceType,
+        JSON.stringify(sourcePart.sourceConfig),
         body.manifestUrl,
         body.published,
         body.accessMode,
@@ -1340,4 +1381,5 @@ module.exports = {
   shouldUnlinkCreatedIngestFile,
   resolveIngestRollbackUnlink,
   normalizeSource,
+  mergePackSourceForUpdate,
 };

@@ -228,8 +228,11 @@ export default function CatalogAdmin({
     if (type === "http_manifest") {
       return { type, config: { manifestUrl: packForm.manifestUrl || packForm.url } };
     }
-    if (type === "google_drive" || type === "mrpack") {
+    if (type === "google_drive") {
       return { type, config: { url: packForm.url } };
+    }
+    if (type === "mrpack") {
+      return { type, config: { url: packForm.url, sha256: packForm.sha256 || undefined } };
     }
     return {
       type,
