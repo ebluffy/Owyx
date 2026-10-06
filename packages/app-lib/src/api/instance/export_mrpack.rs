@@ -171,24 +171,26 @@ impl ExportSelectionNode {
     }
 }
 
-/// Export an instance to `.mrpack` bytes via a system temp file.
-/// Used by the launcher when the frontend cannot read `$TEMP` under Tauri FS scope.
+/// Export an instance to `caches/exports/{uuid}.mrpack` and return the path + size.
+/// Keeps the archive on disk so the frontend can stream-upload without IPC `number[]`.
 #[tracing::instrument(skip_all)]
-pub async fn export_mrpack_bytes(
+pub async fn export_mrpack_to_cache(
     instance_id: &str,
     included_export_candidates: Vec<String>,
     excluded_export_candidates: Vec<String>,
     version_id: Option<String>,
     description: Option<String>,
     name: Option<String>,
-) -> crate::Result<Vec<u8>> {
-    let temporary = tempfile::NamedTempFile::new().map_err(|e| {
+) -> crate::Result<(PathBuf, u64)> {
+    let state = State::get().await?;
+    let dir = state.directories.caches_dir().join("exports");
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| {
         crate::ErrorKind::FSError(format!(
-            "creating temporary mrpack export: {e}"
+            "creating mrpack export cache dir: {e}"
         ))
     })?;
-    let path = temporary.path().to_path_buf();
-    export_mrpack(
+    let path = dir.join(format!("{}.mrpack", uuid::Uuid::new_v4()));
+    let export_result = export_mrpack(
         instance_id,
         path.clone(),
         included_export_candidates,
@@ -197,10 +199,19 @@ pub async fn export_mrpack_bytes(
         description,
         name,
     )
-    .await?;
-    Ok(tokio::fs::read(&path)
-        .await
-        .map_err(|e| IOError::with_path(e, &path))?)
+    .await;
+    if let Err(error) = export_result {
+        let _ = tokio::fs::remove_file(&path).await;
+        return Err(error);
+    }
+    let size = match tokio::fs::metadata(&path).await {
+        Ok(meta) => meta.len(),
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err(IOError::with_path(e, &path).into());
+        }
+    };
+    Ok((path, size))
 }
 
 #[tracing::instrument(skip_all)]

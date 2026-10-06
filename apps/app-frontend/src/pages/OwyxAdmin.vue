@@ -13,7 +13,7 @@ import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
-	export_instance_mrpack_bytes,
+	export_instance_mrpack_to_cache,
 	get_pack_export_candidates,
 	list as listInstances,
 	type PackExportCandidate,
@@ -450,7 +450,9 @@ async function loadPublishExportDirectory(path: string) {
 	}
 }
 
-async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fileName: string }> {
+async function exportInstancePack(
+	inst: GameInstance,
+): Promise<{ filePath: string; fileSize: number; fileName: string }> {
 	if (!publishIncludedPaths.value.length && formInstanceId.value === inst.id) {
 		await loadPublishExportCandidates(inst.id)
 	}
@@ -462,7 +464,7 @@ async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fil
 					.map((c) => c.path)
 	const excluded = formInstanceId.value === inst.id ? [...publishExcludedPaths.value] : []
 	const version = (formPackVersion.value || '1.0.0').trim() || '1.0.0'
-	const bytes = await export_instance_mrpack_bytes(
+	const exported = await export_instance_mrpack_to_cache(
 		inst.id,
 		included,
 		excluded,
@@ -470,9 +472,12 @@ async function exportInstancePack(inst: GameInstance): Promise<{ blob: Blob; fil
 		formNotes.value || 'Published from Owyx launcher',
 		inst.name,
 	)
-	const blob = new Blob([bytes], { type: 'application/zip' })
 	const safeName = inst.name.replace(/[^\w.-]+/g, '_').slice(0, 48) || 'pack'
-	return { blob, fileName: `${safeName}.mrpack` }
+	return {
+		filePath: exported.path,
+		fileSize: exported.size,
+		fileName: `${safeName}.mrpack`,
+	}
 }
 
 async function publishServer() {
@@ -486,15 +491,16 @@ async function publishServer() {
 		const inst = instances.value.find((i) => i.id === formInstanceId.value)
 		if (inst) {
 			statusMsg.value = formatMessage(messages.publishExport)
-			const { blob, fileName } = await exportInstancePack(inst)
-			const sizeMb = Math.max(1, Math.round(blob.size / (1024 * 1024)))
+			const { filePath, fileSize, fileName } = await exportInstancePack(inst)
+			const sizeMb = Math.max(1, Math.round(fileSize / (1024 * 1024)))
 			statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
 			const published = await publishLibraryPackToCatalog({
 				name: `${formName.value.trim()} pack`,
 				minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 				loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
 				description: formNotes.value || `From library: ${inst.name}`,
-				file: blob,
+				filePath,
+				fileSize,
 				fileName,
 				sourceInstanceHint: inst.id,
 			})
@@ -563,15 +569,16 @@ async function updateServerPack() {
 	busy.value = true
 	statusMsg.value = formatMessage(messages.publishExport)
 	try {
-		const { blob, fileName } = await exportInstancePack(inst)
-		const sizeMb = Math.max(1, Math.round(blob.size / (1024 * 1024)))
+		const { filePath, fileSize, fileName } = await exportInstancePack(inst)
+		const sizeMb = Math.max(1, Math.round(fileSize / (1024 * 1024)))
 		statusMsg.value = formatMessage(messages.publishUpload, { size: sizeMb })
 		const published = await publishLibraryPackToCatalog({
 			name: `${formName.value.trim() || inst.name} pack`,
 			minecraft: (formMc.value ?? '').trim() || inst.game_version || '1.21.1',
 			loader: formLoader.value || String(inst.loader || 'vanilla').toLowerCase(),
 			description: formNotes.value || `Update ${version} from library: ${inst.name}`,
-			file: blob,
+			filePath,
+			fileSize,
 			fileName,
 			packId,
 			version,

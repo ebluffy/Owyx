@@ -188,6 +188,10 @@ export default function CatalogAdmin({
   const [packs, setPacks] = useState<PackRow[]>([]);
   const [packForm, setPackForm] = useState(emptyPack);
   const [serverForm, setServerForm] = useState(emptyServer);
+  /** Baseline when opening edit — clear sha256 only if it is still the prefilled value (AR-14/15). */
+  const [editPackBaseline, setEditPackBaseline] = useState<{ url: string; sha256: string } | null>(
+    null,
+  );
   const [editPackId, setEditPackId] = useState<string | null>(null);
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [openPack, setOpenPack] = useState(false);
@@ -228,8 +232,11 @@ export default function CatalogAdmin({
     if (type === "http_manifest") {
       return { type, config: { manifestUrl: packForm.manifestUrl || packForm.url } };
     }
-    if (type === "google_drive" || type === "mrpack") {
+    if (type === "google_drive") {
       return { type, config: { url: packForm.url } };
+    }
+    if (type === "mrpack") {
+      return { type, config: { url: packForm.url, sha256: packForm.sha256 || undefined } };
     }
     return {
       type,
@@ -245,13 +252,17 @@ export default function CatalogAdmin({
 
   function startCreatePack() {
     setEditPackId(null);
+    setEditPackBaseline(null);
     setPackForm(emptyPack);
     setOpenPack(true);
   }
 
   function startEditPack(p: PackRow) {
     const cfg = p.source?.config ?? {};
+    const url = String(cfg.url || cfg.directDownloadUrl || "");
+    const sha256 = String(cfg.sha256 || "");
     setEditPackId(p.id);
+    setEditPackBaseline({ url, sha256 });
     setPackForm({
       ...emptyPack,
       name: p.name,
@@ -260,8 +271,8 @@ export default function CatalogAdmin({
       iconUrl: p.iconUrl || "",
       description: p.description || "",
       sourceType: p.sourceType,
-      url: String(cfg.url || cfg.directDownloadUrl || ""),
-      sha256: String(cfg.sha256 || ""),
+      url,
+      sha256,
       manifestUrl: String(cfg.manifestUrl || ""),
       host: String(cfg.host || ""),
       port: String(cfg.port || "22"),
@@ -705,7 +716,22 @@ export default function CatalogAdmin({
                   <input
                     className="input"
                     value={packForm.url}
-                    onChange={(e) => setPackForm((f) => ({ ...f, url: e.target.value }))}
+                    onChange={(e) => {
+                      const url = e.target.value;
+                      setPackForm((f) => {
+                        const next = { ...f, url };
+                        const baseline = editPackBaseline;
+                        if (
+                          f.sourceType === "mrpack" &&
+                          baseline &&
+                          url !== baseline.url &&
+                          f.sha256 === baseline.sha256
+                        ) {
+                          next.sha256 = "";
+                        }
+                        return next;
+                      });
+                    }}
                   />
                 </Field>
                 <Field label="sha256 (необязательно)">

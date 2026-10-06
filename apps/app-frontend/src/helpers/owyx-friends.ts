@@ -11,6 +11,7 @@ import {
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { clearOwyxSiteSession, getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
+import { tauriInvokeError } from '@/helpers/tauri-invoke-error'
 
 export type OwyxFriendPresence = 'offline' | 'online' | 'playing'
 
@@ -254,7 +255,8 @@ export async function publishLibraryPackToCatalog(opts: {
 	minecraft: string
 	loader: string
 	description?: string
-	file: Blob
+	filePath: string
+	fileSize: number
 	fileName: string
 	serverId?: string | null
 	/** When set, ingest into this existing pack instead of creating a new one (E2). */
@@ -265,94 +267,124 @@ export async function publishLibraryPackToCatalog(opts: {
 }): Promise<{ packId: string; version?: string | null; sha256?: string | null }> {
 	const base = apiBase()
 	const headers = authHeaders()
-	let packId = opts.packId?.trim() || ''
-	if (!packId) {
-		const createRes = await owyxFetch(`${base}/api/admin/packs`, {
-			method: 'POST',
-			headers,
-			body: JSON.stringify({
-				name: opts.name,
-				minecraft: opts.minecraft,
-				loader: opts.loader,
-				description: opts.description || '',
-				sourceType: 'local_ingest',
-				sourceConfig: {},
-				published: true,
-				accessMode: 'open',
-			}),
-			signal: AbortSignal.timeout(30000),
-		})
-		const createData = (await createRes.json().catch(() => ({}))) as {
-			pack?: { id: string }
-			error?: string
-		}
-		if (!createRes.ok || !createData.pack?.id) {
-			throw new Error(createData.error || `Create pack failed (${createRes.status})`)
-		}
-		packId = createData.pack.id
+	const filePath = opts.filePath.trim()
+	if (!filePath) {
+		throw new Error('publishLibraryPackToCatalog requires filePath')
 	}
-	const sizeMb = opts.file.size / (1024 * 1024)
+
+	const sizeMb = (opts.fileSize ?? 0) / (1024 * 1024)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_MB = 512
 	if (sizeMb > MAX_PACK_MB) {
+		await removeStagedExport(filePath)
 		throw new Error(
 			`pack is ${sizeMb.toFixed(0)} MB — max upload is ${MAX_PACK_MB} MB. Host a larger archive via HTTP URL instead.`,
 		)
 	}
-	const fd = new FormData()
-	fd.append('archive', opts.file, opts.fileName)
-	if (opts.version?.trim()) fd.append('version', opts.version.trim())
-	if (opts.changelog != null) fd.append('changelog', String(opts.changelog))
-	if (opts.sourceInstanceHint?.trim()) {
-		fd.append('sourceInstanceHint', opts.sourceInstanceHint.trim())
-	}
-	const ingestHeaders: Record<string, string> = { Accept: 'application/json' }
-	const key = getOwyxClientKey()
-	if (key) ingestHeaders['X-Owyx-Client-Key'] = key
-	const token = getStoredOwyxSiteSession()?.token
-	if (token) ingestHeaders.Authorization = `Bearer ${token}`
-	const ingestRes = await owyxFetch(
-		`${base}/api/admin/packs/${encodeURIComponent(packId)}/ingest`,
-		{
-			method: 'POST',
-			headers: ingestHeaders,
-			body: fd,
-			signal: AbortSignal.timeout(Math.max(180000, Math.ceil(sizeMb) * 4000)),
-		},
-	)
-	const ingestData = (await ingestRes.json().catch(() => ({}))) as {
-		error?: string
-		sha256?: string
-		version?: string
-	}
-	if (!ingestRes.ok) {
-		if (ingestRes.status === 413) {
-			throw new Error(
-				ingestData.error ||
-					`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
-			)
+
+	let packId = opts.packId?.trim() || ''
+	const createdPackId = !packId
+	let ingestReached = false
+	try {
+		if (!packId) {
+			const createRes = await owyxFetch(`${base}/api/admin/packs`, {
+				method: 'POST',
+				headers,
+				body: JSON.stringify({
+					name: opts.name,
+					minecraft: opts.minecraft,
+					loader: opts.loader,
+					description: opts.description || '',
+					sourceType: 'local_ingest',
+					sourceConfig: {},
+					published: false,
+					accessMode: 'open',
+				}),
+				signal: AbortSignal.timeout(30000),
+			})
+			const createData = (await createRes.json().catch(() => ({}))) as {
+				pack?: { id: string }
+				error?: string
+			}
+			if (!createRes.ok || !createData.pack?.id) {
+				throw new Error(createData.error || `Create pack failed (${createRes.status})`)
+			}
+			packId = createData.pack.id
 		}
-		throw new Error(ingestData.error || `Ingest failed (${ingestRes.status})`)
-	}
-	if (opts.serverId) {
-		const bindRes = await owyxFetch(
-			`${base}/api/admin/servers/${encodeURIComponent(opts.serverId)}`,
-			{
+
+		ingestReached = true
+		const { invoke } = await import('@tauri-apps/api/core')
+		let ingestData: { error?: string; sha256?: string; version?: string }
+		try {
+			ingestData = await invoke('plugin:utils|owyx_ingest_pack_file', {
+				path: filePath,
+				url: `${base}/api/admin/packs/${encodeURIComponent(packId)}/ingest`,
+				fileName: opts.fileName,
+				authorization: getStoredOwyxSiteSession()?.token ?? null,
+				clientKey: getOwyxClientKey() || null,
+				version: opts.version?.trim() || null,
+				changelog: opts.changelog ?? null,
+				sourceInstanceHint: opts.sourceInstanceHint?.trim() || null,
+			})
+		} catch (err) {
+			throw tauriInvokeError(err)
+		}
+
+		if (createdPackId) {
+			const publishRes = await owyxFetch(`${base}/api/admin/packs/${encodeURIComponent(packId)}`, {
 				method: 'PUT',
 				headers,
-				body: JSON.stringify({ packId }),
+				body: JSON.stringify({ published: true }),
 				signal: AbortSignal.timeout(15000),
-			},
-		)
-		if (!bindRes.ok) {
-			const data = (await bindRes.json().catch(() => ({}))) as { error?: string }
-			throw new Error(data.error || `Bind server failed (${bindRes.status})`)
+			})
+			if (!publishRes.ok) {
+				const data = (await publishRes.json().catch(() => ({}))) as { error?: string }
+				throw new Error(data.error || `Publish pack failed (${publishRes.status})`)
+			}
+		}
+
+		if (opts.serverId) {
+			const bindRes = await owyxFetch(
+				`${base}/api/admin/servers/${encodeURIComponent(opts.serverId)}`,
+				{
+					method: 'PUT',
+					headers,
+					body: JSON.stringify({ packId }),
+					signal: AbortSignal.timeout(15000),
+				},
+			)
+			if (!bindRes.ok) {
+				const data = (await bindRes.json().catch(() => ({}))) as { error?: string }
+				throw new Error(data.error || `Bind server failed (${bindRes.status})`)
+			}
+		}
+		return {
+			packId,
+			version: ingestData.version || opts.version || null,
+			sha256: ingestData.sha256 || null,
+		}
+	} catch (error) {
+		if (createdPackId && packId) {
+			await owyxFetch(`${base}/api/admin/packs/${encodeURIComponent(packId)}`, {
+				method: 'DELETE',
+				headers,
+				signal: AbortSignal.timeout(15000),
+			}).catch(() => undefined)
+		}
+		throw error
+	} finally {
+		if (!ingestReached) {
+			await removeStagedExport(filePath)
 		}
 	}
-	return {
-		packId,
-		version: ingestData.version || opts.version || null,
-		sha256: ingestData.sha256 || null,
+}
+
+async function removeStagedExport(path: string): Promise<void> {
+	try {
+		const { invoke } = await import('@tauri-apps/api/core')
+		await invoke('plugin:utils|owyx_remove_export_file', { path })
+	} catch {
+		/* ignore */
 	}
 }
 

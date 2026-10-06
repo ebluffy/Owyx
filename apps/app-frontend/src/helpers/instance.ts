@@ -8,6 +8,7 @@ import type { ContentItem, ContentOwner } from '@modrinth/ui'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
 import type { InstallJobSnapshot, SharedInstanceUpdateDiff } from './install'
+import { tauriInvokeError } from './tauri-invoke-error'
 import type {
 	CacheBehaviour,
 	ContentFile,
@@ -577,24 +578,27 @@ export async function export_instance_mrpack(
 	})
 }
 
-/** Export `.mrpack` without writing through frontend FS scope (avoids Temp forbidden path). */
-export async function export_instance_mrpack_bytes(
+/** Export `.mrpack` to `caches/exports/` and return the path (no giant IPC payload). */
+export async function export_instance_mrpack_to_cache(
 	instanceId: string,
 	includedOverrides: string[],
 	excludedOverrides: string[],
 	versionId?: string,
 	description?: string,
 	name?: string,
-): Promise<Uint8Array> {
-	const bytes = await invoke<number[]>('plugin:instance|instance_export_mrpack_bytes', {
-		instanceId,
-		includedOverrides,
-		excludedOverrides,
-		versionId,
-		description,
-		name,
-	})
-	return new Uint8Array(bytes)
+): Promise<{ path: string; size: number }> {
+	try {
+		return await invoke('plugin:instance|instance_export_mrpack_to_cache', {
+			instanceId,
+			includedOverrides,
+			excludedOverrides,
+			versionId,
+			description,
+			name,
+		})
+	} catch (err) {
+		throw tauriInvokeError(err)
+	}
 }
 
 export type PackExportCandidate = {

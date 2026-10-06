@@ -251,7 +251,17 @@ function normalizeSource(typeRaw, configRaw) {
   if (type === 'mrpack') {
     const url = validateHttpUrl(cfg.url || cfg.downloadUrl, 'source.url');
     const ingest = cfg.ingest === 'local' ? 'local' : 'planned';
-    return { type, config: { url, ingest } };
+    const config = { url, ingest };
+    const sha256 = validateSha256(cfg.sha256);
+    if (sha256) config.sha256 = sha256;
+    if (cfg.size != null && cfg.size !== '') {
+      const size = Number(cfg.size);
+      if (Number.isFinite(size) && size >= 0) config.size = size;
+    }
+    if (cfg.sourceInstanceHint) {
+      config.sourceInstanceHint = String(cfg.sourceInstanceHint).slice(0, 200);
+    }
+    return { type, config };
   }
   // sftp — admin-only warehouse. Players never see these fields.
   const host = String(cfg.host || '').trim();
@@ -436,6 +446,75 @@ function readPackBody(body) {
     manifestUrl: body.manifestUrl != null ? String(body.manifestUrl).trim() || null : null,
     published: asBool(body.published, true),
     accessMode: validateAccessMode(body.accessMode),
+  };
+}
+
+/**
+ * Resolve final source_type / source_config for packsAdmin PUT (AR-11 / AR-11b / AR-14).
+ * - No source fields in body → keep prev verbatim (launcher publish flip).
+ * - mrpack with same url → carry sha256/size/hint/ingest from prev (site admin edit).
+ * - mrpack with different url + same sha256 as prev → drop stale sha256 (AR-14).
+ * - sftp → carry password when omitted.
+ */
+function mergePackSourceForUpdate(prev, body) {
+  const sourceTouched =
+    body.sourceType !== undefined ||
+    body.sourceConfig !== undefined ||
+    body.source !== undefined;
+  if (!sourceTouched) {
+    return {
+      sourceTouched: false,
+      sourceType: prev.source_type,
+      sourceConfig: parseConfig(prev.source_config),
+    };
+  }
+
+  let sourceType = body.sourceType || body.source?.type || prev.source_type;
+  let rawConfig = body.sourceConfig || body.source?.config || prev.source_config;
+
+  if (prev.source_type === 'sftp' && String(sourceType || '').toLowerCase() === 'sftp') {
+    const nextCfg = parseConfig(rawConfig);
+    const prevCfg = parseConfig(prev.source_config);
+    if (!nextCfg.password && prevCfg.password) nextCfg.password = prevCfg.password;
+    rawConfig = nextCfg;
+  }
+
+  if (
+    String(prev.source_type || '').toLowerCase() === 'mrpack' &&
+    String(sourceType || '').toLowerCase() === 'mrpack'
+  ) {
+    const nextCfg = parseConfig(rawConfig);
+    const prevCfg = parseConfig(prev.source_config);
+    const nextUrl = String(nextCfg.url || nextCfg.downloadUrl || '');
+    const prevUrl = String(prevCfg.url || prevCfg.downloadUrl || '');
+    if (nextUrl && prevUrl && nextUrl === prevUrl) {
+      if (!nextCfg.sha256 && prevCfg.sha256) nextCfg.sha256 = prevCfg.sha256;
+      if ((nextCfg.size == null || nextCfg.size === '') && prevCfg.size != null) {
+        nextCfg.size = prevCfg.size;
+      }
+      if (!nextCfg.sourceInstanceHint && prevCfg.sourceInstanceHint) {
+        nextCfg.sourceInstanceHint = prevCfg.sourceInstanceHint;
+      }
+      if (!nextCfg.ingest && prevCfg.ingest) nextCfg.ingest = prevCfg.ingest;
+      rawConfig = nextCfg;
+    } else if (nextUrl && prevUrl && nextUrl !== prevUrl) {
+      // Stale fingerprint from the edit form (prefilled sha256 + new URL).
+      if (
+        nextCfg.sha256 &&
+        prevCfg.sha256 &&
+        String(nextCfg.sha256).toLowerCase() === String(prevCfg.sha256).toLowerCase()
+      ) {
+        delete nextCfg.sha256;
+      }
+      rawConfig = nextCfg;
+    }
+  }
+
+  const normalized = normalizeSource(sourceType, rawConfig);
+  return {
+    sourceTouched: true,
+    sourceType: normalized.type,
+    sourceConfig: normalized.config,
   };
 }
 
@@ -673,24 +752,19 @@ packsAdmin.put('/:id', async (req, res) => {
     const existing = await db.query(`SELECT * FROM packs WHERE id = $1`, [req.params.id]);
     if (!existing.rows[0]) return res.status(404).json({ error: 'Пак не найден' });
     const prev = existing.rows[0];
+    const sourcePart = mergePackSourceForUpdate(prev, req.body);
     const merged = {
       name: req.body.name !== undefined ? req.body.name : prev.name,
       minecraft: req.body.minecraft !== undefined ? req.body.minecraft : prev.minecraft,
       loader: req.body.loader !== undefined ? req.body.loader : prev.loader,
       iconUrl: req.body.iconUrl !== undefined ? req.body.iconUrl : prev.icon_url,
       description: req.body.description !== undefined ? req.body.description : prev.description,
-      sourceType: req.body.sourceType || req.body.source?.type || prev.source_type,
-      sourceConfig: req.body.sourceConfig || req.body.source?.config || prev.source_config,
+      sourceType: sourcePart.sourceType,
+      sourceConfig: sourcePart.sourceConfig,
       manifestUrl: req.body.manifestUrl !== undefined ? req.body.manifestUrl : prev.manifest_url,
       published: req.body.published !== undefined ? req.body.published : prev.published,
       accessMode: req.body.accessMode !== undefined ? req.body.accessMode : prev.access_mode || 'open',
     };
-    if (prev.source_type === 'sftp' && merged.sourceType === 'sftp') {
-      const nextCfg = parseConfig(merged.sourceConfig);
-      const prevCfg = parseConfig(prev.source_config);
-      if (!nextCfg.password && prevCfg.password) nextCfg.password = prevCfg.password;
-      merged.sourceConfig = nextCfg;
-    }
     const body = readPackBody(merged);
     const result = await db.query(
       `UPDATE packs SET name=$2, minecraft=$3, loader=$4, icon_url=$5, description=$6,
@@ -703,8 +777,8 @@ packsAdmin.put('/:id', async (req, res) => {
         body.loader,
         body.iconUrl,
         body.description,
-        body.source.type,
-        JSON.stringify(body.source.config),
+        sourcePart.sourceType,
+        JSON.stringify(sourcePart.sourceConfig),
         body.manifestUrl,
         body.published,
         body.accessMode,
@@ -1317,4 +1391,6 @@ module.exports = {
   planIngestFile,
   shouldUnlinkCreatedIngestFile,
   resolveIngestRollbackUnlink,
+  normalizeSource,
+  mergePackSourceForUpdate,
 };

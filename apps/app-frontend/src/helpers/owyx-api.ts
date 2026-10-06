@@ -68,7 +68,9 @@ export function sanitizeOwyxApiBase(url: string | null | undefined): string {
 		}
 		if (
 			parsed.protocol === 'http:' &&
-			(parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')
+			(parsed.hostname === '127.0.0.1' ||
+				parsed.hostname === 'localhost' ||
+				parsed.hostname === '[::1]')
 		) {
 			return parsed.origin + (parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, ''))
 		}

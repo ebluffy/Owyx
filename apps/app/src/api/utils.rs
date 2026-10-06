@@ -39,6 +39,8 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_browser_login,
             owyx_site_browser_login_cancel,
             owyx_sha256_file,
+            owyx_ingest_pack_file,
+            owyx_remove_export_file,
         ])
         .build()
 }
@@ -119,6 +121,354 @@ pub async fn owyx_sha256_file(path: String) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Stream a local `.mrpack` / zip from `caches/exports/` to the site pack ingest API.
+/// Avoids loading the archive into the WebView (JSON `number[]` IPC OOMs large packs).
+#[tauri::command]
+pub async fn owyx_ingest_pack_file(
+    path: String,
+    url: String,
+    file_name: String,
+    authorization: Option<String>,
+    client_key: Option<String>,
+    version: Option<String>,
+    changelog: Option<String>,
+    source_instance_hint: Option<String>,
+) -> Result<serde_json::Value> {
+    let canonical = owyx_resolve_export_path(&path).await?;
+    if !owyx_ingest_url_allowed(&url) {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "ingest url host is not allowed".to_string(),
+        ))
+        .into());
+    }
+
+    let meta = tokio::fs::metadata(&canonical).await?;
+    if !meta.is_file() {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "ingest path is not a file".to_string(),
+        ))
+        .into());
+    }
+    let size_mb = (meta.len() / (1024 * 1024)).max(1);
+    // Always delete the staged export — success, API error, or mid-upload failure.
+    struct RemoveOnDrop(PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    let _cleanup = RemoveOnDrop(canonical.clone());
+
+    let safe_name = {
+        let trimmed = file_name.trim();
+        if trimmed.is_empty() {
+            "pack.mrpack".to_string()
+        } else {
+            trimmed
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+                    {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .take(96)
+                .collect()
+        }
+    };
+
+    let part = reqwest::multipart::Part::file(&canonical)
+        .await
+        .map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::OtherError(format!(
+                "open pack for multipart: {err}"
+            )))
+        })?
+        .file_name(safe_name)
+        .mime_str("application/octet-stream")
+        .map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::OtherError(format!(
+                "multipart mime: {err}"
+            )))
+        })?;
+
+    let mut form = reqwest::multipart::Form::new().part("archive", part);
+    if let Some(v) = version
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        form = form.text("version", v);
+    }
+    if let Some(c) = changelog {
+        form = form.text("changelog", c);
+    }
+    if let Some(hint) = source_instance_hint
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        form = form.text("sourceInstanceHint", hint);
+    }
+
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::OtherError(format!(
+                "http client: {err}"
+            )))
+        })?;
+
+    let mut request = client
+        .post(&url)
+        .multipart(form)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .timeout(std::time::Duration::from_secs(
+            (size_mb.saturating_mul(4)).max(180),
+        ));
+    if let Some(token) = authorization
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        request = request
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if let Some(key) = client_key
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
+        request = request.header("X-Owyx-Client-Key", key);
+    }
+
+    let response = request.send().await.map_err(|err| {
+        theseus::Error::from(theseus::ErrorKind::OtherError(format!(
+            "pack ingest request failed: {err}"
+        )))
+    })?;
+    let status = response.status();
+    let body = response.text().await.unwrap_or_default();
+    let size_mb_u64 = size_mb;
+
+    if !status.is_success() {
+        let message =
+            owyx_ingest_error_message(status.as_u16(), &body, size_mb_u64);
+        return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
+            message,
+        ))
+        .into());
+    }
+
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|_| serde_json::json!({ "ok": true }));
+    Ok(parsed)
+}
+
+/// Match `sanitizeOwyxApiBase`: any `https` host, or `http` only on loopback.
+fn owyx_ingest_url_allowed(url: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url) else {
+        return false;
+    };
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    match parsed.scheme() {
+        "https" => true,
+        "http" => host == "127.0.0.1" || host == "localhost" || host == "[::1]",
+        _ => false,
+    }
+}
+
+fn owyx_ingest_error_message(status: u16, body: &str, size_mb: u64) -> String {
+    if status == 413 {
+        return format!(
+            "ingest failed (413): archive too large for the API (max 512 MB, yours ~{size_mb} MB)"
+        );
+    }
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body)
+        && let Some(message) = parsed
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    {
+        return format!("{message} ({status})");
+    }
+    let snippet: String = body
+        .chars()
+        .filter(|c| !c.is_control() || *c == ' ')
+        .take(120)
+        .collect();
+    let snippet = snippet.trim();
+    if snippet.is_empty() || snippet.starts_with('<') {
+        format!("pack ingest failed ({status})")
+    } else {
+        format!("pack ingest failed ({status}): {snippet}")
+    }
+}
+
+/// Delete one staged export under `caches/exports/` (same path allowlist as ingest).
+#[tauri::command]
+pub async fn owyx_remove_export_file(path: String) -> Result<()> {
+    let canonical = owyx_resolve_export_path(&path).await?;
+    match tokio::fs::remove_file(&canonical).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// Drop leftover `caches/exports/*.mrpack` from aborted publishes (startup only).
+pub async fn owyx_cleanup_export_cache_inner() -> theseus::Result<u32> {
+    let state = theseus::State::get().await?;
+    let dir = state.directories.caches_dir().join("exports");
+    if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+        return Ok(0);
+    }
+    let mut removed = 0u32;
+    let mut entries = tokio::fs::read_dir(&dir).await.map_err(|e| {
+        theseus::Error::from(theseus::ErrorKind::FSError(format!(
+            "read export cache: {e}"
+        )))
+    })?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| {
+        theseus::Error::from(theseus::ErrorKind::FSError(format!(
+            "read export cache entry: {e}"
+        )))
+    })? {
+        let path = entry.path();
+        let is_mrpack = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("mrpack"));
+        if !is_mrpack {
+            continue;
+        }
+        if tokio::fs::remove_file(&path).await.is_ok() {
+            removed = removed.saturating_add(1);
+        }
+    }
+    Ok(removed)
+}
+
+async fn owyx_resolve_export_path(path: &str) -> Result<PathBuf> {
+    let requested = PathBuf::from(path);
+    let state = theseus::State::get().await?;
+    let exports_dir = state.directories.caches_dir().join("exports");
+    tokio::fs::create_dir_all(&exports_dir).await?;
+    let exports =
+        tokio::fs::canonicalize(&exports_dir).await.map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve export cache: {err}"
+            )))
+        })?;
+    let canonical =
+        tokio::fs::canonicalize(&requested).await.map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve export path: {err}"
+            )))
+        })?;
+    if !is_under(&canonical, &exports) {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "path must be under caches/exports".to_string(),
+        ))
+        .into());
+    }
+    Ok(canonical)
+}
+
+/// True when `canonical` is `root` or a descendant (component-wise; resists `exports-evil`).
+fn is_under(canonical: &Path, root: &Path) -> bool {
+    canonical.starts_with(root)
+}
+
+#[cfg(test)]
+mod owyx_export_path_tests {
+    use super::is_under;
+    use std::path::PathBuf;
+
+    #[test]
+    fn accepts_file_inside_exports() {
+        let root = PathBuf::from("caches").join("exports");
+        let child = root.join("uuid.mrpack");
+        assert!(is_under(&child, &root));
+        assert!(is_under(&root, &root));
+    }
+
+    #[test]
+    fn rejects_sibling_parent_and_prefix_trick() {
+        let root = PathBuf::from("caches").join("exports");
+        assert!(!is_under(
+            &PathBuf::from("caches").join("other").join("x.mrpack"),
+            &root
+        ));
+        assert!(!is_under(&PathBuf::from("caches"), &root));
+        assert!(!is_under(
+            &PathBuf::from("caches")
+                .join("exports-evil")
+                .join("x.mrpack"),
+            &root
+        ));
+        assert!(!is_under(&PathBuf::from("tmp").join("uuid.mrpack"), &root));
+    }
+}
+
+#[cfg(test)]
+mod owyx_ingest_url_tests {
+    use super::{owyx_ingest_error_message, owyx_ingest_url_allowed};
+
+    #[test]
+    fn allows_any_https_and_loopback_http() {
+        assert!(owyx_ingest_url_allowed(
+            "https://api.owyx.site/api/admin/packs/x/ingest"
+        ));
+        assert!(owyx_ingest_url_allowed(
+            "https://staging.example.com/api/admin/packs/x/ingest"
+        ));
+        assert!(owyx_ingest_url_allowed(
+            "http://127.0.0.1:3001/api/admin/packs/x/ingest"
+        ));
+        assert!(owyx_ingest_url_allowed(
+            "http://localhost:3001/api/admin/packs/x/ingest"
+        ));
+        assert!(owyx_ingest_url_allowed(
+            "http://[::1]:3001/api/admin/packs/x/ingest"
+        ));
+    }
+
+    #[test]
+    fn rejects_http_non_loopback_and_foreign_schemes() {
+        assert!(!owyx_ingest_url_allowed(
+            "http://api.owyx.site/api/admin/packs/x/ingest"
+        ));
+        assert!(!owyx_ingest_url_allowed(
+            "http://evil.example/api/admin/packs/x/ingest"
+        ));
+        assert!(!owyx_ingest_url_allowed("file:///tmp/x"));
+    }
+
+    #[test]
+    fn formats_413_and_html_bodies() {
+        assert!(
+            owyx_ingest_error_message(413, "<html>big</html>", 600)
+                .contains("max 512 MB")
+        );
+        assert_eq!(
+            owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10),
+            "pack ingest failed (502)"
+        );
+        assert_eq!(
+            owyx_ingest_error_message(
+                401,
+                r#"{"error":"session expired"}"#,
+                10
+            ),
+            "session expired (401)"
+        );
+    }
+}
+
 /// Returns true when `path` is under settings or config (pack cache, sessions, etc.).
 pub(crate) fn owyx_sha256_path_allowed(
     path: &Path,
@@ -163,6 +513,8 @@ pub async fn owyx_site_session_set(payload: String) -> Result<()> {
 async fn restrict_windows_file_acl(
     path: &std::path::Path,
 ) -> std::io::Result<()> {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
     let username = std::env::var_os("USERNAME").ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -171,6 +523,7 @@ async fn restrict_windows_file_acl(
     })?;
     let grant = format!("{}:(F)", username.to_string_lossy());
     let status = tokio::process::Command::new("icacls")
+        .creation_flags(CREATE_NO_WINDOW)
         .arg(path)
         .args(["/inheritance:r", "/grant:r"])
         .arg(&grant)

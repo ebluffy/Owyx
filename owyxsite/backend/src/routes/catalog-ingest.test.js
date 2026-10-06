@@ -11,7 +11,117 @@ const {
 	planIngestFile,
 	shouldUnlinkCreatedIngestFile,
 	resolveIngestRollbackUnlink,
+	normalizeSource,
+	mergePackSourceForUpdate,
 } = require('./catalog')
+
+describe('mergePackSourceForUpdate (AR-11b)', () => {
+	const sha = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+	const prev = {
+		source_type: 'mrpack',
+		source_config: {
+			url: 'https://api.owyx.site/uploads/packs/x.mrpack',
+			sha256: sha,
+			size: 1234567,
+			ingest: 'local',
+			sourceInstanceHint: 'My Instance',
+		},
+	}
+
+	it('published:true without source leaves config unchanged', () => {
+		const out = mergePackSourceForUpdate(prev, { published: true })
+		assert.equal(out.sourceTouched, false)
+		assert.equal(out.sourceType, 'mrpack')
+		assert.equal(out.sourceConfig.sha256, sha)
+		assert.equal(out.sourceConfig.size, 1234567)
+		assert.equal(out.sourceConfig.ingest, 'local')
+		assert.equal(out.sourceConfig.sourceInstanceHint, 'My Instance')
+	})
+
+	it('mrpack source with same url keeps sha256/size/ingest/hint', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: { type: 'mrpack', config: { url: prev.source_config.url } },
+		})
+		assert.equal(out.sourceTouched, true)
+		assert.equal(out.sourceType, 'mrpack')
+		assert.equal(out.sourceConfig.url, prev.source_config.url)
+		assert.equal(out.sourceConfig.sha256, sha)
+		assert.equal(out.sourceConfig.size, 1234567)
+		assert.equal(out.sourceConfig.ingest, 'local')
+		assert.equal(out.sourceConfig.sourceInstanceHint, 'My Instance')
+	})
+
+	it('mrpack with different url and stale sha256 drops sha256 (AR-14)', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: {
+				type: 'mrpack',
+				config: {
+					url: 'https://cdn.example.com/other.mrpack',
+					sha256: sha,
+				},
+			},
+		})
+		assert.equal(out.sourceTouched, true)
+		assert.equal(out.sourceConfig.url, 'https://cdn.example.com/other.mrpack')
+		assert.equal(out.sourceConfig.sha256, undefined)
+		assert.equal(out.sourceConfig.size, undefined)
+		assert.equal(out.sourceConfig.ingest, 'planned')
+		assert.equal(out.sourceConfig.sourceInstanceHint, undefined)
+	})
+
+	it('url changed does not carry size/ingest/hint from prev', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: { type: 'mrpack', config: { url: 'https://cdn.example.com/other.mrpack' } },
+		})
+		assert.equal(out.sourceConfig.size, undefined)
+		assert.equal(out.sourceConfig.ingest, 'planned')
+		assert.equal(out.sourceConfig.sourceInstanceHint, undefined)
+		assert.equal(out.sourceConfig.sha256, undefined)
+	})
+
+	it('url changed keeps a newly typed sha256 that differs from prev', () => {
+		const newSha = '1111111111111111111111111111111111111111111111111111111111111111'
+		const out = mergePackSourceForUpdate(prev, {
+			source: {
+				type: 'mrpack',
+				config: {
+					url: 'https://cdn.example.com/other.mrpack',
+					sha256: newSha,
+				},
+			},
+		})
+		assert.equal(out.sourceConfig.sha256, newSha)
+	})
+})
+
+describe('normalizeSource mrpack (AR-11)', () => {
+	it('preserves sha256, size, and sourceInstanceHint from ingest', () => {
+		const sha = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+		const out = normalizeSource('mrpack', {
+			url: 'https://api.owyx.site/uploads/packs/x.mrpack',
+			sha256: sha,
+			size: 1234567,
+			ingest: 'local',
+			sourceInstanceHint: 'My Instance',
+		})
+		assert.equal(out.type, 'mrpack')
+		assert.equal(out.config.url, 'https://api.owyx.site/uploads/packs/x.mrpack')
+		assert.equal(out.config.ingest, 'local')
+		assert.equal(out.config.sha256, sha)
+		assert.equal(out.config.size, 1234567)
+		assert.equal(out.config.sourceInstanceHint, 'My Instance')
+	})
+
+	it('keeps url+ingest when optional fields are absent', () => {
+		const out = normalizeSource('mrpack', {
+			url: 'https://cdn.example.com/pack.mrpack',
+			ingest: 'planned',
+		})
+		assert.equal(out.config.sha256, undefined)
+		assert.equal(out.config.size, undefined)
+		assert.equal(out.config.ingest, 'planned')
+	})
+})
 
 describe('packIngestFinalName', () => {
 	it('uses content-addressed name with sha prefix', () => {

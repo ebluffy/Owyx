@@ -67,6 +67,24 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 - Prettier / import order on catalog ingest helpers and Owyx Vue pages — always `eslint --fix` + `prettier --write` on touched files.
 - Rust `cargo fmt` and Clippy treat warnings as errors (`-Dwarnings`).
 
+### 2026-10-06 · PR #167 · run `37437111993` · Lint and Test
+
+- **Failed package:** `@modrinth/app#lint` (clippy via `-D warnings`)
+- **Symptom:** `error: this if statement can be collapsed` at `apps/app/src/api/utils.rs:289` (`clippy::collapsible_if` on nested `if let` in `owyx_ingest_error_message`).
+- **Cause:** AR-8 error-message helper used nested `if let Ok` + `if let Some` without `else`.
+- **Fix:** collapse with `if let … && let …` let-chains; return early when JSON `error` is non-empty.
+- **Prevention:** after editing `apps/app/src/**`, run `cargo clippy -p theseus_gui -- -D warnings` (or the package lint script CI uses).
+
+### 2026-10-06 · PR #167 · run `37434911709` · Lint and Test
+
+- **Step:** `Check Owyx backend` → `npm run audit:prod` (`npm audit --omit=dev`)
+- **Symptom:** exit 1 — `2 vulnerabilities (1 high, 1 critical)`
+  - `compression` `<1.8.2` — DoS via memory leak on premature response close ([GHSA-vc2v-76pw-4v95](https://github.com/advisories/GHSA-vc2v-76pw-4v95))
+  - `proxy-addr` `1.1.0–2.0.7` — IP spoofing via IPv4-mapped IPv6 trust subnet ([GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h))
+- **Cause:** transitive deps in `owyxsite/backend/package-lock.json` lagged advisories; direct `"compression": "^1.7.4"` still resolved an older vulnerable tree until lock refreshed.
+- **Fix:** `cd owyxsite/backend && npm audit fix --omit=dev` (commit updated `package-lock.json`); re-check with `npm audit --omit=dev` → `found 0 vulnerabilities`.
+- **Prevention:** After any backend dep change, run `npm run audit:prod` locally before push (same gate as CI).
+
 ### 2026-10-06 · release v0.12.0 · Publish exit 141
 
 - **Symptom:** Windows + Linux builds OK; `Publish GitHub Release` failed with exit **141** (SIGPIPE). No GitHub Release created.
