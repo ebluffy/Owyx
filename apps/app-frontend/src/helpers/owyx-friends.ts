@@ -275,10 +275,22 @@ export async function publishLibraryPackToCatalog(opts: {
 	const sizeMb = (opts.fileSize ?? 0) / (1024 * 1024)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_MB = 512
+	/**
+	 * Cloudflare Free (orange-cloud in front of api.owyx.site) rejects bodies ~>100 MB
+	 * with 413 before nginx/API. Loopback/dev skips this guard.
+	 */
+	const CF_PROXY_UPLOAD_MB = 100
+	const isLoopbackApi = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?(\/|$)/i.test(base)
 	if (sizeMb > MAX_PACK_MB) {
 		await removeStagedExport(filePath)
 		throw new Error(
 			`pack is ${sizeMb.toFixed(0)} MB — max upload is ${MAX_PACK_MB} MB. Host a larger archive via HTTP URL instead.`,
+		)
+	}
+	if (!isLoopbackApi && sizeMb > CF_PROXY_UPLOAD_MB) {
+		await removeStagedExport(filePath)
+		throw new Error(
+			`pack is ${sizeMb.toFixed(0)} MB — Cloudflare in front of the API caps uploads at ~${CF_PROXY_UPLOAD_MB} MB. Set api.owyx.site to DNS-only (grey cloud), or host the archive via HTTP URL.`,
 		)
 	}
 

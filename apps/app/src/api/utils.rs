@@ -282,6 +282,22 @@ fn owyx_ingest_url_allowed(url: &str) -> bool {
 
 fn owyx_ingest_error_message(status: u16, body: &str, size_mb: u64) -> String {
     if status == 413 {
+        // Prefer the API's own JSON when multer rejected (true >512 MB case).
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body)
+            && let Some(message) = parsed
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            return format!("{message} ({status})");
+        }
+        // Under our API cap but still 413 → proxy/CDN (Cloudflare Free ~100 MB).
+        if size_mb < 512 {
+            return format!(
+                "ingest failed (413): upload blocked before the API (yours ~{size_mb} MB). Cloudflare Free caps uploads at ~100 MB — set api.owyx.site DNS to DNS-only (grey cloud), or host the archive via HTTP URL"
+            );
+        }
         return format!(
             "ingest failed (413): archive too large for the API (max 512 MB, yours ~{size_mb} MB)"
         );
@@ -453,6 +469,18 @@ mod owyx_ingest_url_tests {
         assert!(
             owyx_ingest_error_message(413, "<html>big</html>", 600)
                 .contains("max 512 MB")
+        );
+        assert!(
+            owyx_ingest_error_message(413, "<html>cf</html>", 114)
+                .contains("Cloudflare")
+        );
+        assert!(
+            owyx_ingest_error_message(
+                413,
+                r#"{"error":"archive too large (max 512 MB)"}"#,
+                600
+            )
+            .contains("archive too large (max 512 MB)")
         );
         assert_eq!(
             owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10),

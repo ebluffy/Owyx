@@ -361,6 +361,11 @@ launcher — write through these routes.
   `/api/launcher/v1/packs/:id/download` (ACL). Local `.mrpack` uploads set
   `downloadAvailable: true`. Larger archives: publish as remote `http_zip` URL.
   Deleting a locally ingested pack also unlinks the file.
+  **Cloudflare:** if `api.owyx.site` is orange-cloud proxied, Free plan caps
+  request bodies at ~**100 MB** and returns **413** before nginx (`2048M`) /
+  multer. For admin ingest of packs &gt;100 MB either DNS-only (grey cloud) the
+  API hostname, use a non-proxied upload host, or host the archive as
+  `http_zip` URL.
 - `GET/POST /api/admin/servers` · `GET/PUT/DELETE /api/admin/servers/:id`
 
 Create pack body (camelCase): `{ id?, name, minecraft, loader, iconUrl?,
