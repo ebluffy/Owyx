@@ -66,3 +66,9 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 
 - Prettier / import order on catalog ingest helpers and Owyx Vue pages — always `eslint --fix` + `prettier --write` on touched files.
 - Rust `cargo fmt` and Clippy treat warnings as errors (`-Dwarnings`).
+
+### 2026-10-06 · release v0.12.0 · Publish exit 141
+
+- **Symptom:** Windows + Linux builds OK; `Publish GitHub Release` failed with exit **141** (SIGPIPE). No GitHub Release created.
+- **Cause:** `set -o pipefail` + `git log … | head -n 40` — more than 40 commits since previous Owyx release closes `head` early and fails the step.
+- **Fix:** use `git log -n 40` (no pipe to `head`); prefer previous published release tag via `gh release list`.

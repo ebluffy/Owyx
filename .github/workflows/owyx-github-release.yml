@@ -207,9 +207,14 @@ jobs:
         run: |
           set -euo pipefail
           # Prefer real commit subjects since previous tag (not a stale hardcoded blurb).
-          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          # Prefer previous published Owyx release; fall back to nearest reachable tag.
+          # Use `git log -n` (not `| head`) — with `pipefail`, head closing early yields exit 141.
+          PREV="$(gh release list --limit 20 --json tagName --jq "[.[] | select(.tagName != \"$TAG\")][0].tagName // empty" 2>/dev/null || true)"
+          if [ -z "${PREV}" ]; then
+            PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          fi
           if [ -n "${PREV}" ]; then
-            CHANGELOG="$(git log "${PREV}..${TAG}" --pretty=format:'- %s' --no-merges | head -n 40)"
+            CHANGELOG="$(git log -n 40 --pretty=format:'- %s' --no-merges "${PREV}..${TAG}")"
           else
             CHANGELOG="$(git log -n 20 --pretty=format:'- %s' --no-merges)"
           fi
