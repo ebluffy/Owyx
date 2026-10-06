@@ -397,7 +397,6 @@ fn main() {
                         "owyx_sha256_file",
                         "owyx_ingest_pack_file",
                         "owyx_remove_export_file",
-                        "owyx_cleanup_export_cache",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

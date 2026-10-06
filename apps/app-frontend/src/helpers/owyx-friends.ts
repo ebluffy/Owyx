@@ -11,6 +11,7 @@ import {
 	sanitizeOwyxApiBase,
 } from '@/helpers/owyx-api'
 import { clearOwyxSiteSession, getStoredOwyxSiteSession } from '@/helpers/owyx-site-auth'
+import { tauriInvokeError } from '@/helpers/tauri-invoke-error'
 
 export type OwyxFriendPresence = 'offline' | 'online' | 'playing'
 
@@ -330,15 +331,12 @@ export async function publishLibraryPackToCatalog(opts: {
 		}
 
 		if (createdPackId) {
-			const publishRes = await owyxFetch(
-				`${base}/api/admin/packs/${encodeURIComponent(packId)}`,
-				{
-					method: 'PUT',
-					headers,
-					body: JSON.stringify({ published: true }),
-					signal: AbortSignal.timeout(15000),
-				},
-			)
+			const publishRes = await owyxFetch(`${base}/api/admin/packs/${encodeURIComponent(packId)}`, {
+				method: 'PUT',
+				headers,
+				body: JSON.stringify({ published: true }),
+				signal: AbortSignal.timeout(15000),
+			})
 			if (!publishRes.ok) {
 				const data = (await publishRes.json().catch(() => ({}))) as { error?: string }
 				throw new Error(data.error || `Publish pack failed (${publishRes.status})`)
@@ -387,20 +385,6 @@ async function removeStagedExport(path: string): Promise<void> {
 		await invoke('plugin:utils|owyx_remove_export_file', { path })
 	} catch {
 		/* ignore */
-	}
-}
-
-function tauriInvokeError(err: unknown): Error {
-	if (err instanceof Error) return err
-	if (err && typeof err === 'object' && 'message' in err) {
-		const message = String((err as { message?: unknown }).message ?? '')
-		if (message.trim()) return new Error(message)
-	}
-	if (typeof err === 'string' && err.trim()) return new Error(err)
-	try {
-		return new Error(JSON.stringify(err))
-	} catch {
-		return new Error('Unknown launcher error')
 	}
 }
 

@@ -8,6 +8,7 @@ import type { ContentItem, ContentOwner } from '@modrinth/ui'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 
 import type { InstallJobSnapshot, SharedInstanceUpdateDiff } from './install'
+import { tauriInvokeError } from './tauri-invoke-error'
 import type {
 	CacheBehaviour,
 	ContentFile,
@@ -597,38 +598,6 @@ export async function export_instance_mrpack_to_cache(
 		})
 	} catch (err) {
 		throw tauriInvokeError(err)
-	}
-}
-
-/** Best-effort delete of a staged export under caches/exports. */
-export async function remove_export_mrpack_file(path: string): Promise<void> {
-	try {
-		await invoke('plugin:utils|owyx_remove_export_file', { path })
-	} catch {
-		/* ignore — file may already be gone */
-	}
-}
-
-/** Drop leftover staged exports (call on app bootstrap). */
-export async function cleanup_export_mrpack_cache(): Promise<void> {
-	try {
-		await invoke('plugin:utils|owyx_cleanup_export_cache')
-	} catch {
-		/* ignore */
-	}
-}
-
-function tauriInvokeError(err: unknown): Error {
-	if (err instanceof Error) return err
-	if (err && typeof err === 'object' && 'message' in err) {
-		const message = String((err as { message?: unknown }).message ?? '')
-		if (message.trim()) return new Error(message)
-	}
-	if (typeof err === 'string' && err.trim()) return new Error(err)
-	try {
-		return new Error(JSON.stringify(err))
-	} catch {
-		return new Error('Unknown launcher error')
 	}
 }
 

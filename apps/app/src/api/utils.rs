@@ -41,7 +41,6 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_sha256_file,
             owyx_ingest_pack_file,
             owyx_remove_export_file,
-            owyx_cleanup_export_cache,
         ])
         .build()
 }
@@ -135,26 +134,7 @@ pub async fn owyx_ingest_pack_file(
     changelog: Option<String>,
     source_instance_hint: Option<String>,
 ) -> Result<serde_json::Value> {
-    let requested = PathBuf::from(&path);
-    let state = theseus::State::get().await?;
-    let exports_dir = state.directories.caches_dir().join("exports");
-    tokio::fs::create_dir_all(&exports_dir).await?;
-    let exports = tokio::fs::canonicalize(&exports_dir).await.map_err(|err| {
-        theseus::Error::from(theseus::ErrorKind::InputError(format!(
-            "cannot resolve export cache: {err}"
-        )))
-    })?;
-    let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
-        theseus::Error::from(theseus::ErrorKind::InputError(format!(
-            "cannot open pack for ingest: {err}"
-        )))
-    })?;
-    if !canonical.starts_with(&exports) {
-        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
-            "ingest path must be under caches/exports".to_string(),
-        ))
-        .into());
-    }
+    let canonical = owyx_resolve_export_path(&path).await?;
     if !owyx_ingest_url_allowed(&url) {
         return Err(theseus::Error::from(theseus::ErrorKind::InputError(
             "ingest url host is not allowed".to_string(),
@@ -186,10 +166,13 @@ pub async fn owyx_ingest_pack_file(
         } else {
             trimmed
                 .chars()
-                .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
-                    c
-                } else {
-                    '_'
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')
+                    {
+                        c
+                    } else {
+                        '_'
+                    }
                 })
                 .take(96)
                 .collect()
@@ -212,7 +195,10 @@ pub async fn owyx_ingest_pack_file(
         })?;
 
     let mut form = reqwest::multipart::Form::new().part("archive", part);
-    if let Some(v) = version.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+    if let Some(v) = version
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+    {
         form = form.text("version", v);
     }
     if let Some(c) = changelog {
@@ -245,10 +231,8 @@ pub async fn owyx_ingest_pack_file(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
     {
-        request = request.header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {token}"),
-        );
+        request = request
+            .header(reqwest::header::AUTHORIZATION, format!("Bearer {token}"));
     }
     if let Some(key) = client_key
         .map(|s| s.trim().to_string())
@@ -267,14 +251,16 @@ pub async fn owyx_ingest_pack_file(
     let size_mb_u64 = size_mb;
 
     if !status.is_success() {
-        let message = owyx_ingest_error_message(status.as_u16(), &body, size_mb_u64);
-        return Err(theseus::Error::from(theseus::ErrorKind::OtherError(message))
-            .into());
+        let message =
+            owyx_ingest_error_message(status.as_u16(), &body, size_mb_u64);
+        return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
+            message,
+        ))
+        .into());
     }
 
-    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| {
-        serde_json::json!({ "ok": true })
-    });
+    let parsed: serde_json::Value = serde_json::from_str(&body)
+        .unwrap_or_else(|_| serde_json::json!({ "ok": true }));
     Ok(parsed)
 }
 
@@ -289,9 +275,7 @@ fn owyx_ingest_url_allowed(url: &str) -> bool {
     let host = host.to_ascii_lowercase();
     match parsed.scheme() {
         "https" => true,
-        "http" => {
-            host == "127.0.0.1" || host == "localhost" || host == "[::1]"
-        }
+        "http" => host == "127.0.0.1" || host == "localhost" || host == "[::1]",
         _ => false,
     }
 }
@@ -334,12 +318,7 @@ pub async fn owyx_remove_export_file(path: String) -> Result<()> {
     }
 }
 
-/// Drop leftover `caches/exports/*.mrpack` from aborted publishes (startup / manual).
-#[tauri::command]
-pub async fn owyx_cleanup_export_cache() -> Result<u32> {
-    Ok(owyx_cleanup_export_cache_inner().await?)
-}
-
+/// Drop leftover `caches/exports/*.mrpack` from aborted publishes (startup only).
 pub async fn owyx_cleanup_export_cache_inner() -> theseus::Result<u32> {
     let state = theseus::State::get().await?;
     let dir = state.directories.caches_dir().join("exports");
@@ -377,23 +356,61 @@ async fn owyx_resolve_export_path(path: &str) -> Result<PathBuf> {
     let state = theseus::State::get().await?;
     let exports_dir = state.directories.caches_dir().join("exports");
     tokio::fs::create_dir_all(&exports_dir).await?;
-    let exports = tokio::fs::canonicalize(&exports_dir).await.map_err(|err| {
-        theseus::Error::from(theseus::ErrorKind::InputError(format!(
-            "cannot resolve export cache: {err}"
-        )))
-    })?;
-    let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
-        theseus::Error::from(theseus::ErrorKind::InputError(format!(
-            "cannot resolve export path: {err}"
-        )))
-    })?;
-    if !canonical.starts_with(&exports) {
+    let exports =
+        tokio::fs::canonicalize(&exports_dir).await.map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve export cache: {err}"
+            )))
+        })?;
+    let canonical =
+        tokio::fs::canonicalize(&requested).await.map_err(|err| {
+            theseus::Error::from(theseus::ErrorKind::InputError(format!(
+                "cannot resolve export path: {err}"
+            )))
+        })?;
+    if !is_under(&canonical, &exports) {
         return Err(theseus::Error::from(theseus::ErrorKind::InputError(
             "path must be under caches/exports".to_string(),
         ))
         .into());
     }
     Ok(canonical)
+}
+
+/// True when `canonical` is `root` or a descendant (component-wise; resists `exports-evil`).
+fn is_under(canonical: &Path, root: &Path) -> bool {
+    canonical.starts_with(root)
+}
+
+#[cfg(test)]
+mod owyx_export_path_tests {
+    use super::is_under;
+    use std::path::PathBuf;
+
+    #[test]
+    fn accepts_file_inside_exports() {
+        let root = PathBuf::from("caches").join("exports");
+        let child = root.join("uuid.mrpack");
+        assert!(is_under(&child, &root));
+        assert!(is_under(&root, &root));
+    }
+
+    #[test]
+    fn rejects_sibling_parent_and_prefix_trick() {
+        let root = PathBuf::from("caches").join("exports");
+        assert!(!is_under(
+            &PathBuf::from("caches").join("other").join("x.mrpack"),
+            &root
+        ));
+        assert!(!is_under(&PathBuf::from("caches"), &root));
+        assert!(!is_under(
+            &PathBuf::from("caches")
+                .join("exports-evil")
+                .join("x.mrpack"),
+            &root
+        ));
+        assert!(!is_under(&PathBuf::from("tmp").join("uuid.mrpack"), &root));
+    }
 }
 
 #[cfg(test)]
@@ -432,14 +449,20 @@ mod owyx_ingest_url_tests {
 
     #[test]
     fn formats_413_and_html_bodies() {
-        assert!(owyx_ingest_error_message(413, "<html>big</html>", 600)
-            .contains("max 512 MB"));
+        assert!(
+            owyx_ingest_error_message(413, "<html>big</html>", 600)
+                .contains("max 512 MB")
+        );
         assert_eq!(
             owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10),
             "pack ingest failed (502)"
         );
         assert_eq!(
-            owyx_ingest_error_message(401, r#"{"error":"session expired"}"#, 10),
+            owyx_ingest_error_message(
+                401,
+                r#"{"error":"session expired"}"#,
+                10
+            ),
             "session expired (401)"
         );
     }

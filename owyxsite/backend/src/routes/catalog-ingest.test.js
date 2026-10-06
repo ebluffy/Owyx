@@ -11,7 +11,37 @@ const {
 	planIngestFile,
 	shouldUnlinkCreatedIngestFile,
 	resolveIngestRollbackUnlink,
+	normalizeSource,
 } = require('./catalog')
+
+describe('normalizeSource mrpack (AR-11)', () => {
+	it('preserves sha256, size, and sourceInstanceHint from ingest', () => {
+		const sha = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+		const out = normalizeSource('mrpack', {
+			url: 'https://api.owyx.site/uploads/packs/x.mrpack',
+			sha256: sha,
+			size: 1234567,
+			ingest: 'local',
+			sourceInstanceHint: 'My Instance',
+		})
+		assert.equal(out.type, 'mrpack')
+		assert.equal(out.config.url, 'https://api.owyx.site/uploads/packs/x.mrpack')
+		assert.equal(out.config.ingest, 'local')
+		assert.equal(out.config.sha256, sha)
+		assert.equal(out.config.size, 1234567)
+		assert.equal(out.config.sourceInstanceHint, 'My Instance')
+	})
+
+	it('keeps url+ingest when optional fields are absent', () => {
+		const out = normalizeSource('mrpack', {
+			url: 'https://cdn.example.com/pack.mrpack',
+			ingest: 'planned',
+		})
+		assert.equal(out.config.sha256, undefined)
+		assert.equal(out.config.size, undefined)
+		assert.equal(out.config.ingest, 'planned')
+	})
+})
 
 describe('packIngestFinalName', () => {
 	it('uses content-addressed name with sha prefix', () => {
