@@ -44,6 +44,17 @@ async fn initialize_state(
     app.fs_scope()
         .allow_directory(state.directories.instances_dir(), true)?;
 
+    // Drop aborted admin pack exports left in caches/exports (AR-4).
+    match crate::api::utils::owyx_cleanup_export_cache_inner().await {
+        Ok(removed) if removed > 0 => {
+            tracing::info!(removed, "cleaned staged mrpack exports")
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!("failed to clean staged mrpack exports: {error}")
+        }
+    }
+
     Ok(())
 }
 

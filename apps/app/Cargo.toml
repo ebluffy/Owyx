@@ -21,6 +21,12 @@ image = { workspace = true, features = ["gif", "jpeg", "png", "webp"] }
 native-dialog = { workspace = true }
 paste = { workspace = true }
 path-util = { workspace = true }
+reqwest = { workspace = true, features = [
+  "json",
+  "multipart",
+  "rustls-tls-webpki-roots",
+  "stream",
+] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
@@ -42,12 +48,6 @@ url = { workspace = true }
 urlencoding = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 zip = { workspace = true }
-reqwest = { workspace = true, features = [
-	"json",
-	"multipart",
-	"rustls-tls-webpki-roots",
-	"stream",
-] }
 
 [dependencies.tauri]
 workspace = true

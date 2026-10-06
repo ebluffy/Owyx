@@ -40,6 +40,8 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_browser_login_cancel,
             owyx_sha256_file,
             owyx_ingest_pack_file,
+            owyx_remove_export_file,
+            owyx_cleanup_export_cache,
         ])
         .build()
 }
@@ -262,49 +264,149 @@ pub async fn owyx_ingest_pack_file(
     })?;
     let status = response.status();
     let body = response.text().await.unwrap_or_default();
+    let size_mb_u64 = size_mb;
 
-    let parsed: serde_json::Value =
-        serde_json::from_str(&body).unwrap_or_else(|_| {
-            serde_json::json!({ "error": body })
-        });
     if !status.is_success() {
-        let message = parsed
-            .get("error")
-            .and_then(|v| v.as_str())
-            .unwrap_or("pack ingest failed");
-        return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
-            format!("{message} ({status})"),
-        ))
-        .into());
+        let message = owyx_ingest_error_message(status.as_u16(), &body, size_mb_u64);
+        return Err(theseus::Error::from(theseus::ErrorKind::OtherError(message))
+            .into());
     }
+
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| {
+        serde_json::json!({ "ok": true })
+    });
     Ok(parsed)
 }
 
+/// Match `sanitizeOwyxApiBase`: any `https` host, or `http` only on loopback.
 fn owyx_ingest_url_allowed(url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(url) else {
         return false;
     };
-    if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return false;
-    }
     let Some(host) = parsed.host_str() else {
         return false;
     };
     let host = host.to_ascii_lowercase();
-    host == "api.owyx.site"
-        || host == "localhost"
-        || host == "127.0.0.1"
-        || host == "::1"
+    match parsed.scheme() {
+        "https" => true,
+        "http" => {
+            host == "127.0.0.1" || host == "localhost" || host == "[::1]"
+        }
+        _ => false,
+    }
+}
+
+fn owyx_ingest_error_message(status: u16, body: &str, size_mb: u64) -> String {
+    if status == 413 {
+        return format!(
+            "ingest failed (413): archive too large for the API (max 512 MB, yours ~{size_mb} MB)"
+        );
+    }
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(message) = parsed.get("error").and_then(|v| v.as_str()) {
+            let trimmed = message.trim();
+            if !trimmed.is_empty() {
+                return format!("{trimmed} ({status})");
+            }
+        }
+    }
+    let snippet: String = body
+        .chars()
+        .filter(|c| !c.is_control() || *c == ' ')
+        .take(120)
+        .collect();
+    let snippet = snippet.trim();
+    if snippet.is_empty() || snippet.starts_with('<') {
+        format!("pack ingest failed ({status})")
+    } else {
+        format!("pack ingest failed ({status}): {snippet}")
+    }
+}
+
+/// Delete one staged export under `caches/exports/` (same path allowlist as ingest).
+#[tauri::command]
+pub async fn owyx_remove_export_file(path: String) -> Result<()> {
+    let canonical = owyx_resolve_export_path(&path).await?;
+    match tokio::fs::remove_file(&canonical).await {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// Drop leftover `caches/exports/*.mrpack` from aborted publishes (startup / manual).
+#[tauri::command]
+pub async fn owyx_cleanup_export_cache() -> Result<u32> {
+    Ok(owyx_cleanup_export_cache_inner().await?)
+}
+
+pub async fn owyx_cleanup_export_cache_inner() -> theseus::Result<u32> {
+    let state = theseus::State::get().await?;
+    let dir = state.directories.caches_dir().join("exports");
+    if !tokio::fs::try_exists(&dir).await.unwrap_or(false) {
+        return Ok(0);
+    }
+    let mut removed = 0u32;
+    let mut entries = tokio::fs::read_dir(&dir).await.map_err(|e| {
+        theseus::Error::from(theseus::ErrorKind::FSError(format!(
+            "read export cache: {e}"
+        )))
+    })?;
+    while let Some(entry) = entries.next_entry().await.map_err(|e| {
+        theseus::Error::from(theseus::ErrorKind::FSError(format!(
+            "read export cache entry: {e}"
+        )))
+    })? {
+        let path = entry.path();
+        let is_mrpack = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("mrpack"));
+        if !is_mrpack {
+            continue;
+        }
+        if tokio::fs::remove_file(&path).await.is_ok() {
+            removed = removed.saturating_add(1);
+        }
+    }
+    Ok(removed)
+}
+
+async fn owyx_resolve_export_path(path: &str) -> Result<PathBuf> {
+    let requested = PathBuf::from(path);
+    let state = theseus::State::get().await?;
+    let exports_dir = state.directories.caches_dir().join("exports");
+    tokio::fs::create_dir_all(&exports_dir).await?;
+    let exports = tokio::fs::canonicalize(&exports_dir).await.map_err(|err| {
+        theseus::Error::from(theseus::ErrorKind::InputError(format!(
+            "cannot resolve export cache: {err}"
+        )))
+    })?;
+    let canonical = tokio::fs::canonicalize(&requested).await.map_err(|err| {
+        theseus::Error::from(theseus::ErrorKind::InputError(format!(
+            "cannot resolve export path: {err}"
+        )))
+    })?;
+    if !canonical.starts_with(&exports) {
+        return Err(theseus::Error::from(theseus::ErrorKind::InputError(
+            "path must be under caches/exports".to_string(),
+        ))
+        .into());
+    }
+    Ok(canonical)
 }
 
 #[cfg(test)]
 mod owyx_ingest_url_tests {
-    use super::owyx_ingest_url_allowed;
+    use super::{owyx_ingest_error_message, owyx_ingest_url_allowed};
 
     #[test]
-    fn allows_prod_and_loopback() {
+    fn allows_any_https_and_loopback_http() {
         assert!(owyx_ingest_url_allowed(
             "https://api.owyx.site/api/admin/packs/x/ingest"
+        ));
+        assert!(owyx_ingest_url_allowed(
+            "https://staging.example.com/api/admin/packs/x/ingest"
         ));
         assert!(owyx_ingest_url_allowed(
             "http://127.0.0.1:3001/api/admin/packs/x/ingest"
@@ -312,14 +414,34 @@ mod owyx_ingest_url_tests {
         assert!(owyx_ingest_url_allowed(
             "http://localhost:3001/api/admin/packs/x/ingest"
         ));
+        assert!(owyx_ingest_url_allowed(
+            "http://[::1]:3001/api/admin/packs/x/ingest"
+        ));
     }
 
     #[test]
-    fn rejects_foreign_hosts() {
+    fn rejects_http_non_loopback_and_foreign_schemes() {
         assert!(!owyx_ingest_url_allowed(
-            "https://evil.example/api/admin/packs/x/ingest"
+            "http://api.owyx.site/api/admin/packs/x/ingest"
+        ));
+        assert!(!owyx_ingest_url_allowed(
+            "http://evil.example/api/admin/packs/x/ingest"
         ));
         assert!(!owyx_ingest_url_allowed("file:///tmp/x"));
+    }
+
+    #[test]
+    fn formats_413_and_html_bodies() {
+        assert!(owyx_ingest_error_message(413, "<html>big</html>", 600)
+            .contains("max 512 MB"));
+        assert_eq!(
+            owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10),
+            "pack ingest failed (502)"
+        );
+        assert_eq!(
+            owyx_ingest_error_message(401, r#"{"error":"session expired"}"#, 10),
+            "session expired (401)"
+        );
     }
 }
 
@@ -367,7 +489,6 @@ pub async fn owyx_site_session_set(payload: String) -> Result<()> {
 async fn restrict_windows_file_acl(
     path: &std::path::Path,
 ) -> std::io::Result<()> {
-    use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let username = std::env::var_os("USERNAME").ok_or_else(|| {

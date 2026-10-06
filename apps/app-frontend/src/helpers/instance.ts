@@ -577,28 +577,6 @@ export async function export_instance_mrpack(
 	})
 }
 
-/** Export `.mrpack` without writing through frontend FS scope (avoids Temp forbidden path).
- *  Warning: large packs serialize as JSON `number[]` over IPC and can OOM the WebView.
- *  Prefer {@link export_instance_mrpack_to_cache} for admin publish. */
-export async function export_instance_mrpack_bytes(
-	instanceId: string,
-	includedOverrides: string[],
-	excludedOverrides: string[],
-	versionId?: string,
-	description?: string,
-	name?: string,
-): Promise<Uint8Array> {
-	const bytes = await invoke<number[]>('plugin:instance|instance_export_mrpack_bytes', {
-		instanceId,
-		includedOverrides,
-		excludedOverrides,
-		versionId,
-		description,
-		name,
-	})
-	return new Uint8Array(bytes)
-}
-
 /** Export `.mrpack` to `caches/exports/` and return the path (no giant IPC payload). */
 export async function export_instance_mrpack_to_cache(
 	instanceId: string,
@@ -608,14 +586,50 @@ export async function export_instance_mrpack_to_cache(
 	description?: string,
 	name?: string,
 ): Promise<{ path: string; size: number }> {
-	return await invoke('plugin:instance|instance_export_mrpack_to_cache', {
-		instanceId,
-		includedOverrides,
-		excludedOverrides,
-		versionId,
-		description,
-		name,
-	})
+	try {
+		return await invoke('plugin:instance|instance_export_mrpack_to_cache', {
+			instanceId,
+			includedOverrides,
+			excludedOverrides,
+			versionId,
+			description,
+			name,
+		})
+	} catch (err) {
+		throw tauriInvokeError(err)
+	}
+}
+
+/** Best-effort delete of a staged export under caches/exports. */
+export async function remove_export_mrpack_file(path: string): Promise<void> {
+	try {
+		await invoke('plugin:utils|owyx_remove_export_file', { path })
+	} catch {
+		/* ignore — file may already be gone */
+	}
+}
+
+/** Drop leftover staged exports (call on app bootstrap). */
+export async function cleanup_export_mrpack_cache(): Promise<void> {
+	try {
+		await invoke('plugin:utils|owyx_cleanup_export_cache')
+	} catch {
+		/* ignore */
+	}
+}
+
+function tauriInvokeError(err: unknown): Error {
+	if (err instanceof Error) return err
+	if (err && typeof err === 'object' && 'message' in err) {
+		const message = String((err as { message?: unknown }).message ?? '')
+		if (message.trim()) return new Error(message)
+	}
+	if (typeof err === 'string' && err.trim()) return new Error(err)
+	try {
+		return new Error(JSON.stringify(err))
+	} catch {
+		return new Error('Unknown launcher error')
+	}
 }
 
 export type PackExportCandidate = {

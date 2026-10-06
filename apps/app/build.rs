@@ -307,7 +307,6 @@ fn main() {
                         "instance_share_unlink",
                         "instance_share_unpublish",
                         "instance_export_mrpack",
-                        "instance_export_mrpack_bytes",
                         "instance_export_mrpack_to_cache",
                         "instance_get_pack_export_candidates",
                     ])
@@ -397,6 +396,8 @@ fn main() {
                         "owyx_site_browser_login_cancel",
                         "owyx_sha256_file",
                         "owyx_ingest_pack_file",
+                        "owyx_remove_export_file",
+                        "owyx_cleanup_export_cache",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,
