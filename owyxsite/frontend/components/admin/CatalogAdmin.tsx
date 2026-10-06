@@ -188,8 +188,10 @@ export default function CatalogAdmin({
   const [packs, setPacks] = useState<PackRow[]>([]);
   const [packForm, setPackForm] = useState(emptyPack);
   const [serverForm, setServerForm] = useState(emptyServer);
-  /** URL loaded when opening edit — if admin changes it, drop prefilled sha256 (AR-14). */
-  const [editPackBaselineUrl, setEditPackBaselineUrl] = useState<string | null>(null);
+  /** Baseline when opening edit — clear sha256 only if it is still the prefilled value (AR-14/15). */
+  const [editPackBaseline, setEditPackBaseline] = useState<{ url: string; sha256: string } | null>(
+    null,
+  );
   const [editPackId, setEditPackId] = useState<string | null>(null);
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [openPack, setOpenPack] = useState(false);
@@ -250,7 +252,7 @@ export default function CatalogAdmin({
 
   function startCreatePack() {
     setEditPackId(null);
-    setEditPackBaselineUrl(null);
+    setEditPackBaseline(null);
     setPackForm(emptyPack);
     setOpenPack(true);
   }
@@ -258,8 +260,9 @@ export default function CatalogAdmin({
   function startEditPack(p: PackRow) {
     const cfg = p.source?.config ?? {};
     const url = String(cfg.url || cfg.directDownloadUrl || "");
+    const sha256 = String(cfg.sha256 || "");
     setEditPackId(p.id);
-    setEditPackBaselineUrl(url);
+    setEditPackBaseline({ url, sha256 });
     setPackForm({
       ...emptyPack,
       name: p.name,
@@ -269,7 +272,7 @@ export default function CatalogAdmin({
       description: p.description || "",
       sourceType: p.sourceType,
       url,
-      sha256: String(cfg.sha256 || ""),
+      sha256,
       manifestUrl: String(cfg.manifestUrl || ""),
       host: String(cfg.host || ""),
       port: String(cfg.port || "22"),
@@ -717,10 +720,12 @@ export default function CatalogAdmin({
                       const url = e.target.value;
                       setPackForm((f) => {
                         const next = { ...f, url };
+                        const baseline = editPackBaseline;
                         if (
                           f.sourceType === "mrpack" &&
-                          editPackBaselineUrl != null &&
-                          url !== editPackBaselineUrl
+                          baseline &&
+                          url !== baseline.url &&
+                          f.sha256 === baseline.sha256
                         ) {
                           next.sha256 = "";
                         }
