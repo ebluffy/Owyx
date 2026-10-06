@@ -122,6 +122,7 @@ pub fn init<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             instance_share_unpublish,
             instance_export_mrpack,
             instance_export_mrpack_bytes,
+            instance_export_mrpack_to_cache,
             instance_get_pack_export_candidates,
         ])
         .build()
@@ -1326,6 +1327,38 @@ pub async fn instance_export_mrpack_bytes(
         name,
     )
     .await?)
+}
+
+/// Write `.mrpack` under `caches/exports/` and return path + size (avoids IPC OOM).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MrpackCacheExport {
+    pub path: String,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub async fn instance_export_mrpack_to_cache(
+    instance_id: &str,
+    included_overrides: Vec<String>,
+    excluded_overrides: Vec<String>,
+    version_id: Option<String>,
+    description: Option<String>,
+    name: Option<String>,
+) -> Result<MrpackCacheExport> {
+    let (path, size) = theseus::instance::export_mrpack_to_cache(
+        instance_id,
+        included_overrides,
+        excluded_overrides,
+        version_id,
+        description,
+        name,
+    )
+    .await?;
+    Ok(MrpackCacheExport {
+        path: path.to_string_lossy().into_owned(),
+        size,
+    })
 }
 
 #[tauri::command]

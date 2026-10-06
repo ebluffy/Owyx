@@ -173,6 +173,9 @@ impl ExportSelectionNode {
 
 /// Export an instance to `.mrpack` bytes via a system temp file.
 /// Used by the launcher when the frontend cannot read `$TEMP` under Tauri FS scope.
+///
+/// Prefer [`export_mrpack_to_cache`] for large packs — returning `Vec<u8>` over Tauri
+/// IPC serializes as a JSON `number[]` and OOMs the WebView on big archives.
 #[tracing::instrument(skip_all)]
 pub async fn export_mrpack_bytes(
     instance_id: &str,
@@ -201,6 +204,42 @@ pub async fn export_mrpack_bytes(
     Ok(tokio::fs::read(&path)
         .await
         .map_err(|e| IOError::with_path(e, &path))?)
+}
+
+/// Export an instance to `caches/exports/{uuid}.mrpack` and return the path + size.
+/// Keeps the archive on disk so the frontend can stream-upload without IPC `number[]`.
+#[tracing::instrument(skip_all)]
+pub async fn export_mrpack_to_cache(
+    instance_id: &str,
+    included_export_candidates: Vec<String>,
+    excluded_export_candidates: Vec<String>,
+    version_id: Option<String>,
+    description: Option<String>,
+    name: Option<String>,
+) -> crate::Result<(PathBuf, u64)> {
+    let state = State::get().await?;
+    let dir = state.directories.caches_dir().join("exports");
+    tokio::fs::create_dir_all(&dir).await.map_err(|e| {
+        crate::ErrorKind::FSError(format!(
+            "creating mrpack export cache dir: {e}"
+        ))
+    })?;
+    let path = dir.join(format!("{}.mrpack", uuid::Uuid::new_v4()));
+    export_mrpack(
+        instance_id,
+        path.clone(),
+        included_export_candidates,
+        excluded_export_candidates,
+        version_id,
+        description,
+        name,
+    )
+    .await?;
+    let size = tokio::fs::metadata(&path)
+        .await
+        .map_err(|e| IOError::with_path(e, &path))?
+        .len();
+    Ok((path, size))
 }
 
 #[tracing::instrument(skip_all)]

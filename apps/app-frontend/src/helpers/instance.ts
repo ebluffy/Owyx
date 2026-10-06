@@ -577,7 +577,9 @@ export async function export_instance_mrpack(
 	})
 }
 
-/** Export `.mrpack` without writing through frontend FS scope (avoids Temp forbidden path). */
+/** Export `.mrpack` without writing through frontend FS scope (avoids Temp forbidden path).
+ *  Warning: large packs serialize as JSON `number[]` over IPC and can OOM the WebView.
+ *  Prefer {@link export_instance_mrpack_to_cache} for admin publish. */
 export async function export_instance_mrpack_bytes(
 	instanceId: string,
 	includedOverrides: string[],
@@ -595,6 +597,25 @@ export async function export_instance_mrpack_bytes(
 		name,
 	})
 	return new Uint8Array(bytes)
+}
+
+/** Export `.mrpack` to `caches/exports/` and return the path (no giant IPC payload). */
+export async function export_instance_mrpack_to_cache(
+	instanceId: string,
+	includedOverrides: string[],
+	excludedOverrides: string[],
+	versionId?: string,
+	description?: string,
+	name?: string,
+): Promise<{ path: string; size: number }> {
+	return await invoke('plugin:instance|instance_export_mrpack_to_cache', {
+		instanceId,
+		includedOverrides,
+		excludedOverrides,
+		versionId,
+		description,
+		name,
+	})
 }
 
 export type PackExportCandidate = {

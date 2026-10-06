@@ -254,7 +254,10 @@ export async function publishLibraryPackToCatalog(opts: {
 	minecraft: string
 	loader: string
 	description?: string
-	file: Blob
+	/** Prefer `filePath` for large packs — Blob/number[] IPC OOMs the WebView. */
+	file?: Blob
+	filePath?: string
+	fileSize?: number
 	fileName: string
 	serverId?: string | null
 	/** When set, ingest into this existing pack instead of creating a new one (E2). */
@@ -291,7 +294,11 @@ export async function publishLibraryPackToCatalog(opts: {
 		}
 		packId = createData.pack.id
 	}
-	const sizeMb = opts.file.size / (1024 * 1024)
+	const sizeMb =
+		(opts.filePath
+			? (opts.fileSize ?? 0)
+			: opts.file?.size ?? 0) /
+		(1024 * 1024)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_MB = 512
 	if (sizeMb > MAX_PACK_MB) {
@@ -299,40 +306,58 @@ export async function publishLibraryPackToCatalog(opts: {
 			`pack is ${sizeMb.toFixed(0)} MB — max upload is ${MAX_PACK_MB} MB. Host a larger archive via HTTP URL instead.`,
 		)
 	}
-	const fd = new FormData()
-	fd.append('archive', opts.file, opts.fileName)
-	if (opts.version?.trim()) fd.append('version', opts.version.trim())
-	if (opts.changelog != null) fd.append('changelog', String(opts.changelog))
-	if (opts.sourceInstanceHint?.trim()) {
-		fd.append('sourceInstanceHint', opts.sourceInstanceHint.trim())
-	}
-	const ingestHeaders: Record<string, string> = { Accept: 'application/json' }
-	const key = getOwyxClientKey()
-	if (key) ingestHeaders['X-Owyx-Client-Key'] = key
-	const token = getStoredOwyxSiteSession()?.token
-	if (token) ingestHeaders.Authorization = `Bearer ${token}`
-	const ingestRes = await owyxFetch(
-		`${base}/api/admin/packs/${encodeURIComponent(packId)}/ingest`,
-		{
-			method: 'POST',
-			headers: ingestHeaders,
-			body: fd,
-			signal: AbortSignal.timeout(Math.max(180000, Math.ceil(sizeMb) * 4000)),
-		},
-	)
-	const ingestData = (await ingestRes.json().catch(() => ({}))) as {
-		error?: string
-		sha256?: string
-		version?: string
-	}
-	if (!ingestRes.ok) {
-		if (ingestRes.status === 413) {
-			throw new Error(
-				ingestData.error ||
-					`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
-			)
+
+	let ingestData: { error?: string; sha256?: string; version?: string } = {}
+	if (opts.filePath?.trim()) {
+		const { invoke } = await import('@tauri-apps/api/core')
+		ingestData = await invoke('plugin:utils|owyx_ingest_pack_file', {
+			path: opts.filePath,
+			url: `${base}/api/admin/packs/${encodeURIComponent(packId)}/ingest`,
+			fileName: opts.fileName,
+			authorization: getStoredOwyxSiteSession()?.token ?? null,
+			clientKey: getOwyxClientKey() || null,
+			version: opts.version?.trim() || null,
+			changelog: opts.changelog ?? null,
+			sourceInstanceHint: opts.sourceInstanceHint?.trim() || null,
+		})
+	} else if (opts.file) {
+		const fd = new FormData()
+		fd.append('archive', opts.file, opts.fileName)
+		if (opts.version?.trim()) fd.append('version', opts.version.trim())
+		if (opts.changelog != null) fd.append('changelog', String(opts.changelog))
+		if (opts.sourceInstanceHint?.trim()) {
+			fd.append('sourceInstanceHint', opts.sourceInstanceHint.trim())
 		}
-		throw new Error(ingestData.error || `Ingest failed (${ingestRes.status})`)
+		const ingestHeaders: Record<string, string> = { Accept: 'application/json' }
+		const key = getOwyxClientKey()
+		if (key) ingestHeaders['X-Owyx-Client-Key'] = key
+		const token = getStoredOwyxSiteSession()?.token
+		if (token) ingestHeaders.Authorization = `Bearer ${token}`
+		const ingestRes = await owyxFetch(
+			`${base}/api/admin/packs/${encodeURIComponent(packId)}/ingest`,
+			{
+				method: 'POST',
+				headers: ingestHeaders,
+				body: fd,
+				signal: AbortSignal.timeout(Math.max(180000, Math.ceil(sizeMb) * 4000)),
+			},
+		)
+		ingestData = (await ingestRes.json().catch(() => ({}))) as {
+			error?: string
+			sha256?: string
+			version?: string
+		}
+		if (!ingestRes.ok) {
+			if (ingestRes.status === 413) {
+				throw new Error(
+					ingestData.error ||
+						`ingest failed (413): archive too large for the API (max 512 MB, yours ~${sizeMb.toFixed(0)} MB)`,
+				)
+			}
+			throw new Error(ingestData.error || `Ingest failed (${ingestRes.status})`)
+		}
+	} else {
+		throw new Error('publishLibraryPackToCatalog requires filePath or file')
 	}
 	if (opts.serverId) {
 		const bindRes = await owyxFetch(
