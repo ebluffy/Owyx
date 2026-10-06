@@ -50,6 +50,48 @@ describe('mergePackSourceForUpdate (AR-11b)', () => {
 		assert.equal(out.sourceConfig.ingest, 'local')
 		assert.equal(out.sourceConfig.sourceInstanceHint, 'My Instance')
 	})
+
+	it('mrpack with different url and stale sha256 drops sha256 (AR-14)', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: {
+				type: 'mrpack',
+				config: {
+					url: 'https://cdn.example.com/other.mrpack',
+					sha256: sha,
+				},
+			},
+		})
+		assert.equal(out.sourceTouched, true)
+		assert.equal(out.sourceConfig.url, 'https://cdn.example.com/other.mrpack')
+		assert.equal(out.sourceConfig.sha256, undefined)
+		assert.equal(out.sourceConfig.size, undefined)
+		assert.equal(out.sourceConfig.ingest, 'planned')
+		assert.equal(out.sourceConfig.sourceInstanceHint, undefined)
+	})
+
+	it('url changed does not carry size/ingest/hint from prev', () => {
+		const out = mergePackSourceForUpdate(prev, {
+			source: { type: 'mrpack', config: { url: 'https://cdn.example.com/other.mrpack' } },
+		})
+		assert.equal(out.sourceConfig.size, undefined)
+		assert.equal(out.sourceConfig.ingest, 'planned')
+		assert.equal(out.sourceConfig.sourceInstanceHint, undefined)
+		assert.equal(out.sourceConfig.sha256, undefined)
+	})
+
+	it('url changed keeps a newly typed sha256 that differs from prev', () => {
+		const newSha = '1111111111111111111111111111111111111111111111111111111111111111'
+		const out = mergePackSourceForUpdate(prev, {
+			source: {
+				type: 'mrpack',
+				config: {
+					url: 'https://cdn.example.com/other.mrpack',
+					sha256: newSha,
+				},
+			},
+		})
+		assert.equal(out.sourceConfig.sha256, newSha)
+	})
 })
 
 describe('normalizeSource mrpack (AR-11)', () => {

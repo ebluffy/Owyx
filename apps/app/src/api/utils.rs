@@ -286,13 +286,14 @@ fn owyx_ingest_error_message(status: u16, body: &str, size_mb: u64) -> String {
             "ingest failed (413): archive too large for the API (max 512 MB, yours ~{size_mb} MB)"
         );
     }
-    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body) {
-        if let Some(message) = parsed.get("error").and_then(|v| v.as_str()) {
-            let trimmed = message.trim();
-            if !trimmed.is_empty() {
-                return format!("{trimmed} ({status})");
-            }
-        }
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body)
+        && let Some(message) = parsed
+            .get("error")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    {
+        return format!("{message} ({status})");
     }
     let snippet: String = body
         .chars()

@@ -450,9 +450,10 @@ function readPackBody(body) {
 }
 
 /**
- * Resolve final source_type / source_config for packsAdmin PUT (AR-11 / AR-11b).
+ * Resolve final source_type / source_config for packsAdmin PUT (AR-11 / AR-11b / AR-14).
  * - No source fields in body → keep prev verbatim (launcher publish flip).
  * - mrpack with same url → carry sha256/size/hint/ingest from prev (site admin edit).
+ * - mrpack with different url + same sha256 as prev → drop stale sha256 (AR-14).
  * - sftp → carry password when omitted.
  */
 function mergePackSourceForUpdate(prev, body) {
@@ -495,6 +496,16 @@ function mergePackSourceForUpdate(prev, body) {
         nextCfg.sourceInstanceHint = prevCfg.sourceInstanceHint;
       }
       if (!nextCfg.ingest && prevCfg.ingest) nextCfg.ingest = prevCfg.ingest;
+      rawConfig = nextCfg;
+    } else if (nextUrl && prevUrl && nextUrl !== prevUrl) {
+      // Stale fingerprint from the edit form (prefilled sha256 + new URL).
+      if (
+        nextCfg.sha256 &&
+        prevCfg.sha256 &&
+        String(nextCfg.sha256).toLowerCase() === String(prevCfg.sha256).toLowerCase()
+      ) {
+        delete nextCfg.sha256;
+      }
       rawConfig = nextCfg;
     }
   }

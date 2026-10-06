@@ -67,6 +67,14 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 - Prettier / import order on catalog ingest helpers and Owyx Vue pages — always `eslint --fix` + `prettier --write` on touched files.
 - Rust `cargo fmt` and Clippy treat warnings as errors (`-Dwarnings`).
 
+### 2026-10-06 · PR #167 · run `37437111993` · Lint and Test
+
+- **Failed package:** `@modrinth/app#lint` (clippy via `-D warnings`)
+- **Symptom:** `error: this if statement can be collapsed` at `apps/app/src/api/utils.rs:289` (`clippy::collapsible_if` on nested `if let` in `owyx_ingest_error_message`).
+- **Cause:** AR-8 error-message helper used nested `if let Ok` + `if let Some` without `else`.
+- **Fix:** collapse with `if let … && let …` let-chains; return early when JSON `error` is non-empty.
+- **Prevention:** after editing `apps/app/src/**`, run `cargo clippy -p theseus_gui -- -D warnings` (or the package lint script CI uses).
+
 ### 2026-10-06 · PR #167 · run `37434911709` · Lint and Test
 
 - **Step:** `Check Owyx backend` → `npm run audit:prod` (`npm audit --omit=dev`)

@@ -188,6 +188,8 @@ export default function CatalogAdmin({
   const [packs, setPacks] = useState<PackRow[]>([]);
   const [packForm, setPackForm] = useState(emptyPack);
   const [serverForm, setServerForm] = useState(emptyServer);
+  /** URL loaded when opening edit — if admin changes it, drop prefilled sha256 (AR-14). */
+  const [editPackBaselineUrl, setEditPackBaselineUrl] = useState<string | null>(null);
   const [editPackId, setEditPackId] = useState<string | null>(null);
   const [editServerId, setEditServerId] = useState<string | null>(null);
   const [openPack, setOpenPack] = useState(false);
@@ -248,13 +250,16 @@ export default function CatalogAdmin({
 
   function startCreatePack() {
     setEditPackId(null);
+    setEditPackBaselineUrl(null);
     setPackForm(emptyPack);
     setOpenPack(true);
   }
 
   function startEditPack(p: PackRow) {
     const cfg = p.source?.config ?? {};
+    const url = String(cfg.url || cfg.directDownloadUrl || "");
     setEditPackId(p.id);
+    setEditPackBaselineUrl(url);
     setPackForm({
       ...emptyPack,
       name: p.name,
@@ -263,7 +268,7 @@ export default function CatalogAdmin({
       iconUrl: p.iconUrl || "",
       description: p.description || "",
       sourceType: p.sourceType,
-      url: String(cfg.url || cfg.directDownloadUrl || ""),
+      url,
       sha256: String(cfg.sha256 || ""),
       manifestUrl: String(cfg.manifestUrl || ""),
       host: String(cfg.host || ""),
@@ -708,7 +713,20 @@ export default function CatalogAdmin({
                   <input
                     className="input"
                     value={packForm.url}
-                    onChange={(e) => setPackForm((f) => ({ ...f, url: e.target.value }))}
+                    onChange={(e) => {
+                      const url = e.target.value;
+                      setPackForm((f) => {
+                        const next = { ...f, url };
+                        if (
+                          f.sourceType === "mrpack" &&
+                          editPackBaselineUrl != null &&
+                          url !== editPackBaselineUrl
+                        ) {
+                          next.sha256 = "";
+                        }
+                        return next;
+                      });
+                    }}
                   />
                 </Field>
                 <Field label="sha256 (необязательно)">
