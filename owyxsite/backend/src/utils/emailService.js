@@ -2,6 +2,11 @@ const nodemailer = require('nodemailer');
 const db = require('../database/connection');
 const { render: renderTemplate } = require('./emailTemplates');
 
+/** Keep in sync with admin `smtpTimeout` validator (AR-5). */
+const SMTP_TIMEOUT_MIN_SEC = 5;
+const SMTP_TIMEOUT_MAX_SEC = 300;
+const SMTP_TIMEOUT_DEFAULT_SEC = 30;
+
 /**
  * @param {{ timeoutSec?: number }} [opts]
  * `timeoutSec` from admin `smtp-timeout` (seconds), else env `SMTP_TIMEOUT`, else 30.
@@ -14,10 +19,10 @@ const createTransporter = (opts = {}) => {
 
   const rawTimeout =
     opts.timeoutSec ??
-    parseInt(process.env.SMTP_TIMEOUT || process.env.EMAIL_SMTP_TIMEOUT || '30', 10);
+    parseInt(process.env.SMTP_TIMEOUT || process.env.EMAIL_SMTP_TIMEOUT || String(SMTP_TIMEOUT_DEFAULT_SEC), 10);
   const timeoutSec = Number.isFinite(rawTimeout)
-    ? Math.min(120, Math.max(5, rawTimeout))
-    : 30;
+    ? Math.min(SMTP_TIMEOUT_MAX_SEC, Math.max(SMTP_TIMEOUT_MIN_SEC, rawTimeout))
+    : SMTP_TIMEOUT_DEFAULT_SEC;
   const socketTimeout = timeoutSec * 1000;
 
   return nodemailer.createTransport({
@@ -244,6 +249,9 @@ const sendApplicationRejectedEmail = async (email, nickname, reason) =>
   sendEmail(email, 10, { nickname, rejectionReason: reason || 'Не указана' });
 
 module.exports = {
+  SMTP_TIMEOUT_MIN_SEC,
+  SMTP_TIMEOUT_MAX_SEC,
+  SMTP_TIMEOUT_DEFAULT_SEC,
   sendEmail,
   sendTemplate,
   sendVerificationEmail,
