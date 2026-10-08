@@ -2,11 +2,28 @@ const nodemailer = require('nodemailer');
 const db = require('../database/connection');
 const { render: renderTemplate } = require('./emailTemplates');
 
-const createTransporter = () => {
+/** Keep in sync with admin `smtpTimeout` validator (AR-5). */
+const SMTP_TIMEOUT_MIN_SEC = 5;
+const SMTP_TIMEOUT_MAX_SEC = 300;
+const SMTP_TIMEOUT_DEFAULT_SEC = 30;
+
+/**
+ * @param {{ timeoutSec?: number }} [opts]
+ * `timeoutSec` from admin `smtp-timeout` (seconds), else env `SMTP_TIMEOUT`, else 30.
+ */
+const createTransporter = (opts = {}) => {
   const port = parseInt(process.env.SMTP_PORT || process.env.EMAIL_SMTP_PORT || '465', 10);
   const secure =
     process.env.SMTP_SECURE === 'true' ||
     port === 465;
+
+  const rawTimeout =
+    opts.timeoutSec ??
+    parseInt(process.env.SMTP_TIMEOUT || process.env.EMAIL_SMTP_TIMEOUT || String(SMTP_TIMEOUT_DEFAULT_SEC), 10);
+  const timeoutSec = Number.isFinite(rawTimeout)
+    ? Math.min(SMTP_TIMEOUT_MAX_SEC, Math.max(SMTP_TIMEOUT_MIN_SEC, rawTimeout))
+    : SMTP_TIMEOUT_DEFAULT_SEC;
+  const socketTimeout = timeoutSec * 1000;
 
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST || process.env.EMAIL_SMTP_HOST || 'smtp.yandex.ru',
@@ -17,6 +34,10 @@ const createTransporter = () => {
       user: process.env.SMTP_USER || process.env.EMAIL_SMTP_USER || '',
       pass: process.env.SMTP_PASS || process.env.SMTP_PASSWORD || process.env.EMAIL_SMTP_PASSWORD || '',
     },
+    // Avoid hanging register/forgot-password when SMTP is dead (AR-4).
+    connectionTimeout: Math.min(15_000, socketTimeout),
+    greetingTimeout: Math.min(10_000, socketTimeout),
+    socketTimeout,
   });
 };
 
@@ -91,11 +112,13 @@ const getServerSettings = async () => {
       settings[row.setting_key] = row.setting_value;
     }
 
+    const smtpTimeoutRaw = parseInt(settings['smtp-timeout'], 10);
     return {
       serverName: settings['server-name'] || 'Owyx',
       siteUrl: settings['site-url'] || 'https://owyx.site',
       discordInvite: settings['discord-invite'] || 'https://discord.gg/owyx',
       telegramInvite: settings['telegram-invite'] || 'https://t.me/owyx',
+      smtpTimeoutSec: Number.isFinite(smtpTimeoutRaw) ? smtpTimeoutRaw : undefined,
       currentDate: new Date().toLocaleDateString('ru-RU', {
         year: 'numeric',
         month: 'long',
@@ -140,7 +163,7 @@ const sendEmail = async (to, id, customVariables = {}) => {
     };
   }
 
-  const transporter = createTransporter();
+  const transporter = createTransporter({ timeoutSec: serverSettings.smtpTimeoutSec });
   const fromAddress = process.env.EMAIL_FROM || smtpUser;
   const siteUrl = process.env.FRONTEND_URL || 'https://owyx.site';
 
@@ -181,7 +204,7 @@ const sendTemplate = async (to, key, vars = {}) => {
     return { success: true, messageId: 'simulated-' + Date.now(), simulated: true };
   }
 
-  const transporter = createTransporter();
+  const transporter = createTransporter({ timeoutSec: serverSettings.smtpTimeoutSec });
   const fromAddress = process.env.EMAIL_FROM || smtpUser;
   const siteUrl = process.env.FRONTEND_URL || 'https://owyx.site';
   const info = await transporter.sendMail({
@@ -226,6 +249,9 @@ const sendApplicationRejectedEmail = async (email, nickname, reason) =>
   sendEmail(email, 10, { nickname, rejectionReason: reason || 'Не указана' });
 
 module.exports = {
+  SMTP_TIMEOUT_MIN_SEC,
+  SMTP_TIMEOUT_MAX_SEC,
+  SMTP_TIMEOUT_DEFAULT_SEC,
   sendEmail,
   sendTemplate,
   sendVerificationEmail,

@@ -275,6 +275,8 @@ export async function publishLibraryPackToCatalog(opts: {
 	const sizeMb = (opts.fileSize ?? 0) / (1024 * 1024)
 	/** Keep in sync with owyxsite `MAX_PACK_BYTES` (512 MB). */
 	const MAX_PACK_MB = 512
+	// Do not hard-block at ~100 MB here: that assumes Cloudflare is always in front
+	// and breaks grey-cloud / non-CF hosts. Real 413s get a clear message from Rust.
 	if (sizeMb > MAX_PACK_MB) {
 		await removeStagedExport(filePath)
 		throw new Error(

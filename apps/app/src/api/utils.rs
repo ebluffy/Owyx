@@ -251,8 +251,15 @@ pub async fn owyx_ingest_pack_file(
     let size_mb_u64 = size_mb;
 
     if !status.is_success() {
-        let message =
-            owyx_ingest_error_message(status.as_u16(), &body, size_mb_u64);
+        let host = url::Url::parse(&url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()));
+        let message = owyx_ingest_error_message(
+            status.as_u16(),
+            &body,
+            size_mb_u64,
+            host.as_deref(),
+        );
         return Err(theseus::Error::from(theseus::ErrorKind::OtherError(
             message,
         ))
@@ -280,8 +287,40 @@ fn owyx_ingest_url_allowed(url: &str) -> bool {
     }
 }
 
-fn owyx_ingest_error_message(status: u16, body: &str, size_mb: u64) -> String {
+fn owyx_ingest_error_message(
+    status: u16,
+    body: &str,
+    size_mb: u64,
+    host: Option<&str>,
+) -> String {
     if status == 413 {
+        // Prefer the API's own JSON when multer rejected (true >512 MB case).
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body)
+            && let Some(message) = parsed
+                .get("error")
+                .and_then(|v| v.as_str())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+        {
+            return format!("{message} ({status})");
+        }
+        // Under our API cap but still 413 → proxy/CDN (e.g. Cloudflare Free ~100 MB).
+        if size_mb < 512 {
+            let host_label = host.unwrap_or("the API host");
+            // Only suggest grey-cloud for the API hostname — never apex owyx.site
+            // (keep the website proxied; AR-3).
+            let grey_hint = if host.is_some_and(|h| h == "api.owyx.site") {
+                format!(
+                    " — set {host_label} DNS to DNS-only (grey cloud), or host the archive via HTTP URL"
+                )
+            } else {
+                " — check proxy/CDN body-size limits in front of this host, or host the archive via HTTP URL"
+                    .to_string()
+            };
+            return format!(
+                "ingest failed (413): upload blocked by a proxy/CDN in front of {host_label} (yours ~{size_mb} MB; e.g. Cloudflare Free ~100 MB){grey_hint}"
+            );
+        }
         return format!(
             "ingest failed (413): archive too large for the API (max 512 MB, yours ~{size_mb} MB)"
         );
@@ -451,18 +490,64 @@ mod owyx_ingest_url_tests {
     #[test]
     fn formats_413_and_html_bodies() {
         assert!(
-            owyx_ingest_error_message(413, "<html>big</html>", 600)
+            owyx_ingest_error_message(413, "<html>big</html>", 600, None)
                 .contains("max 512 MB")
         );
+        let prod = owyx_ingest_error_message(
+            413,
+            "<html>cf</html>",
+            114,
+            Some("api.owyx.site"),
+        );
+        assert!(prod.contains("Cloudflare"));
+        assert!(prod.contains("api.owyx.site"));
+        assert!(prod.contains("grey cloud"));
+
+        let loopback = owyx_ingest_error_message(
+            413,
+            "<html>cf</html>",
+            50,
+            Some("127.0.0.1"),
+        );
+        assert!(loopback.contains("127.0.0.1"));
+        assert!(loopback.contains("proxy/CDN"));
+        assert!(!loopback.contains("api.owyx.site"));
+        assert!(!loopback.contains("grey cloud"));
+
+        let apex = owyx_ingest_error_message(
+            413,
+            "<html>cf</html>",
+            114,
+            Some("owyx.site"),
+        );
+        assert!(apex.contains("owyx.site"));
+        assert!(apex.contains("proxy/CDN"));
+        assert!(!apex.contains("grey cloud"));
+
+        assert!(
+            owyx_ingest_error_message(
+                413,
+                r#"{"error":"archive too large (max 512 MB)"}"#,
+                600,
+                Some("api.owyx.site"),
+            )
+            .contains("archive too large (max 512 MB)")
+        );
         assert_eq!(
-            owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10),
+            owyx_ingest_error_message(
+                502,
+                "<html>Bad Gateway</html>",
+                10,
+                None
+            ),
             "pack ingest failed (502)"
         );
         assert_eq!(
             owyx_ingest_error_message(
                 401,
                 r#"{"error":"session expired"}"#,
-                10
+                10,
+                None,
             ),
             "session expired (401)"
         );

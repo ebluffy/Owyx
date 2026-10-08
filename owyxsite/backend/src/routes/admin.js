@@ -6,6 +6,10 @@ const { body, validationResult } = require('express-validator');
 const db = require('../database/connection');
 const { authenticateToken, authenticateLongTermApiToken, requireRole, requireApiTokenPermission } = require('./auth');
 const bcrypt = require('bcryptjs');
+const {
+    SMTP_TIMEOUT_MIN_SEC,
+    SMTP_TIMEOUT_MAX_SEC,
+} = require('../utils/emailService');
 
 const router = express.Router();
 
@@ -1934,7 +1938,7 @@ router.post('/settings', [
     body('smtpSenderName').optional().isLength({ max: 100 }),
     body('smtpReplyTo').optional().isEmail(),
     body('emailNotificationsEnabled').optional().isBoolean(),
-    body('smtpTimeout').optional().isInt({ min: 5, max: 300 })
+    body('smtpTimeout').optional().isInt({ min: SMTP_TIMEOUT_MIN_SEC, max: SMTP_TIMEOUT_MAX_SEC })
 ], async (req, res) => {
     try {
         const errors = validationResult(req);

@@ -928,7 +928,8 @@ router.get('/discord/callback', async (req, res) => {
                 grant_type: 'authorization_code',
                 code: code,
                 redirect_uri: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/api/auth/discord/callback`
-            })
+            }),
+            signal: AbortSignal.timeout(15_000),
         });
 
         const tokenData = await tokenResponse.json();
@@ -940,7 +941,8 @@ router.get('/discord/callback', async (req, res) => {
         const userResponse = await fetch('https://discord.com/api/users/@me', {
             headers: {
                 'Authorization': `Bearer ${tokenData.access_token}`
-            }
+            },
+            signal: AbortSignal.timeout(15_000),
         });
 
         const discordUser = await userResponse.json();

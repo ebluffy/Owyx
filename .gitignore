@@ -105,6 +105,7 @@ legacy/**/frpc.toml
 promt.md
 
 # Local agent review scratch (never commit Auto-Review dumps)
+.tmp/
 .tmp-review/
 .tmp-review*.txt
 .tmp-rv.txt
@@ -112,6 +113,10 @@ promt.md
 latest-review.txt
 .pr-body-*.md
 pr1*_review.txt
+
+# Local tooling / IDE (machine-specific)
+.codegraph/
+.cursor/settings.json
 
 
 # Never commit full DB dumps with PII / SMTP secrets (keep migrations tracked)
