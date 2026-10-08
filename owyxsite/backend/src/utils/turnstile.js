@@ -60,6 +60,7 @@ async function verifyTurnstile(token, remoteip = null) {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData.toString(),
+      signal: AbortSignal.timeout(10_000),
     });
 
     const data = await response.json();

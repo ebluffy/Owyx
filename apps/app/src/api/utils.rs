@@ -307,9 +307,9 @@ fn owyx_ingest_error_message(
         // Under our API cap but still 413 → proxy/CDN (e.g. Cloudflare Free ~100 MB).
         if size_mb < 512 {
             let host_label = host.unwrap_or("the API host");
-            let grey_hint = if host.is_some_and(|h| {
-                h == "owyx.site" || h.ends_with(".owyx.site")
-            }) {
+            // Only suggest grey-cloud for the API hostname — never apex owyx.site
+            // (keep the website proxied; AR-3).
+            let grey_hint = if host.is_some_and(|h| h == "api.owyx.site") {
                 format!(
                     " — set {host_label} DNS to DNS-only (grey cloud), or host the archive via HTTP URL"
                 )
@@ -503,12 +503,26 @@ mod owyx_ingest_url_tests {
         assert!(prod.contains("api.owyx.site"));
         assert!(prod.contains("grey cloud"));
 
-        let loopback =
-            owyx_ingest_error_message(413, "<html>cf</html>", 50, Some("127.0.0.1"));
+        let loopback = owyx_ingest_error_message(
+            413,
+            "<html>cf</html>",
+            50,
+            Some("127.0.0.1"),
+        );
         assert!(loopback.contains("127.0.0.1"));
         assert!(loopback.contains("proxy/CDN"));
         assert!(!loopback.contains("api.owyx.site"));
         assert!(!loopback.contains("grey cloud"));
+
+        let apex = owyx_ingest_error_message(
+            413,
+            "<html>cf</html>",
+            114,
+            Some("owyx.site"),
+        );
+        assert!(apex.contains("owyx.site"));
+        assert!(apex.contains("proxy/CDN"));
+        assert!(!apex.contains("grey cloud"));
 
         assert!(
             owyx_ingest_error_message(
@@ -520,7 +534,12 @@ mod owyx_ingest_url_tests {
             .contains("archive too large (max 512 MB)")
         );
         assert_eq!(
-            owyx_ingest_error_message(502, "<html>Bad Gateway</html>", 10, None),
+            owyx_ingest_error_message(
+                502,
+                "<html>Bad Gateway</html>",
+                10,
+                None
+            ),
             "pack ingest failed (502)"
         );
         assert_eq!(
