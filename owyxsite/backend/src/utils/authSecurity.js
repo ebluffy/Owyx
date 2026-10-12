@@ -89,6 +89,9 @@ function publicUser(user) {
   return safe;
 }
 
+/** Pre-computed 12-round bcrypt hash used to equalize timing when a user does not exist. */
+const DUMMY_BCRYPT_HASH = '$2a$12$e8uqk5I4uK.92/pYmGfVreOGF8wXQeYd5F7Gk1CjX4a/6mD9vU96W';
+
 module.exports = {
   hashSessionToken,
   legacySessionTokenHash,
@@ -97,4 +100,5 @@ module.exports = {
   revokeOtherUserSessions,
   revokeUserApiTokens,
   revokeUserCredentials,
+  DUMMY_BCRYPT_HASH,
 };

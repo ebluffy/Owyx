@@ -4640,20 +4640,80 @@
   "modal.owyx-account-required.client-key-hint": {
     "message": ""
   },
+  "modal.owyx-account-required.copied-link-button": {
+    "message": "Скопировано!"
+  },
+  "modal.owyx-account-required.copy-link-button": {
+    "message": "Скопировать ссылку"
+  },
   "modal.owyx-account-required.create-account-button": {
     "message": "Создать аккаунт"
   },
   "modal.owyx-account-required.description": {
-    "message": "Используй тот же логин (или email) и пароль, что на owyx.site. Вход через Microsoft необязателен — для лицензионных скинов."
+    "message": "Используй тот же логин (или email) и пароль, что на owyx.site, или войди через браузер. Вход через Microsoft необязателен — для лицензионных скинов."
+  },
+  "modal.owyx-account-required.error.access-denied": {
+    "message": "Доступ к аккаунту запрещён. Возможно, аккаунт заблокирован или неактивен."
+  },
+  "modal.owyx-account-required.error.browser-open": {
+    "message": "Не удалось открыть браузер. Скопируйте ссылку ниже и откройте её вручную."
+  },
+  "modal.owyx-account-required.error.generic": {
+    "message": "Не удалось войти. Попробуйте позже."
+  },
+  "modal.owyx-account-required.error.invalid-credentials": {
+    "message": "Неверный логин или пароль."
   },
   "modal.owyx-account-required.error.missing-client-key": {
     "message": "В лаунчере нет X-Owyx-Client-Key. Переустановите сборку с GitHub Releases или включите режим разработчика и укажите ключ."
+  },
+  "modal.owyx-account-required.error.network": {
+    "message": "Не удалось связаться с серверами Owyx. Проверьте интернет-соединение."
+  },
+  "modal.owyx-account-required.error.rate-limited": {
+    "message": "Слишком много попыток входа. Пожалуйста, подождите перед повторной попыткой."
+  },
+  "modal.owyx-account-required.error.timeout": {
+    "message": "Время ожидания входа истекло. Попробуйте снова."
   },
   "modal.owyx-account-required.error.unauthorized-client": {
     "message": "Неверный или отсутствующий client key. Укажите X-Owyx-Client-Key в разделе Owyx Servers."
   },
   "modal.owyx-account-required.header": {
     "message": "Нужен аккаунт"
+  },
+  "modal.owyx-account-required.hide-password-aria": {
+    "message": "Скрыть пароль"
+  },
+  "modal.owyx-account-required.login-label": {
+    "message": "Логин или email"
+  },
+  "modal.owyx-account-required.login-placeholder": {
+    "message": "Введите никнейм или email"
+  },
+  "modal.owyx-account-required.manual-url-prompt": {
+    "message": "Браузер не открылся? Откройте ссылку вручную:"
+  },
+  "modal.owyx-account-required.browser-manual-url-hint": {
+    "message": "Если ссылка не открывается, скопируйте её и вставьте в адресную строку браузера."
+  },
+  "modal.owyx-account-required.open-link-button": {
+    "message": "Открыть в браузере"
+  },
+  "modal.owyx-account-required.or-divider": {
+    "message": "или"
+  },
+  "modal.owyx-account-required.password-label": {
+    "message": "Пароль"
+  },
+  "modal.owyx-account-required.password-placeholder": {
+    "message": "Введите пароль"
+  },
+  "modal.owyx-account-required.show-password-aria": {
+    "message": "Показать пароль"
+  },
+  "modal.owyx-account-required.sign-in-button": {
+    "message": "Войти"
   },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Вход в аккаунт Owyx"
@@ -4667,11 +4727,17 @@
   "modal.owyx-account-required.support-prompt": {
     "message": "Нужна помощь? Зайди на <support>owyx.site</support>."
   },
+  "modal.owyx-account-required.switch-to-password-button": {
+    "message": "Войти по паролю"
+  },
   "modal.owyx-account-required.waiting-browser": {
     "message": "Завершите вход в браузере…"
   },
   "modal.owyx-account-required.waiting-browser-body": {
-    "message": "Открылась вкладка owyx.site. Войдите при необходимости и нажмите «Вернуть в лаунчер»."
+    "message": "Войдите на owyx.site, если потребуется, затем вернитесь в лаунчер."
+  },
+  "modal.owyx-account-required.browser-open-status-unknown": {
+    "message": "Лаунчер не смог подтвердить, что браузер открылся. Если окно браузера не появилось, откройте ссылку ниже вручную."
   },
   "onboarding-checklist.create-instance": {
     "message": "Создайте сборку"

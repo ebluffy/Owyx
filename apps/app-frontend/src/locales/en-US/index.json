@@ -4631,6 +4631,12 @@
   "minecraft-required.sign-in": {
     "message": "Sign in to Microsoft"
   },
+  "modal.owyx-account-required.browser-manual-url-hint": {
+    "message": "If opening the link does not work, copy it and paste it into your browser."
+  },
+  "modal.owyx-account-required.browser-open-status-unknown": {
+    "message": "The launcher could not confirm that your browser opened. If no browser appeared, open the link below manually."
+  },
   "modal.owyx-account-required.browser-sign-in-button": {
     "message": "Sign in via owyx.site"
   },
@@ -4640,20 +4646,77 @@
   "modal.owyx-account-required.client-key-hint": {
     "message": ""
   },
+  "modal.owyx-account-required.copied-link-button": {
+    "message": "Copied!"
+  },
+  "modal.owyx-account-required.copy-link-button": {
+    "message": "Copy link"
+  },
   "modal.owyx-account-required.create-account-button": {
     "message": "Create an account"
   },
   "modal.owyx-account-required.description": {
-    "message": "Sign in via owyx.site in your browser (captcha-safe). Password login from the launcher is disabled. Microsoft sign-in is optional for licensed skins."
+    "message": "Sign in with your Owyx account (username or email), or sign in via browser. Microsoft sign-in is optional for licensed skins."
+  },
+  "modal.owyx-account-required.error.access-denied": {
+    "message": "Account access denied. The account may be banned or inactive."
+  },
+  "modal.owyx-account-required.error.browser-open": {
+    "message": "Could not open the browser. Copy the link below and open it manually."
+  },
+  "modal.owyx-account-required.error.generic": {
+    "message": "Sign-in failed. Please try again later."
+  },
+  "modal.owyx-account-required.error.invalid-credentials": {
+    "message": "Incorrect login or password."
   },
   "modal.owyx-account-required.error.missing-client-key": {
     "message": "Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key."
+  },
+  "modal.owyx-account-required.error.network": {
+    "message": "Could not reach Owyx servers. Check your internet connection."
+  },
+  "modal.owyx-account-required.error.rate-limited": {
+    "message": "Too many sign-in attempts. Please wait before trying again."
+  },
+  "modal.owyx-account-required.error.timeout": {
+    "message": "Sign-in timed out. Please try again."
   },
   "modal.owyx-account-required.error.unauthorized-client": {
     "message": "Invalid or missing client key. Set X-Owyx-Client-Key under Owyx Servers."
   },
   "modal.owyx-account-required.header": {
     "message": "Account required"
+  },
+  "modal.owyx-account-required.hide-password-aria": {
+    "message": "Hide password"
+  },
+  "modal.owyx-account-required.login-label": {
+    "message": "Username or email"
+  },
+  "modal.owyx-account-required.login-placeholder": {
+    "message": "Enter your nickname or email"
+  },
+  "modal.owyx-account-required.manual-url-prompt": {
+    "message": "Browser did not open? Open the link manually:"
+  },
+  "modal.owyx-account-required.open-link-button": {
+    "message": "Open in browser"
+  },
+  "modal.owyx-account-required.or-divider": {
+    "message": "or"
+  },
+  "modal.owyx-account-required.password-label": {
+    "message": "Password"
+  },
+  "modal.owyx-account-required.password-placeholder": {
+    "message": "Enter your password"
+  },
+  "modal.owyx-account-required.show-password-aria": {
+    "message": "Show password"
+  },
+  "modal.owyx-account-required.sign-in-button": {
+    "message": "Sign in"
   },
   "modal.owyx-account-required.sign-in-heading": {
     "message": "Sign in to your Owyx account"
@@ -4667,11 +4730,14 @@
   "modal.owyx-account-required.support-prompt": {
     "message": "Need help? Visit <support>owyx.site</support>."
   },
+  "modal.owyx-account-required.switch-to-password-button": {
+    "message": "Use password instead"
+  },
   "modal.owyx-account-required.waiting-browser": {
     "message": "Finish sign-in in your browser…"
   },
   "modal.owyx-account-required.waiting-browser-body": {
-    "message": "A browser tab opened on owyx.site. Sign in if needed, then tap “Return to launcher”."
+    "message": "Sign in on owyx.site if needed, then return to the launcher."
   },
   "onboarding-checklist.create-instance": {
     "message": "Create first instance"

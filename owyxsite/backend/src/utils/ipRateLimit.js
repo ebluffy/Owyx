@@ -14,13 +14,13 @@ const MAX_KEYS = 50_000;
 const PRUNE_EVERY_MS = 60_000;
 let lastPruneAt = 0;
 
-function prune(now, windowMs) {
+function prune(now) {
   if (now - lastPruneAt < PRUNE_EVERY_MS && buckets.size < MAX_KEYS) {
     return;
   }
   lastPruneAt = now;
   for (const [key, entry] of buckets) {
-    if (now - entry.start >= windowMs) {
+    if (now - entry.start >= entry.windowMs) {
       buckets.delete(key);
     }
   }
@@ -38,11 +38,11 @@ function prune(now, windowMs) {
 
 function consumeIp(key, { windowMs = 60 * 60 * 1000, max = 5 } = {}) {
   const now = Date.now();
-  prune(now, windowMs);
+  prune(now);
   const id = String(key || 'unknown');
   let entry = buckets.get(id);
   if (!entry || now - entry.start >= windowMs) {
-    entry = { start: now, count: 0 };
+    entry = { start: now, windowMs, count: 0 };
     buckets.set(id, entry);
   }
   entry.count += 1;
@@ -58,4 +58,10 @@ function bucketSize() {
   return buckets.size;
 }
 
-module.exports = { consumeIp, bucketSize, MAX_KEYS };
+/** Test helper to clear rate limit state between test cases. */
+function resetBuckets() {
+  buckets.clear();
+  lastPruneAt = 0;
+}
+
+module.exports = { consumeIp, bucketSize, resetBuckets, MAX_KEYS };

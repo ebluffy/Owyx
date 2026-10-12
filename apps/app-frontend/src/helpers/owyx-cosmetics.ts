@@ -12,8 +12,8 @@ import {
 	getStoredOwyxApiBase,
 	isAllowedOwyxAssetUrl,
 	sanitizeOwyxApiBase,
-} from '@/helpers/owyx-api'
-import { assertOwyxCosmeticsArgs } from '@/helpers/owyx-cosmetics-args'
+} from './owyx-api.ts'
+import { assertOwyxCosmeticsArgs } from './owyx-cosmetics-args.ts'
 
 function sanitizeNick(nick: string): string {
 	return nick.replace(/[^A-Za-z0-9_\-.]/g, '_').slice(0, 32) || 'player'
