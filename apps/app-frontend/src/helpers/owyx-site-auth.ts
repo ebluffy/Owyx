@@ -6,6 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 
 import {
@@ -13,8 +14,8 @@ import {
 	getOwyxClientKey,
 	getStoredOwyxApiBase,
 	sanitizeOwyxApiBase,
-} from '@/helpers/owyx-api'
-import { syncOwyxCosmeticsToDisk } from '@/helpers/owyx-cosmetics'
+} from './owyx-api.ts'
+import { syncOwyxCosmeticsToDisk } from './owyx-cosmetics.ts'
 
 /** Prefer Tauri HTTP plugin (no CORS); fall back to browser fetch for vitest/SSR. */
 async function owyxFetch(input: string, init?: RequestInit): Promise<Response> {
@@ -25,6 +26,24 @@ async function owyxFetch(input: string, init?: RequestInit): Promise<Response> {
 	}
 }
 
+export type OwyxSiteAuthDeps = {
+	invoke: typeof invoke
+	listen: typeof listen
+	fetch: (input: string, init?: RequestInit) => Promise<Response>
+	getClientKey: () => string
+}
+
+export const siteAuthDeps: OwyxSiteAuthDeps = {
+	invoke,
+	listen,
+	fetch: owyxFetch,
+	getClientKey: getOwyxClientKey,
+}
+
+export function installOwyxSiteAuthDeps(partial: Partial<OwyxSiteAuthDeps>) {
+	Object.assign(siteAuthDeps, partial)
+}
+
 /** Legacy keys — migrated once into OS storage then cleared. */
 const LEGACY_STORAGE_TOKEN = 'owyx.siteToken'
 const LEGACY_STORAGE_USER = 'owyx.siteUser'
@@ -33,6 +52,19 @@ const LEGACY_STORAGE_USER = 'owyx.siteUser'
 let sessionEpoch = 0
 let memorySession: OwyxSiteSession | null = null
 let hydratePromise: Promise<OwyxSiteSession | null> | null = null
+
+/** Bumped on new attempt or cancel to invalidate in-flight browser/password auth flows. */
+let authAttemptEpoch = 0
+let activeAbortController: AbortController | null = null
+
+export function __resetOwyxSiteAuthForTests() {
+	authAttemptEpoch = 0
+	if (activeAbortController) {
+		activeAbortController.abort()
+		activeAbortController = null
+	}
+	clearOwyxSiteSession()
+}
 
 export type OwyxSiteUser = {
 	id: number | string
@@ -56,7 +88,7 @@ function authHeaders(token?: string): Record<string, string> {
 		Accept: 'application/json',
 		'Content-Type': 'application/json',
 	}
-	const key = getOwyxClientKey()
+	const key = siteAuthDeps.getClientKey()
 	if (key) headers['X-Owyx-Client-Key'] = key
 	if (token) headers.Authorization = `Bearer ${token}`
 	return headers
@@ -100,7 +132,7 @@ function clearLegacyLocalStorage() {
 
 async function writeOsSession(session: OwyxSiteSession): Promise<void> {
 	try {
-		await invoke('plugin:utils|owyx_site_session_set', {
+		await siteAuthDeps.invoke('plugin:utils|owyx_site_session_set', {
 			payload: JSON.stringify({ token: session.token, user: session.user }),
 		})
 	} catch (err) {
@@ -110,7 +142,7 @@ async function writeOsSession(session: OwyxSiteSession): Promise<void> {
 
 async function clearOsSession(): Promise<void> {
 	try {
-		await invoke('plugin:utils|owyx_site_session_clear')
+		await siteAuthDeps.invoke('plugin:utils|owyx_site_session_clear')
 	} catch {
 		/* ignore */
 	}
@@ -127,7 +159,7 @@ export async function hydrateOwyxSiteSession(): Promise<OwyxSiteSession | null> 
 		const epoch = sessionEpoch
 		hydratePromise = (async () => {
 			try {
-				const raw = await invoke<string | null>('plugin:utils|owyx_site_session_get')
+				const raw = await siteAuthDeps.invoke<string | null>('plugin:utils|owyx_site_session_get')
 				if (raw) {
 					const parsed = parseSessionPayload(raw)
 					if (parsed) {
@@ -244,7 +276,16 @@ function mapUser(
 
 /** Stable error codes for UI i18n (F15). Message is English fallback. */
 export class OwyxSiteAuthError extends Error {
-	code: 'missing_client_key' | 'unauthorized_client' | 'access_denied' | 'generic'
+	code:
+		| 'missing_client_key'
+		| 'unauthorized_client'
+		| 'access_denied'
+		| 'invalid_credentials'
+		| 'rate_limited'
+		| 'canceled'
+		| 'network'
+		| 'timeout'
+		| 'generic'
 	constructor(code: OwyxSiteAuthError['code'], message: string) {
 		super(message)
 		this.name = 'OwyxSiteAuthError'
@@ -252,14 +293,96 @@ export class OwyxSiteAuthError extends Error {
 	}
 }
 
-/**
- * Password login from the launcher is disabled (G8): the API always requires
- * Turnstile, and the launcher has no captcha widget. Use browser SSO instead.
- */
-export async function loginOwyxSite(_login: string, _password: string): Promise<OwyxSiteSession> {
-	void _login
-	void _password
-	return loginOwyxSiteViaBrowser()
+export async function loginOwyxSite(login: string, password: string): Promise<OwyxSiteSession> {
+	if (!siteAuthDeps.getClientKey().trim()) {
+		throw new OwyxSiteAuthError('missing_client_key', 'Launcher client key is missing.')
+	}
+	if (!login.trim() || !password) {
+		throw new OwyxSiteAuthError('invalid_credentials', 'Login and password are required.')
+	}
+
+	const attemptEpoch = ++authAttemptEpoch
+	const controller = new AbortController()
+	activeAbortController = controller
+
+	let res: Response
+	try {
+		res = await siteAuthDeps.fetch(`${apiBase()}/api/auth/launcher/login`, {
+			method: 'POST',
+			headers: authHeaders(),
+			body: JSON.stringify({ login: login.trim(), password, remember: true }),
+			signal: controller.signal,
+		})
+	} catch (err: unknown) {
+		if (activeAbortController === controller) activeAbortController = null
+		if (attemptEpoch !== authAttemptEpoch) {
+			throw new OwyxSiteAuthError('canceled', 'Login canceled')
+		}
+		const name = (err as { name?: string })?.name
+		if (name === 'TimeoutError' || name === 'AbortError') {
+			throw new OwyxSiteAuthError('timeout', 'Sign-in timed out. Try again.')
+		}
+		throw new OwyxSiteAuthError('network', 'Could not reach Owyx. Check your connection.')
+	} finally {
+		if (activeAbortController === controller) activeAbortController = null
+	}
+
+	if (attemptEpoch !== authAttemptEpoch) {
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+
+	return completeOwyxLogin(res, attemptEpoch)
+}
+
+async function completeOwyxLogin(res: Response, attemptEpoch?: number): Promise<OwyxSiteSession> {
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+	if (!res.ok) {
+		if (
+			data.error === 'unauthorized_client' ||
+			(res.status === 401 && data.error === 'unauthorized_client')
+		) {
+			throw new OwyxSiteAuthError('unauthorized_client', 'Invalid launcher client key.')
+		}
+		if (data.error === 'launcher_client_key_missing' || res.status === 503) {
+			throw new OwyxSiteAuthError(
+				'missing_client_key',
+				'Launcher client key is missing on the server.',
+			)
+		}
+		if (res.status === 429) {
+			throw new OwyxSiteAuthError('rate_limited', 'Too many attempts. Wait before trying again.')
+		}
+		if (res.status === 401) {
+			throw new OwyxSiteAuthError('invalid_credentials', 'Incorrect login or password.')
+		}
+		if (res.status === 403) {
+			throw new OwyxSiteAuthError('access_denied', 'Account access denied.')
+		}
+		if (res.status === 408 || res.status === 504) {
+			throw new OwyxSiteAuthError('timeout', 'Sign-in timed out. Try again.')
+		}
+		throw new OwyxSiteAuthError('generic', 'Sign-in failed. Try again later.')
+	}
+	if (
+		typeof data.token !== 'string' ||
+		!data.token ||
+		!data.user ||
+		typeof data.user !== 'object' ||
+		Array.isArray(data.user)
+	) {
+		throw new OwyxSiteAuthError('generic', 'Invalid sign-in response.')
+	}
+	if (attemptEpoch !== undefined && attemptEpoch !== authAttemptEpoch) {
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+	const user = mapUser(data.user as Record<string, unknown>)
+	persistSession(data.token, user)
+	return { token: data.token, user }
+}
+
+export interface OwyxBrowserLoginReady {
+	url: string
+	opened: boolean
 }
 
 function randomOwyxAuthState(): string {
@@ -271,44 +394,154 @@ function randomOwyxAuthState(): string {
 /** Browser SSO: open owyx.site, wait for loopback code, exchange for JWT. */
 export async function loginOwyxSiteViaBrowser(
 	siteBase = OWYX_SITE_LOGIN_URL.replace(/\/login\/?$/, ''),
+	onReady?: (details: OwyxBrowserLoginReady) => void,
 ): Promise<OwyxSiteSession> {
-	const key = getOwyxClientKey()
+	const key = siteAuthDeps.getClientKey()
 	if (!key.trim()) {
 		throw new OwyxSiteAuthError(
 			'missing_client_key',
 			'Launcher is missing X-Owyx-Client-Key. Reinstall from a current GitHub release or enable Developer mode to set the key.',
 		)
 	}
+
+	const attemptEpoch = ++authAttemptEpoch
+	const controller = new AbortController()
+	activeAbortController = controller
 	const state = randomOwyxAuthState()
-	const code = await invoke<string>('plugin:utils|owyx_site_browser_login', {
-		siteBase: siteBase.replace(/\/$/, ''),
-		state,
-	})
+
+	let unlisten: (() => void) | undefined
+	try {
+		unlisten = await siteAuthDeps.listen<OwyxBrowserLoginReady>(
+			'owyx-site-browser-login-ready',
+			(event) => {
+				if (attemptEpoch !== authAttemptEpoch) return
+				try {
+					const url = new URL(event.payload.url)
+					if (url.searchParams.get('state') === state) onReady?.(event.payload)
+				} catch {
+					// Ignore malformed events from another login attempt.
+				}
+			},
+		)
+	} catch {
+		// Listen unavailable in non-Tauri test harness
+	}
+
+	// CRITICAL: Handle cancellation pending event registration race
+	if (attemptEpoch !== authAttemptEpoch) {
+		unlisten?.()
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+
+	let code: string
+	try {
+		code = await siteAuthDeps.invoke<string>('plugin:utils|owyx_site_browser_login', {
+			siteBase: siteBase.replace(/\/$/, ''),
+			state,
+		})
+	} catch (err: unknown) {
+		if (attemptEpoch !== authAttemptEpoch) {
+			throw new OwyxSiteAuthError('canceled', 'Login canceled')
+		}
+		const msg = err instanceof Error ? err.message : String(err)
+		if (/cancel/i.test(msg)) {
+			throw new OwyxSiteAuthError('canceled', 'Login canceled')
+		}
+		if (/time.*out/i.test(msg)) {
+			throw new OwyxSiteAuthError('timeout', 'Browser sign-in timed out.')
+		}
+		throw new OwyxSiteAuthError('generic', msg || 'Browser sign-in failed.')
+	} finally {
+		unlisten?.()
+	}
+
+	if (attemptEpoch !== authAttemptEpoch) {
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+
 	const base = apiBase()
-	const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/launcher/exchange`, {
-		method: 'POST',
-		headers: authHeaders(),
-		body: JSON.stringify({ code, state }),
-		signal: AbortSignal.timeout(15000),
-	})
+	let res: Response
+	try {
+		res = await siteAuthDeps.fetch(`${base.replace(/\/$/, '')}/api/auth/launcher/exchange`, {
+			method: 'POST',
+			headers: authHeaders(),
+			body: JSON.stringify({ code, state }),
+			signal: controller.signal,
+		})
+	} catch (err: unknown) {
+		if (activeAbortController === controller) activeAbortController = null
+		if (attemptEpoch !== authAttemptEpoch) {
+			throw new OwyxSiteAuthError('canceled', 'Login canceled')
+		}
+		const name = (err as { name?: string })?.name
+		if (name === 'TimeoutError' || name === 'AbortError') {
+			throw new OwyxSiteAuthError('timeout', 'Connection timed out. Try again.')
+		}
+		throw new OwyxSiteAuthError('network', 'Could not reach Owyx. Check your connection.')
+	} finally {
+		if (activeAbortController === controller) activeAbortController = null
+	}
+
+	if (attemptEpoch !== authAttemptEpoch) {
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+
 	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
 	if (!res.ok || !data.token) {
+		if (data.error === 'unauthorized_client' || res.status === 401) {
+			throw new OwyxSiteAuthError('unauthorized_client', 'Invalid launcher client key.')
+		}
+		if (res.status === 429) {
+			throw new OwyxSiteAuthError('rate_limited', 'Too many attempts. Wait before trying again.')
+		}
+		if (res.status === 408 || res.status === 504) {
+			throw new OwyxSiteAuthError('timeout', 'Browser sign-in timed out.')
+		}
 		const err = String(data.error ?? data.message ?? `Browser login failed (${res.status})`)
-		throw new Error(err)
+		throw new OwyxSiteAuthError('generic', err)
 	}
+
 	const userRaw = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<
 		string,
 		unknown
 	>
 	const user = mapUser(userRaw)
 	const token = String(data.token)
+
+	// Session writes MUST NOT happen on canceled flows
+	if (attemptEpoch !== authAttemptEpoch) {
+		throw new OwyxSiteAuthError('canceled', 'Login canceled')
+	}
+
 	persistSession(token, user)
 	const refreshed = await fetchOwyxSiteMe(token)
+	if (attemptEpoch !== authAttemptEpoch) {
+		return { token, user }
+	}
 	return refreshed ?? { token, user }
 }
 
 export function cancelOwyxSiteBrowserLogin() {
-	void invoke('plugin:utils|owyx_site_browser_login_cancel').catch(() => undefined)
+	authAttemptEpoch += 1
+	if (activeAbortController) {
+		activeAbortController.abort()
+		activeAbortController = null
+	}
+	void siteAuthDeps.invoke('plugin:utils|owyx_site_browser_login_cancel').catch(() => undefined)
+}
+
+/**
+ * Re-open the launcher-auth URL in the system browser ("Open again").
+ *
+ * Runs through the Rust helper so the AppImage environment scrub applies.
+ * Calling the Tauri opener directly here would repeat issue #169.
+ */
+export async function reopenOwyxSiteBrowserLoginUrl(url: string): Promise<boolean> {
+	const trimmed = url.trim()
+	if (!/^https:\/\/(?:www\.)?owyx\.site\/launcher-auth\?/i.test(trimmed)) {
+		return false
+	}
+	return siteAuthDeps.invoke<boolean>('plugin:utils|owyx_site_browser_login_open', { url: trimmed })
 }
 
 export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession | null> {
@@ -321,7 +554,7 @@ export async function fetchOwyxSiteMe(token?: string): Promise<OwyxSiteSession |
 	const tokenAtStart = session.token
 	const base = apiBase()
 	try {
-		const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/launcher/me`, {
+		const res = await siteAuthDeps.fetch(`${base.replace(/\/$/, '')}/api/launcher/me`, {
 			method: 'GET',
 			headers: authHeaders(session.token),
 			signal: AbortSignal.timeout(10000),
@@ -391,7 +624,7 @@ export async function updateOwyxDisplayNickname(displayNickname: string): Promis
 		throw new Error('Display nickname must be 3–16 letters, numbers, or underscores')
 	}
 	const base = apiBase()
-	const res = await owyxFetch(`${base.replace(/\/$/, '')}/api/profile/display-nickname`, {
+	const res = await siteAuthDeps.fetch(`${base.replace(/\/$/, '')}/api/profile/display-nickname`, {
 		method: 'PUT',
 		headers: authHeaders(session.token),
 		body: JSON.stringify({ displayNickname: nick }),
@@ -413,11 +646,13 @@ export async function logoutOwyxSite() {
 	if (session?.token) {
 		try {
 			const base = apiBase()
-			await owyxFetch(`${base.replace(/\/$/, '')}/api/auth/logout`, {
-				method: 'POST',
-				headers: authHeaders(session.token),
-				signal: AbortSignal.timeout(5000),
-			}).catch(() => undefined)
+			await siteAuthDeps
+				.fetch(`${base.replace(/\/$/, '')}/api/auth/logout`, {
+					method: 'POST',
+					headers: authHeaders(session.token),
+					signal: AbortSignal.timeout(5000),
+				})
+				.catch(() => undefined)
 		} catch {
 			/* ignore */
 		}

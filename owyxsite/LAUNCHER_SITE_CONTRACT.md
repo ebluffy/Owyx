@@ -3,13 +3,13 @@
 How the **Owyx launcher** talks to the **Owyx site** API. Source of truth for the
 launcher/site boundary. Keep in sync with `backend/src/routes/launcher.js`.
 
-**Versions:** launcher-facing **API surface `1.4.0`** (`GET /api/launcher/v1/status.version`),
-**site UI `0.1.0`** (`.siteVersion`). Additive: friends (`/api/friends`), catalog ACL
-(`access_mode` + `catalog_acl`), optional Bearer on catalog lists, social settings
-(`GET|PATCH /api/friends/settings`), CustomSkinLoader public API (`/api/csl`),
+**Versions:** launcher-facing **API surface `1.5.0`** (`GET /api/launcher/v1/status.version`),
+**site UI `0.1.0`** (`.siteVersion`). Additive: launcher password fallback (`/api/auth/launcher/login`),
+friends (`/api/friends`), catalog ACL (`access_mode` + `catalog_acl`), optional Bearer on catalog lists,
+social settings (`GET|PATCH /api/friends/settings`), CustomSkinLoader public API (`/api/csl`),
 anonymous launcher telemetry (`POST /api/launcher/v1/telemetry`).
 
-**Updated:** 2026-09-18 — status `modules`/`skins` match `launcher.js`; display nick is UI-only.
+**Updated:** 2026-10-12 — launcher fallback login endpoint `POST /api/auth/launcher/login` (Issue #169).
 
 ---
 
@@ -65,17 +65,35 @@ The key is configured as `LAUNCHER_CLIENT_KEY` on the site and `OWYX_CLIENT_KEY`
 
 ## Auth flow (Owyx account in the launcher)
 
-### Password login (existing)
+### Password login (site / web)
 
-1. `POST /api/auth/login` with `{ "login", "password", "remember": true }`
+1. `POST /api/auth/login` with `{ "login", "password", "turnstileToken", "remember": true }`
    (`email` still accepted as an alias for `login`).
-   - Browser (Host: `owyx.site`): may require Cloudflare Turnstile (`turnstileToken`).
-   - **Launcher** (Host: `api.owyx.site` **and** valid `X-Owyx-Client-Key`):
-     Turnstile is **skipped**. Browser Host (`owyx.site`) always requires captcha
-     even if the client key header is present.
+   - Requires Cloudflare Turnstile (`turnstileToken`) on **every host** (G8).
+   - `X-Owyx-Client-Key` **never bypasses captcha** on this route.
    - `200` → `{ success: true, token, user }`. `token` is a JWT.
    - `401`/`403` → `{ error }` (wrong credentials / inactive). Show a human message.
-   - `401 unauthorized_client` → missing/invalid client key (configure in Owyx Servers settings).
+   - `429` → `{ error, retryAfterSec }` (rate limited).
+
+### Password login fallback (launcher direct login #169)
+
+When browser SSO cannot be completed (e.g. system URL opener failure on Linux desktop environments),
+the launcher falls back to direct username/password login via the dedicated launcher endpoint:
+
+1. `POST /api/auth/launcher/login` with `{ "login", "password", "remember": true }`
+   (`email` still accepted as an alias for `login`).
+   - **Headers:** `X-Owyx-Client-Key` matching `LAUNCHER_CLIENT_KEY` is **strictly required**.
+   - **Captcha:** Turnstile token is not required on this route; protection relies on the secret client key,
+     strict IP-based in-memory rate limits (10 / 15m), account-based in-memory rate limits (5 / 15m),
+     legacy database failed-attempt tracking (omitted to avoid account-existence disclosure), constant-time bcrypt verification against `DUMMY_BCRYPT_HASH`
+     to eliminate timing-based user enumeration, and an artificial delay (`500ms`, configurable via `LAUNCHER_LOGIN_DELAY_MS`).
+   - `200` → `{ success: true, message: "Успешная авторизация", token, user }`. `token` is a 30-day JWT (or 24h if `remember: false`).
+   - `400` → `{ error: "Ошибка валидации", details: [...] }` (sensitive password values are stripped from error details).
+   - `401 unauthorized_client` → missing or invalid `X-Owyx-Client-Key`.
+   - `401` → `{ error: "Неверный логин или пароль" }` (identical response and timing whether user exists or not).
+   - `403` → `{ error: "Аккаунт заблокирован" }` / `{ error: "Аккаунт неактивен" }` (returned only after password check passes).
+   - `429` → `{ error: "...", retryAfterSec: <seconds> }` (IP or account rate limit triggered).
+   - `503 launcher_client_key_missing` → `LAUNCHER_CLIENT_KEY` not configured in production.
 2. Store the JWT securely in OS app-data (`~/owyx/site_session.json` via Tauri
    `plugin:utils|owyx_site_session_*`). Never plaintext in webview `localStorage`.
    Legacy `localStorage` keys are migrated once then cleared.
@@ -133,12 +151,50 @@ Catalog seed names like `owyx-friends` are unrelated demo servers.
 
 ## Endpoints
 
-### `POST /api/auth/login`
-Request: `{ "login": string, "password": string }` (`email` accepted as alias)
+### `POST /api/auth/login` (Site Web Login)
+Request: `{ "login": string, "password": string, "turnstileToken": string }` (`email` accepted as alias)
+Requires Cloudflare Turnstile token on all hosts.
 Response `200`:
 ```json
 { "success": true, "token": "<jwt>", "user": { "id": 1, "nickname": "Steve", "role": "user", ... } }
 ```
+
+### `POST /api/auth/launcher/login` (Launcher Password Fallback #169)
+Requires Header: `X-Owyx-Client-Key: <LAUNCHER_CLIENT_KEY>`
+Request:
+```json
+{
+  "login": "Steve",
+  "password": "user_password",
+  "remember": true
+}
+```
+Response `200`:
+```json
+{
+  "success": true,
+  "message": "Успешная авторизация",
+  "token": "<jwt>",
+  "user": {
+    "id": 1,
+    "nickname": "Steve",
+    "display_nickname": "Steve",
+    "email": "steve@owyx.local",
+    "role": "user",
+    "trust_level": 0,
+    "is_banned": false,
+    "is_active": true,
+    "registered_at": "2026-08-06T01:13:43.477Z"
+  }
+}
+```
+Errors:
+- `400`: `{ "error": "Ошибка валидации", "details": [...] }` (password values stripped)
+- `401`: `{ "error": "unauthorized_client", "message": "Missing or invalid X-Owyx-Client-Key" }`
+- `401`: `{ "error": "Неверный логин или пароль" }` (timing defense against enumeration)
+- `403`: `{ "error": "Аккаунт заблокирован" }` or `{ "error": "Аккаунт неактивен" }`
+- `429`: `{ "error": "...", "retryAfterSec": 900 }`
+- `503`: `{ "error": "launcher_client_key_missing", "message": "..." }`
 
 ### `GET /api/launcher/me`  (auth: `Bearer <jwt>`)
 Also available as `GET /api/launcher/v1/me`.

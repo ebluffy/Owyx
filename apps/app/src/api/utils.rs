@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::Manager;
-use tauri::Runtime;
+use std::sync::LazyLock;
+use tauri::{Emitter, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
 use theseus::{
     handler,
@@ -38,6 +38,7 @@ pub fn init<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
             owyx_site_session_clear,
             owyx_site_browser_login,
             owyx_site_browser_login_cancel,
+            owyx_site_browser_login_open,
             owyx_sha256_file,
             owyx_ingest_pack_file,
             owyx_remove_export_file,
@@ -636,6 +637,242 @@ pub async fn owyx_site_session_clear() -> Result<()> {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OwyxSiteBrowserLoginReadyPayload {
+    pub url: String,
+    pub opened: bool,
+}
+
+static OWYX_BROWSER_LOGIN_CANCEL: LazyLock<tokio::sync::broadcast::Sender<()>> =
+    LazyLock::new(|| tokio::sync::broadcast::channel(16).0);
+
+struct ListenerAbortGuard<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> ListenerAbortGuard<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+
+    fn disarm(&mut self) -> Option<tokio::task::JoinHandle<T>> {
+        self.handle.take()
+    }
+
+    async fn abort_and_await(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(500),
+                handle,
+            )
+            .await;
+        }
+    }
+}
+
+impl<T> Drop for ListenerAbortGuard<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
+pub(crate) fn safe_url_host(site_base: &str) -> String {
+    Url::parse(site_base.trim())
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+pub(crate) fn sanitize_auth_log_error(
+    err_str: &str,
+    auth_url: &str,
+    state: &str,
+) -> String {
+    let mut sanitized = err_str.to_string();
+    if !auth_url.is_empty() {
+        sanitized = sanitized.replace(auth_url, "[REDACTED_AUTH_URL]");
+    }
+    if !state.is_empty() {
+        sanitized = sanitized.replace(state, "[REDACTED_STATE]");
+    }
+    if let Some(q_idx) = sanitized.find('?') {
+        let after = &sanitized[q_idx..];
+        let end_idx = after
+            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+            .unwrap_or(after.len());
+        let query_part = &after[..end_idx];
+        sanitized = sanitized.replace(query_part, "?[REDACTED_QUERY]");
+    }
+    sanitized
+}
+
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn scrub_appimage_env(cmd: &mut std::process::Command) {
+    let vars = [
+        ("LD_LIBRARY_PATH", "OLD_LD_LIBRARY_PATH"),
+        ("LD_PRELOAD", "OLD_LD_PRELOAD"),
+        ("GTK_PATH", "OLD_GTK_PATH"),
+        ("GTK_EXE_PREFIX", "OLD_GTK_EXE_PREFIX"),
+        ("GIO_MODULE_DIR", "OLD_GIO_MODULE_DIR"),
+        ("GIO_EXTRA_MODULES", "OLD_GIO_EXTRA_MODULES"),
+    ];
+    let in_appimage = std::env::var_os("APPIMAGE").is_some()
+        || std::env::var_os("APPDIR").is_some()
+        || vars.iter().any(|(_, old)| std::env::var_os(old).is_some());
+    if in_appimage {
+        // AppImage sets APPIMAGE and APPDIR. They must not leak into the
+        // launched process: xdg-open / the browser would inherit the mount
+        // paths and may fail silently (issue #169).
+        cmd.env_remove("APPIMAGE");
+        cmd.env_remove("APPDIR");
+        for (name, old_name) in vars {
+            if let Some(value) = std::env::var_os(old_name) {
+                cmd.env(name, value);
+            } else {
+                cmd.env_remove(name);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn launch_linux_xdg_open(url: &str) -> std::result::Result<(), String> {
+    let mut cmd = std::process::Command::new("xdg-open");
+    cmd.arg(url);
+    scrub_appimage_env(&mut cmd);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::null());
+    // Redirect stderr to /dev/null instead of piping it: a pipe would be
+    // inherited by the browser we spawn and nobody reads it (EPIPE/SIGPIPE
+    // risk), and we do not need the reason string here.
+    cmd.stderr(std::process::Stdio::null());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn xdg-open: {e}"))?;
+
+    let start = std::time::Instant::now();
+    // Some window managers (Hyprland, sway) keep xdg-open alive until the
+    // browser exits. That is not a failure, so a timeout must not kill it
+    // or report an error: the browser may already be open.
+    let timeout = std::time::Duration::from_secs(3);
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if status.success() {
+                    return Ok(());
+                } else {
+                    return Err(format!(
+                        "xdg-open exited with status {status}"
+                    ));
+                }
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    // Leave the process running: killing it could take the
+                    // browser down with it on some setups. Hand it to a
+                    // background thread that reaps it (waitpid), otherwise it
+                    // stays a zombie until the launcher exits.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return Ok(());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(format!("Failed to wait for xdg-open: {e}")),
+        }
+    }
+}
+
+async fn open_browser_url<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    url: &str,
+    state: &str,
+    safe_host: &str,
+) -> bool {
+    let app_clone = app.clone();
+    let url_for_opener = url.to_string();
+    let state_for_log = state.to_string();
+    let url_for_log = url.to_string();
+    let host_for_log = safe_host.to_string();
+
+    // On Linux the desktop portal can report success even when its browser
+    // never starts, so the scrubbed xdg-open is tried first. Only if it
+    // fails do we fall back to the portal opener: launching both would open
+    // two tabs with the same one-time auth code (issue #169).
+    #[cfg(target_os = "linux")]
+    {
+        let url_for_xdg = url.to_string();
+        let host_for_xdg = safe_host.to_string();
+
+        let xdg_join = tauri::async_runtime::spawn_blocking(move || {
+            launch_linux_xdg_open(&url_for_xdg)
+        })
+        .await;
+
+        match xdg_join {
+            Ok(Ok(())) => return true,
+            Ok(Err(err)) => {
+                let safe_err = sanitize_auth_log_error(&err, url, state);
+                tracing::warn!(
+                    target: "owyx_browser_auth",
+                    host = %host_for_xdg,
+                    "Scrubbed Linux xdg-open failed, falling back to opener: {safe_err}"
+                );
+            }
+            Err(join_err) => {
+                tracing::warn!(
+                    target: "owyx_browser_auth",
+                    host = %host_for_xdg,
+                    "Linux xdg-open spawn_blocking join error: {join_err}"
+                );
+            }
+        }
+    }
+
+    // Fallback (and the only path off Linux): the portal opener.
+    // spawn_blocking avoids portal/wry main-thread deadlocks on Linux.
+    let opener_join = tauri::async_runtime::spawn_blocking(move || {
+        app_clone.opener().open_url(&url_for_opener, None::<&str>)
+    })
+    .await;
+
+    match opener_join {
+        Ok(Ok(())) => true,
+        Ok(Err(err)) => {
+            let safe_err = sanitize_auth_log_error(
+                &err.to_string(),
+                &url_for_log,
+                &state_for_log,
+            );
+            tracing::warn!(
+                target: "owyx_browser_auth",
+                host = %host_for_log,
+                "Opener failed to open browser URL: {safe_err}"
+            );
+            false
+        }
+        Err(_join_err) => {
+            tracing::warn!(
+                target: "owyx_browser_auth",
+                host = %host_for_log,
+                "Opener task failed"
+            );
+            false
+        }
+    }
+}
+
+const OWYX_BROWSER_LOGIN_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_secs(300);
+
 /// Open the Owyx site in the system browser and wait for a one-time auth code
 /// on a loopback redirect (same pattern as Modrinth App OAuth).
 #[tauri::command]
@@ -659,15 +896,36 @@ pub async fn owyx_site_browser_login<R: Runtime>(
         ));
     }
 
+    let safe_host = safe_url_host(&site_base);
+
     let (auth_code_recv_socket_tx, auth_code_recv_socket) =
         tokio::sync::oneshot::channel();
     let expected_state = state.clone();
-    let auth_code = tokio::spawn(super::oauth_utils::auth_code_reply::listen(
-        auth_code_recv_socket_tx,
-        Some(expected_state),
-    ));
+    let auth_code_handle =
+        tokio::spawn(super::oauth_utils::auth_code_reply::listen(
+            auth_code_recv_socket_tx,
+            Some(expected_state),
+        ));
 
-    let auth_code_recv_socket = auth_code_recv_socket.await.unwrap()?;
+    let mut abort_guard = ListenerAbortGuard::new(auth_code_handle);
+
+    let auth_code_recv_socket = match auth_code_recv_socket.await {
+        Ok(Ok(addr)) => addr,
+        Ok(Err(e)) => {
+            abort_guard.abort_and_await().await;
+            return Err(TheseusSerializableError::Theseus(e));
+        }
+        Err(_) => {
+            abort_guard.abort_and_await().await;
+            return Err(TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError(
+                    "Auth code listener terminated unexpectedly".into(),
+                )
+                .into(),
+            ));
+        }
+    };
+
     let base = site_base.trim_end_matches('/');
     let auth_request_uri = format!(
         "{base}/launcher-auth?port={}&state={}",
@@ -675,33 +933,125 @@ pub async fn owyx_site_browser_login<R: Runtime>(
         urlencoding_encode(&state),
     );
 
-    app.opener()
-        .open_url(auth_request_uri, None::<&str>)
-        .map_err(|e| {
-            TheseusSerializableError::Theseus(
-                theseus::ErrorKind::OtherError(format!(
-                    "Failed to open Owyx site login URL: {e}"
-                ))
-                .into(),
-            )
-        })?;
+    // Emit event opened=false immediately when URL is ready so UI can display/copy/retry
+    let _ = app.emit(
+        "owyx-site-browser-login-ready",
+        OwyxSiteBrowserLoginReadyPayload {
+            url: auth_request_uri.clone(),
+            opened: false,
+        },
+    );
 
-    let Some(auth_code) = auth_code.await.unwrap()? else {
-        return Err(TheseusSerializableError::Theseus(
-            theseus::ErrorKind::OtherError("Login canceled".into()).into(),
-        ));
+    // Attempt to open in browser (via spawn_blocking opener + Linux xdg-open fallback)
+    let opened =
+        open_browser_url(&app, &auth_request_uri, &state, &safe_host).await;
+
+    // Emit updated ready event with opened=true on success or opened=false on failure
+    let _ = app.emit(
+        "owyx-site-browser-login-ready",
+        OwyxSiteBrowserLoginReadyPayload {
+            url: auth_request_uri.clone(),
+            opened,
+        },
+    );
+
+    // Keep listener alive even if opener fails!
+    // Bounded wait with 5-minute timeout and cancel listener
+    let mut cancel_rx = OWYX_BROWSER_LOGIN_CANCEL.subscribe();
+    let join_handle = abort_guard.handle.as_mut().expect("handle present");
+
+    let result = tokio::select! {
+        biased;
+        _ = cancel_rx.recv() => {
+            Err(TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError("Login canceled".into()).into(),
+            ))
+        }
+        _ = tokio::time::sleep(OWYX_BROWSER_LOGIN_TIMEOUT) => {
+            Err(TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError("Login timed out".into()).into(),
+            ))
+        }
+        join_res = join_handle => {
+            match join_res {
+                Ok(Ok(Some(code))) => Ok(code),
+                Ok(Ok(None)) => Err(TheseusSerializableError::Theseus(
+                    theseus::ErrorKind::OtherError("Login canceled".into()).into(),
+                )),
+                Ok(Err(e)) => Err(TheseusSerializableError::Theseus(e)),
+                Err(join_err) => {
+                    if join_err.is_cancelled() {
+                        Err(TheseusSerializableError::Theseus(
+                            theseus::ErrorKind::OtherError("Login canceled".into()).into(),
+                        ))
+                    } else {
+                        Err(TheseusSerializableError::Theseus(
+                            theseus::ErrorKind::OtherError(format!(
+                                "Auth code listener task failed: {join_err}"
+                            )).into(),
+                        ))
+                    }
+                }
+            }
+        }
     };
 
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.set_focus();
+    match result {
+        Ok(code) => {
+            abort_guard.disarm();
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.set_focus();
+            }
+            Ok(code)
+        }
+        Err(err) => {
+            abort_guard.abort_and_await().await;
+            Err(err)
+        }
     }
-
-    Ok(auth_code)
 }
 
 #[tauri::command]
 pub fn owyx_site_browser_login_cancel() {
+    OWYX_BROWSER_LOGIN_CANCEL.send(()).ok();
     super::oauth_utils::auth_code_reply::stop_listeners();
+}
+
+/// Retry opening the Owyx launcher-auth URL from the UI ("Open again").
+///
+/// Goes through the same scrubbed opener as the primary flow so AppImage
+/// environment cleanup applies here too (issue #169 / AR-3).
+#[tauri::command]
+pub async fn owyx_site_browser_login_open<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    url: String,
+) -> Result<bool> {
+    if !is_allowed_owyx_launcher_auth_url(&url) {
+        return Err(TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(
+                "Owyx site login URL is not allowed".into(),
+            )
+            .into(),
+        ));
+    }
+    let safe_host = safe_url_host(&url);
+    Ok(open_browser_url(&app, url.trim(), "", &safe_host).await)
+}
+
+/// Matches the exact URL shape Rust itself emits for the launcher auth flow:
+/// `https://owyx.site/launcher-auth?port=…&state=…`.
+fn is_allowed_owyx_launcher_auth_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    if parsed.path() != "/launcher-auth" {
+        return false;
+    }
+    is_allowed_owyx_site_base(&format!(
+        "{}://{}",
+        parsed.scheme(),
+        parsed.host_str().unwrap_or_default()
+    ))
 }
 
 fn is_allowed_owyx_site_base(site_base: &str) -> bool {
@@ -1083,5 +1433,257 @@ mod owyx_sha256_tests {
             settings,
             config,
         ));
+    }
+}
+
+#[cfg(test)]
+mod owyx_browser_auth_tests {
+    use super::*;
+
+    static APPIMAGE_ENV_TEST_LOCK: std::sync::Mutex<()> =
+        std::sync::Mutex::new(());
+
+    #[test]
+    fn test_is_allowed_owyx_site_base() {
+        assert!(is_allowed_owyx_site_base("https://owyx.site"));
+        assert!(is_allowed_owyx_site_base("https://owyx.site/"));
+        assert!(is_allowed_owyx_site_base("https://www.owyx.site"));
+        assert!(is_allowed_owyx_site_base("https://www.owyx.site/"));
+        assert!(is_allowed_owyx_site_base("  https://owyx.site  "));
+
+        #[cfg(debug_assertions)]
+        {
+            assert!(is_allowed_owyx_site_base("http://localhost"));
+            assert!(is_allowed_owyx_site_base("http://127.0.0.1"));
+            assert!(is_allowed_owyx_site_base("https://localhost"));
+            assert!(is_allowed_owyx_site_base("https://127.0.0.1"));
+        }
+
+        assert!(!is_allowed_owyx_site_base("http://owyx.site"));
+        assert!(!is_allowed_owyx_site_base("http://www.owyx.site"));
+        assert!(!is_allowed_owyx_site_base("https://api.owyx.site"));
+        assert!(!is_allowed_owyx_site_base("https://owyx.site.attacker.com"));
+        assert!(!is_allowed_owyx_site_base("https://evilowyx.site"));
+        assert!(!is_allowed_owyx_site_base("https://google.com"));
+        assert!(!is_allowed_owyx_site_base("https://owyx.site/foo"));
+        assert!(!is_allowed_owyx_site_base("https://owyx.site?evil=1"));
+        assert!(!is_allowed_owyx_site_base("https://owyx.site#fragment"));
+        assert!(!is_allowed_owyx_site_base("javascript:alert(1)"));
+        assert!(!is_allowed_owyx_site_base("not a url"));
+    }
+
+    #[test]
+    fn test_is_safe_owyx_auth_state() {
+        assert!(is_safe_owyx_auth_state("0123456789abcdef0123456789abcdef"));
+        assert!(is_safe_owyx_auth_state("Valid_State-1234567890"));
+        assert!(is_safe_owyx_auth_state(&"a".repeat(16)));
+        assert!(is_safe_owyx_auth_state(&"a".repeat(128)));
+
+        assert!(!is_safe_owyx_auth_state(&"a".repeat(15)));
+        assert!(!is_safe_owyx_auth_state(&"a".repeat(129)));
+        assert!(!is_safe_owyx_auth_state(""));
+
+        assert!(!is_safe_owyx_auth_state("state with spaces 1234567890"));
+        assert!(!is_safe_owyx_auth_state("state\nwith\nnewlines01234567890"));
+        assert!(!is_safe_owyx_auth_state("state;drop_table;1234567890"));
+        assert!(!is_safe_owyx_auth_state("state&evil=123456789012345"));
+        assert!(!is_safe_owyx_auth_state("state\"quote\"1234567890123"));
+        assert!(!is_safe_owyx_auth_state("state<script>123456789012"));
+    }
+
+    #[test]
+    fn test_urlencoding_encode() {
+        assert_eq!(urlencoding_encode("abcXYZ123-_.~"), "abcXYZ123-_.~");
+        assert_eq!(urlencoding_encode("hello world"), "hello%20world");
+        assert_eq!(urlencoding_encode("foo&bar=1"), "foo%26bar%3D1");
+    }
+
+    #[test]
+    fn test_safe_url_host() {
+        assert_eq!(safe_url_host("https://owyx.site"), "owyx.site");
+        assert_eq!(
+            safe_url_host("https://www.owyx.site/path?query=1"),
+            "www.owyx.site"
+        );
+        assert_eq!(safe_url_host("invalid-url"), "unknown");
+    }
+
+    #[test]
+    fn test_sanitize_auth_log_error() {
+        let state = "secret_state_123456789";
+        let auth_url = format!(
+            "https://owyx.site/launcher-auth?port=8080&state={state}&code=secret"
+        );
+        let err_msg = format!("Failed to open {auth_url} in browser");
+        let sanitized = sanitize_auth_log_error(&err_msg, &auth_url, state);
+        assert!(!sanitized.contains(state));
+        assert!(!sanitized.contains("code=secret"));
+        assert!(!sanitized.contains("port=8080"));
+        assert!(sanitized.contains("[REDACTED_AUTH_URL]"));
+        assert!(!sanitized.contains("launcher-auth"));
+
+        let standalone = format!("State mismatch: {state}");
+        let sanitized_standalone =
+            sanitize_auth_log_error(&standalone, "", state);
+        assert!(!sanitized_standalone.contains(state));
+        assert!(sanitized_standalone.contains("[REDACTED_STATE]"));
+    }
+
+    #[test]
+    fn test_scrub_appimage_env_restores_clean_loader_environment() {
+        const VARS: [&str; 15] = [
+            "APPIMAGE",
+            "APPDIR",
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "OLD_LD_LIBRARY_PATH",
+            "OLD_LD_PRELOAD",
+            "GTK_PATH",
+            "GTK_EXE_PREFIX",
+            "GIO_MODULE_DIR",
+            "GIO_EXTRA_MODULES",
+            "OLD_GTK_PATH",
+            "OLD_GTK_EXE_PREFIX",
+            "OLD_GIO_MODULE_DIR",
+            "OLD_GIO_EXTRA_MODULES",
+            "OLD_APPDIR",
+        ];
+        let _lock = APPIMAGE_ENV_TEST_LOCK.lock().unwrap();
+        let original: Vec<_> = VARS
+            .iter()
+            .map(|name| (*name, std::env::var_os(name)))
+            .collect();
+        unsafe {
+            std::env::set_var("APPIMAGE", "/tmp/owyx.AppImage");
+            std::env::set_var("APPDIR", "/tmp/.mount_owyx");
+            std::env::set_var("OLD_APPDIR", "/usr");
+            std::env::set_var("OLD_LD_LIBRARY_PATH", "/usr/lib");
+            std::env::set_var("OLD_LD_PRELOAD", "/usr/lib/libpreload.so");
+            std::env::set_var("LD_LIBRARY_PATH", "/tmp/.mount_owyx/usr/lib");
+            std::env::set_var(
+                "LD_PRELOAD",
+                "/tmp/.mount_owyx/usr/lib/libpreload.so",
+            );
+            std::env::set_var("OLD_GTK_PATH", "/usr/lib/gtk");
+            std::env::set_var("OLD_GIO_MODULE_DIR", "/usr/lib/gio/modules");
+            std::env::set_var("GTK_PATH", "/tmp/.mount_owyx/usr/lib/gtk");
+            std::env::set_var("GTK_EXE_PREFIX", "/tmp/.mount_owyx/usr");
+            std::env::set_var(
+                "GIO_MODULE_DIR",
+                "/tmp/.mount_owyx/usr/lib/gio/modules",
+            );
+            std::env::set_var(
+                "GIO_EXTRA_MODULES",
+                "/tmp/.mount_owyx/usr/lib/gio/extra",
+            );
+        }
+        let mut cmd = std::process::Command::new("xdg-open");
+        scrub_appimage_env(&mut cmd);
+        let env: std::collections::HashMap<_, _> = cmd.get_envs().collect();
+        let get = |name: &str| {
+            env.iter()
+                .find(|(key, _)| key.to_str() == Some(name))
+                .map(|(_, value)| *value)
+        };
+        assert_eq!(get("LD_LIBRARY_PATH").unwrap().unwrap(), "/usr/lib");
+        assert_eq!(
+            get("LD_PRELOAD").unwrap().unwrap(),
+            "/usr/lib/libpreload.so"
+        );
+        assert_eq!(get("GTK_PATH").unwrap().unwrap(), "/usr/lib/gtk");
+        assert_eq!(
+            get("GIO_MODULE_DIR").unwrap().unwrap(),
+            "/usr/lib/gio/modules"
+        );
+        // Vars without an OLD_* counterpart must be dropped from the child
+        // environment (Some(None)), not merely left absent from get_envs().
+        assert_eq!(get("APPIMAGE"), Some(None));
+        assert_eq!(get("APPDIR"), Some(None));
+        assert_eq!(get("GTK_EXE_PREFIX"), Some(None));
+        assert_eq!(get("GIO_EXTRA_MODULES"), Some(None));
+        unsafe {
+            for (name, value) in original {
+                if let Some(value) = value {
+                    std::env::set_var(name, value);
+                } else {
+                    std::env::remove_var(name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_scrub_appimage_env_noop_outside_appimage() {
+        const VARS: [&str; 15] = [
+            "APPIMAGE",
+            "APPDIR",
+            "LD_LIBRARY_PATH",
+            "LD_PRELOAD",
+            "OLD_LD_LIBRARY_PATH",
+            "OLD_LD_PRELOAD",
+            "GTK_PATH",
+            "GTK_EXE_PREFIX",
+            "GIO_MODULE_DIR",
+            "GIO_EXTRA_MODULES",
+            "OLD_GTK_PATH",
+            "OLD_GTK_EXE_PREFIX",
+            "OLD_GIO_MODULE_DIR",
+            "OLD_GIO_EXTRA_MODULES",
+            "OLD_APPDIR",
+        ];
+        let _lock = APPIMAGE_ENV_TEST_LOCK.lock().unwrap();
+        let original: Vec<_> = VARS
+            .iter()
+            .map(|name| (*name, std::env::var_os(name)))
+            .collect();
+        unsafe {
+            for name in VARS {
+                std::env::remove_var(name);
+            }
+            // A plain loader path, but no AppImage marker and no OLD_* vars,
+            // must leave the child environment untouched.
+            std::env::set_var("LD_LIBRARY_PATH", "/usr/lib");
+        }
+        let mut cmd = std::process::Command::new("xdg-open");
+        scrub_appimage_env(&mut cmd);
+        assert_eq!(cmd.get_envs().count(), 0);
+        unsafe {
+            for (name, value) in original {
+                if let Some(value) = value {
+                    std::env::set_var(name, value);
+                } else {
+                    std::env::remove_var(name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_ready_payload_serde() {
+        let payload = OwyxSiteBrowserLoginReadyPayload {
+            url: "https://owyx.site/launcher-auth?port=1234&state=abcdef"
+                .to_string(),
+            opened: false,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert_eq!(
+            json,
+            r#"{"url":"https://owyx.site/launcher-auth?port=1234&state=abcdef","opened":false}"#
+        );
+
+        let deserialized: OwyxSiteBrowserLoginReadyPayload =
+            serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, payload);
+
+        let opened_payload = OwyxSiteBrowserLoginReadyPayload {
+            url: "https://owyx.site/launcher-auth?port=1234&state=abcdef"
+                .to_string(),
+            opened: true,
+        };
+        let opened_json = serde_json::to_string(&opened_payload).unwrap();
+        assert_eq!(
+            opened_json,
+            r#"{"url":"https://owyx.site/launcher-auth?port=1234&state=abcdef","opened":true}"#
+        );
     }
 }

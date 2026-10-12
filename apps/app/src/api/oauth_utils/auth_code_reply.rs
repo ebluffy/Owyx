@@ -38,35 +38,48 @@ pub async fn listen(
     listen_socket_tx: oneshot::Sender<Result<SocketAddr, theseus::Error>>,
     expected_state: Option<String>,
 ) -> Result<Option<String>, theseus::Error> {
-    let listener = match tcp_listen_any_loopback().await {
-        Ok(listener) => {
-            listen_socket_tx
-                .send(listener.local_addr().map_err(|e| {
-                    ErrorKind::OtherError(format!(
-                        "Failed to get auth code reply socket address: {e}"
-                    ))
-                    .into()
-                }))
-                .ok();
+    let mut shutdown_notification = SERVER_SHUTDOWN.subscribe();
 
-            listener
+    let listener = tokio::select! {
+        biased;
+        _ = shutdown_notification.recv() => {
+            let error_msg = "Auth code reply listener canceled before socket bind";
+            listen_socket_tx
+                .send(Err(ErrorKind::OtherError(error_msg.to_string()).into()))
+                .ok();
+            return Ok(None);
         }
-        Err(e) => {
-            let error_msg =
-                format!("Failed to bind auth code reply socket: {e}");
+        bind_res = tcp_listen_any_loopback() => {
+            match bind_res {
+                Ok(listener) => {
+                    listen_socket_tx
+                        .send(listener.local_addr().map_err(|e| {
+                            ErrorKind::OtherError(format!(
+                                "Failed to get auth code reply socket address: {e}"
+                            ))
+                            .into()
+                        }))
+                        .ok();
 
-            listen_socket_tx
-                .send(Err(ErrorKind::OtherError(error_msg.clone()).into()))
-                .ok();
+                    listener
+                }
+                Err(e) => {
+                    let error_msg =
+                        format!("Failed to bind auth code reply socket: {e}");
 
-            return Err(ErrorKind::OtherError(error_msg).into());
+                    listen_socket_tx
+                        .send(Err(ErrorKind::OtherError(error_msg.clone()).into()))
+                        .ok();
+
+                    return Err(ErrorKind::OtherError(error_msg).into());
+                }
+            }
         }
     };
 
-    let mut auth_code = Mutex::new(None);
-    let mut shutdown_notification = SERVER_SHUTDOWN.subscribe();
+    let auth_code = Mutex::new(None);
 
-    while auth_code.get_mut().unwrap().is_none() {
+    while auth_code.lock().map(|g| g.is_none()).unwrap_or(false) {
         let client_socket = tokio::select! {
             biased;
             _ = shutdown_notification.recv() => {
@@ -83,24 +96,30 @@ pub async fn listen(
             }
         };
 
-        if let Err(e) = hyper::server::conn::http1::Builder::new()
-            .keep_alive(false)
-            .header_read_timeout(Duration::from_secs(5))
-            .timer(TokioTimer::new())
-            .auto_date_header(false)
-            .serve_connection(
-                TokioIo::new(client_socket),
-                hyper::service::service_fn(|req| {
-                    handle_reply(req, &auth_code, expected_state.as_deref())
-                }),
-            )
-            .await
-        {
-            tracing::warn!("Failed to handle auth code reply: {e}");
+        tokio::select! {
+            biased;
+            _ = shutdown_notification.recv() => {
+                break;
+            }
+            serve_res = hyper::server::conn::http1::Builder::new()
+                .keep_alive(false)
+                .header_read_timeout(Duration::from_secs(5))
+                .timer(TokioTimer::new())
+                .auto_date_header(false)
+                .serve_connection(
+                    TokioIo::new(client_socket),
+                    hyper::service::service_fn(|req| {
+                        handle_reply(&auth_code, expected_state.as_deref(), req)
+                    }),
+                ) => {
+                if let Err(e) = serve_res {
+                    tracing::warn!("Failed to handle auth code reply: {e}");
+                }
+            }
         }
     }
 
-    Ok(auth_code.into_inner().unwrap())
+    Ok(auth_code.into_inner().unwrap_or(None))
 }
 
 /// Stops any active OAuth 2.0 authorization code grant flow reply listening HTTP servers.
@@ -108,7 +127,7 @@ pub fn stop_listeners() {
     SERVER_SHUTDOWN.send(()).ok();
 }
 
-fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+pub(crate) fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
     query
         .split('&')
         .filter_map(|query_pair| query_pair.split_once('='))
@@ -116,14 +135,20 @@ fn query_param<'a>(query: &'a str, name: &str) -> Option<&'a str> {
 }
 
 async fn handle_reply(
-    req: hyper::Request<Incoming>,
     auth_code_out: &Mutex<Option<String>>,
     expected_state: Option<&str>,
+    req: hyper::Request<Incoming>,
 ) -> Result<hyper::Response<String>, hyper::http::Error> {
     if req.method() != hyper::Method::GET {
         return hyper::Response::builder()
             .status(hyper::StatusCode::METHOD_NOT_ALLOWED)
             .header("Allow", "GET")
+            .body("".into());
+    }
+
+    if req.uri().path() == "/favicon.ico" {
+        return hyper::Response::builder()
+            .status(hyper::StatusCode::NOT_FOUND)
             .body("".into());
     }
 
@@ -139,7 +164,9 @@ async fn handle_reply(
     };
 
     let response = if let (Some(auth_code), true) = (auth_code, state_ok) {
-        *auth_code_out.lock().unwrap() = Some(auth_code.to_string());
+        if let Ok(mut lock) = auth_code_out.lock() {
+            *lock = Some(auth_code.to_string());
+        }
 
         hyper::Response::builder()
             .status(hyper::StatusCode::OK)
@@ -147,7 +174,10 @@ async fn handle_reply(
             .body(
                 include_str!("auth_code_reply/page.html")
                     .replace("{{title}}", "Success")
-                    .replace("{{message}}", "You have successfully signed in! You can close this page now."),
+                    .replace(
+                        "{{message}}",
+                        "You have successfully signed in! You can close this page now.",
+                    ),
             )
     } else if auth_code.is_some() && !state_ok {
         // Keep listening — do not accept a mismatched CSRF state.
@@ -169,9 +199,31 @@ async fn handle_reply(
             .body(
                 include_str!("auth_code_reply/page.html")
                     .replace("{{title}}", "Error")
-                    .replace("{{message}}", "Authorization code not found. Please try signing in again."),
+                    .replace(
+                        "{{message}}",
+                        "Authorization code not found. Please try signing in again.",
+                    ),
             )
     }?;
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_param_parsing() {
+        assert_eq!(query_param("code=xyz&state=123", "code"), Some("xyz"));
+        assert_eq!(query_param("code=xyz&state=123", "state"), Some("123"));
+        assert_eq!(query_param("code=xyz&state=123", "other"), None);
+        assert_eq!(query_param("", "code"), None);
+        assert_eq!(query_param("foo=bar", "code"), None);
+        assert_eq!(query_param("code=", "code"), Some(""));
+        assert_eq!(
+            query_param("first=1&second=2&code=secret&third=3", "code"),
+            Some("secret")
+        );
+    }
 }

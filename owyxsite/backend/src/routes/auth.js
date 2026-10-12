@@ -17,6 +17,7 @@ const {
     publicUser,
     revokeOtherUserSessions,
     revokeUserCredentials,
+    DUMMY_BCRYPT_HASH,
 } = require('../utils/authSecurity');
 const { logUserActivity } = require('../utils/activityLog');
 const {
@@ -1332,7 +1333,41 @@ function isMissingLauncherAuthCodesRelation(error) {
     return /launcher_auth_codes/i.test(String(error?.message || ''));
 }
 
-async function issueRememberSession(user, req) {
+function checkLauncherClientKey(req, res) {
+    const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
+    if (!expectedKey) {
+        if (process.env.NODE_ENV === 'production') {
+            res.status(503).json({
+                error: 'launcher_client_key_missing',
+                message: 'LAUNCHER_CLIENT_KEY must be set in production',
+            });
+            return false;
+        }
+        return true;
+    }
+    const gotKey = (req.get('x-owyx-client-key') || '').trim();
+    const expectedBytes = Buffer.from(expectedKey);
+    const gotBytes = Buffer.from(gotKey);
+    const validKey = gotBytes.length === expectedBytes.length &&
+        crypto.timingSafeEqual(gotBytes, expectedBytes);
+    if (!gotKey || !validKey) {
+        res.status(401).json({
+            error: 'unauthorized_client',
+            message: 'Missing or invalid X-Owyx-Client-Key',
+        });
+        return false;
+    }
+    return true;
+}
+
+function getLauncherLoginDelayMs() {
+    if (process.env.LAUNCHER_LOGIN_DELAY_MS !== undefined) {
+        return Math.max(0, parseInt(process.env.LAUNCHER_LOGIN_DELAY_MS, 10) || 0);
+    }
+    return process.env.NODE_ENV === 'test' ? 10 : 500;
+}
+
+async function issueRememberSession(user, req, { remember = true } = {}) {
     const ip = req.clientIp || req.ip;
     const userAgent = req.get('User-Agent') || '';
     const tokenPayload = {
@@ -1340,7 +1375,8 @@ async function issueRememberSession(user, req) {
         email: user.email,
         role: user.role,
     };
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const expiresIn = remember ? '30d' : '24h';
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn });
 
     await db.query('DELETE FROM user_sessions WHERE expires_at < NOW()');
     const existingSessions = await db.query(
@@ -1355,7 +1391,7 @@ async function issueRememberSession(user, req) {
     }
 
     const sessionId = uuidv4();
-    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + (remember ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000));
     await db.query(
         'INSERT INTO user_sessions (id, user_id, token_hash, expires_at, ip_address, user_agent) VALUES ($1, $2, $3, $4, $5, $6)',
         [sessionId, user.id, hashSessionToken(token), expiresAt, ip, userAgent],
@@ -1413,22 +1449,8 @@ router.post('/launcher/exchange', async (req, res) => {
         return res.status(429).json({ error: 'Слишком много запросов, попробуйте позже' });
     }
     // Always require client key (do not rely on clientKeyGate SITE_HOSTS bypass).
-    const expectedKey = (process.env.LAUNCHER_CLIENT_KEY || '').trim();
-    if (!expectedKey) {
-        if (process.env.NODE_ENV === 'production') {
-            return res.status(503).json({
-                error: 'launcher_client_key_missing',
-                message: 'LAUNCHER_CLIENT_KEY must be set in production',
-            });
-        }
-    } else {
-        const gotKey = (req.get('x-owyx-client-key') || '').trim();
-        if (gotKey !== expectedKey) {
-            return res.status(401).json({
-                error: 'unauthorized_client',
-                message: 'Missing or invalid X-Owyx-Client-Key',
-            });
-        }
+    if (!checkLauncherClientKey(req, res)) {
+        return;
     }
     try {
         const code = String(req.body?.code || '').trim();
@@ -1482,11 +1504,150 @@ router.post('/launcher/exchange', async (req, res) => {
     }
 });
 
+// POST /api/auth/launcher/login — fallback username/password login directly from launcher (Issue #169)
+router.post('/launcher/login', [
+    body('login').optional().trim().isLength({ min: 1 }).withMessage('Укажите логин или email'),
+    body('email').optional().trim().isLength({ min: 1 }),
+    passwordMaxBytesValidator,
+    body('password').isLength({ min: 6 }).withMessage('Пароль должен быть минимум 6 символов')
+], async (req, res) => {
+    // 1. Client key verification (required on all hosts, cannot bypass Turnstile on /api/auth/login)
+    if (!checkLauncherClientKey(req, res)) {
+        return;
+    }
+
+    // 2. Input validation
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+        // Strip sensitive inputs (e.g. password) from validation details to ensure password is not logged or leaked
+        const sanitizedDetails = errors.array().map(({ value, ...rest }) => rest);
+        return res.status(400).json({
+            error: 'Ошибка валидации',
+            details: sanitizedDetails,
+        });
+    }
+
+    const rawLogin = (req.body.login || req.body.email || '').trim();
+    const { password, remember = true } = req.body;
+    if (!rawLogin) {
+        return res.status(400).json({
+            error: 'Ошибка валидации',
+            details: [{ msg: 'Укажите логин или email' }],
+        });
+    }
+    if (typeof password !== 'string' || !password) {
+        return res.status(400).json({
+            error: 'Ошибка валидации',
+            details: [{ msg: 'Укажите пароль' }],
+        });
+    }
+
+    const ip = req.clientIp || req.ip || req.connection?.remoteAddress || 'unknown';
+    const userAgent = req.get('User-Agent') || '';
+    const loginKey = rawLogin.toLowerCase();
+
+    // 3. Strict rate limits
+    // 3a. IP-scoped in-memory rate limit against distributed or sequential brute force
+    const ipRate = consumeIp(`launcher-login-ip:${ip}`, {
+        windowMs: 15 * 60 * 1000,
+        max: 10,
+    });
+    if (!ipRate.allowed) {
+        return res.status(429).json({
+            error: 'Слишком много попыток входа с этого IP-адреса. Попробуйте позже.',
+            retryAfterSec: ipRate.retryAfterSec,
+        });
+    }
+
+    // 3b. Account-scoped in-memory rate limit against password spraying
+    const accountRate = consumeIp(`launcher-login-account:${loginKey}`, {
+        windowMs: 15 * 60 * 1000,
+        max: 5,
+    });
+    if (!accountRate.allowed) {
+        await logLoginAttempt(loginKey, ip, userAgent, false);
+        return res.status(429).json({
+            error: 'Слишком много попыток входа для этого аккаунта. Попробуйте через 15 минут или войдите через браузер.',
+            retryAfterSec: accountRate.retryAfterSec,
+        });
+    }
+
+    const delayMs = getLauncherLoginDelayMs();
+
+    try {
+        // 4. User lookup
+        const userResult = rawLogin.includes('@')
+            ? await db.query(
+                'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+                [loginKey]
+            )
+            : await db.query(
+                'SELECT * FROM users WHERE LOWER(nickname) = LOWER($1)',
+                [loginKey]
+            );
+
+        // 5. Password verification & user enumeration prevention
+        // If user does not exist, run bcrypt against DUMMY_BCRYPT_HASH to equalize timing.
+        if (userResult.rows.length === 0) {
+            await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+            return res.status(401).json({ error: 'Неверный логин или пароль' });
+        }
+
+        const user = userResult.rows[0];
+        const isPasswordValid = await bcrypt.compare(password, user.password_hash || DUMMY_BCRYPT_HASH);
+        if (!isPasswordValid) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+            return res.status(401).json({ error: 'Неверный логин или пароль' });
+        }
+
+        // Check account ban/active ONLY after password is verified (prevents enumeration of banned accounts)
+        if (user.is_banned === true) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+            return res.status(403).json({ error: 'Аккаунт заблокирован' });
+        }
+
+        if (user.is_active === false) {
+            await logLoginAttempt(loginKey, ip, userAgent, false);
+            if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+            return res.status(403).json({ error: 'Аккаунт неактивен' });
+        }
+
+        // 6. Session issuance & activity logging
+        const token = await issueRememberSession(user, req, { remember: Boolean(remember) });
+        await logLoginAttempt(user.email || loginKey, ip, userAgent, true);
+        await logUserActivity(user.id, 'login', 'Вход в лаунчер (пароль)', {
+            req,
+            ip,
+            userAgent,
+        });
+
+        if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+        res.json({
+            success: true,
+            message: 'Успешная авторизация',
+            token,
+            user: publicUser(user),
+        });
+    } catch (error) {
+        // Never log user password or sensitive body
+        console.error('Ошибка входа через лаунчер:', error?.message || 'Unknown error');
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
 router.authenticateToken = authenticateToken;
 router.authenticateTokenAllowBanned = authenticateTokenAllowBanned;
 router.optionalAuthenticate = optionalAuthenticate;
 router.authenticateLongTermApiToken = authenticateLongTermApiToken;
 router.requireRole = requireRole;
 router.requireApiTokenPermission = requireApiTokenPermission;
+router.issueRememberSession = issueRememberSession;
+router.checkLauncherClientKey = checkLauncherClientKey;
+router.getLauncherLoginDelayMs = getLauncherLoginDelayMs;
+router.DUMMY_BCRYPT_HASH = DUMMY_BCRYPT_HASH;
 
 module.exports = router;

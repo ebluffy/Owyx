@@ -17,7 +17,7 @@ const {
 // Versioned surface lives under /api/launcher/v1/*. Catalogs (servers/packs)
 // are real rows from the site control-plane — not empty stubs.
 
-const LAUNCHER_API_VERSION = '1.4.0';
+const LAUNCHER_API_VERSION = '1.5.0';
 
 /** Build the launcher-facing view of a user row. */
 function buildMe(req, user) {
@@ -96,6 +96,9 @@ router.get('/v1/status', (_req, res) => {
     serverAccessModel: 'open',
     auth: {
       login: '/api/auth/login',
+      launcherLogin: '/api/auth/launcher/login',
+      prepare: '/api/auth/launcher/prepare',
+      exchange: '/api/auth/launcher/exchange',
       me: '/api/launcher/me',
     },
     modules: ['servers', 'packs', 'news', 'cosmetics', 'adminCatalog', 'friends', 'csl', 'telemetry'],
