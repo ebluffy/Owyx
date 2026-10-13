@@ -207,7 +207,7 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-1 | P2 | B1 hook rewritten — real cause is the empty-state guard + missing profile seeding | ✅ Fixed |
 | AR-2 | P2 | Browser symptom extracted as B7 / #178, separate from the B6 / #177 game crash | ✅ Fixed |
 | AR-3 | P3 | `highlight_in_folder` added to B4; `open_path` now returns `Result` and shows the error in the UI | ✅ Fixed |
-| AR-4 | P3 | B2 line refs corrected: lock in `show()` `:440`, reset in `hide()` `:470`; `:539` is unmount cleanup | ✅ Fixed |
+| AR-4 | P3 | B2 references identify lock in `show()`, reset in `hide()` and unmount cleanup by function | ✅ Fixed |
 | AR-5 | P2 | AR findings close in this PR; only code B1–B5 was movable — code now lands here too | ✅ Fixed |
 | AR-6 | P3 | stale screenshot references removed (no images in the PR) | ✅ Fixed |
 | AR-7 | P2 | helper moved into `theseus` and shared by game/processor/opener spawns; no cross-crate call | ✅ Fixed |
