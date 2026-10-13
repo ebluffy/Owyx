@@ -711,7 +711,7 @@ pub(crate) fn sanitize_auth_log_error(
     sanitized
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 pub(crate) fn scrub_appimage_env(cmd: &mut std::process::Command) {
     theseus::scrub_appimage_env(cmd);
 }
@@ -1466,6 +1466,7 @@ mod owyx_sha256_tests {
 mod owyx_browser_auth_tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     static APPIMAGE_ENV_TEST_LOCK: std::sync::Mutex<()> =
         std::sync::Mutex::new(());
 
@@ -1555,6 +1556,7 @@ mod owyx_browser_auth_tests {
         assert!(sanitized_standalone.contains("[REDACTED_STATE]"));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_scrub_appimage_env_restores_clean_loader_environment() {
         const VARS: [&str; 15] = [
@@ -1638,6 +1640,7 @@ mod owyx_browser_auth_tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_scrub_appimage_env_noop_outside_appimage() {
         const VARS: [&str; 15] = [
