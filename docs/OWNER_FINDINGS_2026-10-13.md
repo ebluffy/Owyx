@@ -27,9 +27,12 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
     `computed` — propagation is fine, so “stale snapshot” was the wrong lead.
 - **Fix (this PR):** `AccountsCard.vue` now `watch`es `owyxSite.isSignedIn` and, on the false→true
   transition, seeds the Play profile via `login_offline_flow` (the same helper the button uses),
-  then refreshes values. Seeding is skipped when any Minecraft profile already exists, preserving
-  the selected Microsoft account. The panel button and watcher share an in-flight promise to avoid
-  duplicate profile creation and account-change events.
+  then refreshes values. Automatic seeding (watch/logout) is skipped when any Minecraft profile
+  already exists. Explicit panel sign-in adds the Owyx offline profile beside existing accounts
+  with `makeActive=false`, preserving the selected Microsoft account; a matching offline nickname
+  is not added again. With no accounts, either path creates and selects the profile. Actual
+  creation shares an in-flight promise across both paths; an automatic skip does not block the
+  explicit request. Regression tests cover passive addition, concurrent creation and retry.
 
 ## B2 · Launcher scrollbar not hidden behind the instance-settings modal
 
@@ -196,7 +199,7 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
 
 ---
 
-## Auto-review closure (AR-1 … AR-16)
+## Auto-review closure (AR-1 … AR-17)
 
 Addressing every item from both AR rounds in **this** PR (AR-5): the `.md` edits close here, and the
 B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / #176
@@ -220,3 +223,4 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-14 | P3 | Stale source line numbers replaced by function/file references | ✅ Fixed |
 | AR-15 | P3 | B6 crash separated from #169 / B7 browser symptom | ✅ Fixed |
 | AR-16 | P2 | PR body closes code-fix issues; B3/B5 remain open; B6/B7 device verification pending | ✅ Metadata corrected |
+| AR-17 | P2 | Explicit Owyx sign-in adds a missing offline profile beside Microsoft without switching selection; automatic restore keeps its empty-account guard | ✅ Fixed; regression tests added |

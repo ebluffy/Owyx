@@ -201,6 +201,7 @@ import {
 	users,
 } from '@/helpers/auth'
 import { resolveOwyxAvatarUrl } from '@/helpers/owyx-avatar'
+import { createOwyxPlayProfileSeeder } from '@/helpers/owyx-play-profile'
 import { updateOwyxDisplayNickname } from '@/helpers/owyx-site-auth'
 import { getPlayerHeadUrl } from '@/helpers/rendering/player-head'
 import type { Skin } from '@/helpers/skins'
@@ -406,7 +407,7 @@ async function signInOwyxSite() {
 			handleError(new Error(formatMessage(messages.owyxNickTooLong)))
 			return
 		}
-		await seedOwyxPlayProfile()
+		await seedOwyxPlayProfile(true)
 		trackEvent('AccountLogInOwyxSite')
 	} catch (e) {
 		handleError(e)
@@ -464,36 +465,17 @@ async function logout(id: string) {
 	trackEvent('AccountLogOut')
 }
 
-/**
- * Seed an offline play profile from the Owyx login nick when signed in to the
- * site but no Minecraft profile exists yet. Without this, signing in through the
- * account modal leaves the "Playing as" panel showing "not signed in" until the
- * user authorizes again from the panel (#172).
- */
-let profileSeedInFlight: Promise<boolean> | undefined
-
-function seedOwyxPlayProfile(): Promise<boolean> {
-	if (profileSeedInFlight) return profileSeedInFlight
-	profileSeedInFlight = createOwyxPlayProfile().finally(() => {
-		profileSeedInFlight = undefined
-	})
-	return profileSeedInFlight
-}
-
-async function createOwyxPlayProfile(): Promise<boolean> {
-	if (accounts.value.length > 0) return false
-	const nick = siteLoginNick()
-	if (!nick || !/^[A-Za-z0-9_]{3,16}$/.test(nick)) return false
-	try {
-		const loggedIn = await login_offline_flow(nick, true)
-		if (!loggedIn) return false
-		await setAccount(loggedIn)
-		return true
-	} catch (e) {
-		handleError(e)
-		return false
-	}
-}
+const seedOwyxPlayProfile = createOwyxPlayProfileSeeder<MinecraftCredential>({
+	accounts: () => accounts.value,
+	nickname: siteLoginNick,
+	login: login_offline_flow,
+	activate: setAccount,
+	added: async () => {
+		await refreshValues()
+		emit('change')
+	},
+	onError: handleError,
+})
 
 // The panel is a sibling of the account modal: a successful modal sign-in
 // refreshes the site session in App.vue, and this watch reacts to it. `immediate`
