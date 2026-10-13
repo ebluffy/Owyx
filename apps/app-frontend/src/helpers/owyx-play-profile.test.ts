@@ -85,6 +85,16 @@ test('automatic restoration leaves existing Minecraft profiles alone', async () 
 	assert.equal(h.calls.length, 0)
 })
 
+test('explicit sign-in treats offline nickname casing as the same profile', async () => {
+	const saved: Account = { profile: { name: 'steve' }, is_offline: true }
+	const h = harness([microsoft, saved])
+	assert.equal(await h.seed(true), false)
+	assert.equal(h.calls.length, 0)
+	assert.deepEqual(h.accounts, [microsoft, saved])
+	assert.equal(h.active(), microsoft)
+	assert.equal(h.changes(), 0)
+})
+
 test('failed creation reports once and allows a later retry', async () => {
 	const h = harness()
 	const failure = new Error('offline login failed')

@@ -30,6 +30,7 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
   then refreshes values. Automatic seeding (watch/logout) is skipped when any Minecraft profile
   already exists. Explicit panel sign-in adds the Owyx offline profile beside existing accounts
   with `makeActive=false`, preserving the selected Microsoft account; a matching offline nickname
+  (compared without case sensitivity, as in the avatar lookup)
   is not added again. With no accounts, either path creates and selects the profile. Actual
   creation shares an in-flight promise across both paths; an automatic skip does not block the
   explicit request. Regression tests cover passive addition, concurrent creation and retry.
@@ -199,9 +200,9 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
 
 ---
 
-## Auto-review closure (AR-1 … AR-17)
+## Auto-review closure (AR-1 … AR-18)
 
-Addressing every item from both AR rounds in **this** PR (AR-5): the `.md` edits close here, and the
+Addressing every item from all AR rounds in **this** PR (AR-5): the `.md` edits close here, and the
 B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / #176
 (archive round-trip verification) remain open and are not closed by this PR.
 
@@ -224,3 +225,4 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-15 | P3 | B6 crash separated from #169 / B7 browser symptom | ✅ Fixed |
 | AR-16 | P2 | PR body closes code-fix issues; B3/B5 remain open; B6/B7 device verification pending | ✅ Metadata corrected |
 | AR-17 | P2 | Explicit Owyx sign-in adds a missing offline profile beside Microsoft without switching selection; automatic restore keeps its empty-account guard | ✅ Fixed; regression tests added |
+| AR-18 | P3 | Offline nickname matching ignores case, consistent with the account avatar lookup | ✅ Fixed; `steve` / `Steve` regression test added |

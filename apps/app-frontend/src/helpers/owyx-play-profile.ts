@@ -20,7 +20,12 @@ export function createOwyxPlayProfileSeeder<T extends PlayProfile>(deps: {
 		if (inFlight) return inFlight
 		const nick = deps.nickname()
 		if (!/^[A-Za-z0-9_]{3,16}$/.test(nick)) return Promise.resolve(false)
-		if (accounts.some((account) => account.is_offline && account.profile.name === nick)) {
+		if (
+			accounts.some(
+				(account) =>
+					account.is_offline && account.profile.name.toLowerCase() === nick.toLowerCase(),
+			)
+		) {
 			return Promise.resolve(false)
 		}
 		const makeActive = accounts.length === 0

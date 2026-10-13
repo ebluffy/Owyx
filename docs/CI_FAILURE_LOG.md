@@ -90,3 +90,11 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 - **Symptom:** Windows + Linux builds OK; `Publish GitHub Release` failed with exit **141** (SIGPIPE). No GitHub Release created.
 - **Cause:** `set -o pipefail` + `git log … | head -n 40` — more than 40 commits since previous Owyx release closes `head` early and fails the step.
 - **Fix:** use `git log -n 40` (no pipe to `head`); prefer previous published release tag via `gh release list`.
+
+### 2026-10-13 · PR #171 · run `38458951570` · shear install
+
+- **Step:** `cargo binstall --no-confirm --locked cargo-shear@1.14.0`
+- **Symptom:** source fallback fails before dependency scanning: locked `ra_ap_* 0.0.352` requires rustc 1.98, but installation uses 1.95.0.
+- **Cause:** the workflow installs stable (1.99.0 on this runner), but `rust-toolchain.toml` overrides it inside the checkout. `--locked` alone does not make cargo-shear 1.14.0 compatible with 1.95.
+- **Fix:** set `RUSTUP_TOOLCHAIN: stable` on the tool-install step only; retain the version pin and `--locked`. Project checks continue using the repository toolchain.
+- **Prevention:** verify the source-install fallback's compiler requirement, not just binary availability; ensure tool installation explicitly selects its intended toolchain.
