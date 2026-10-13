@@ -25,7 +25,7 @@ const instancePage = injectInstancePage()
 const instanceId = instancePage.instanceId
 
 const { formatMessage } = useVIntl()
-const { addNotification } = injectNotificationManager()
+const { addNotification, handleError } = injectNotificationManager()
 const debug = useDebugLogger('Files')
 
 const messages = defineMessages({
@@ -327,7 +327,7 @@ provideFileManager({
 	extractFile: handleExtractFile,
 	refresh,
 	basePath: instanceRoot,
-	openInFolder: (path: string) => highlightInFolder(path),
+	openInFolder: (path: string) => highlightInFolder(path).catch(handleError),
 	downloadButtonLabel: formatMessage(messages.saveAs),
 	uploadingLabel: (completed: number, total: number) =>
 		formatMessage(messages.addingFiles, { completed, total }),

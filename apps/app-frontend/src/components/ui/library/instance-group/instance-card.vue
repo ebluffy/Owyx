@@ -225,7 +225,7 @@ const repair = async (event: MouseEvent) => {
 }
 
 const openFolder = async () => {
-	await showInstanceInFolder(props.instance.id)
+	await showInstanceInFolder(props.instance.id).catch(handleError)
 }
 
 const addContent = async () => {

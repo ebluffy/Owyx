@@ -406,14 +406,7 @@ async function signInOwyxSite() {
 			handleError(new Error(formatMessage(messages.owyxNickTooLong)))
 			return
 		}
-		const makeActive = accounts.value.length === 0
-		const loggedIn = await login_offline_flow(nick, makeActive).catch(handleSevereError)
-		if (loggedIn && makeActive) {
-			await setAccount(loggedIn)
-		} else {
-			await refreshValues()
-			emit('change')
-		}
+		await seedOwyxPlayProfile()
 		trackEvent('AccountLogInOwyxSite')
 	} catch (e) {
 		handleError(e)
@@ -475,20 +468,29 @@ async function logout(id: string) {
  * Seed an offline play profile from the Owyx login nick when signed in to the
  * site but no Minecraft profile exists yet. Without this, signing in through the
  * account modal leaves the "Playing as" panel showing "not signed in" until the
- * user authorizes again from the panel (issue #171/B1).
+ * user authorizes again from the panel (#172).
  */
-async function seedOwyxPlayProfile(): Promise<boolean> {
+let profileSeedInFlight: Promise<boolean> | undefined
+
+function seedOwyxPlayProfile(): Promise<boolean> {
+	if (profileSeedInFlight) return profileSeedInFlight
+	profileSeedInFlight = createOwyxPlayProfile().finally(() => {
+		profileSeedInFlight = undefined
+	})
+	return profileSeedInFlight
+}
+
+async function createOwyxPlayProfile(): Promise<boolean> {
 	if (accounts.value.length > 0) return false
 	const nick = siteLoginNick()
 	if (!nick || !/^[A-Za-z0-9_]{3,16}$/.test(nick)) return false
 	try {
 		const loggedIn = await login_offline_flow(nick, true)
-		await refreshValues()
-		if (loggedIn) await setAccount(loggedIn)
-		emit('change')
+		if (!loggedIn) return false
+		await setAccount(loggedIn)
 		return true
 	} catch (e) {
-		console.warn('Could not seed Owyx offline profile from site session', e)
+		handleError(e)
 		return false
 	}
 }

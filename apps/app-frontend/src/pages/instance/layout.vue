@@ -48,7 +48,7 @@
 				@play="() => startInstance('InstancePage')"
 				@play-server="() => handlePlayServer()"
 				@settings="() => settingsModal?.show()"
-				@open-folder="() => instance && showInstanceInFolder(instance.id)"
+				@open-folder="() => instance && showInstanceInFolder(instance.id).catch(handleError)"
 				@export="() => !instance?.quarantined && exportModal?.show()"
 				@create-shortcut="() => createShortcut()"
 				@report="reportSharedInstance"
@@ -843,7 +843,7 @@ const handleRightClick = (event: MouseEvent) => {
 			label: formatMessage(messages.openFolder),
 			icon: FolderOpenIcon,
 			action: () => {
-				if (instance.value) void showInstanceInFolder(instance.value.id)
+				if (instance.value) void showInstanceInFolder(instance.value.id).catch(handleError)
 			},
 		},
 		{

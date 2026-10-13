@@ -38,6 +38,13 @@ const APPIMAGE_ENV_VARS: &[(&str, &str)] = &[
     ("GIO_EXTRA_MODULES", "OLD_GIO_EXTRA_MODULES"),
     ("GI_TYPELIB_PATH", "OLD_GI_TYPELIB_PATH"),
     ("GSETTINGS_SCHEMA_DIR", "OLD_GSETTINGS_SCHEMA_DIR"),
+    ("QT_PLUGIN_PATH", "OLD_QT_PLUGIN_PATH"),
+    ("PYTHONPATH", "OLD_PYTHONPATH"),
+    ("GST_PLUGIN_SYSTEM_PATH", "OLD_GST_PLUGIN_SYSTEM_PATH"),
+    (
+        "GST_PLUGIN_SYSTEM_PATH_1_0",
+        "OLD_GST_PLUGIN_SYSTEM_PATH_1_0",
+    ),
 ];
 
 /// Variables that only point at the mount and have no host fallback.
@@ -185,6 +192,10 @@ mod tests {
         "GIO_EXTRA_MODULES",
         "GI_TYPELIB_PATH",
         "GSETTINGS_SCHEMA_DIR",
+        "QT_PLUGIN_PATH",
+        "PYTHONPATH",
+        "GST_PLUGIN_SYSTEM_PATH",
+        "GST_PLUGIN_SYSTEM_PATH_1_0",
         "OLD_LD_LIBRARY_PATH",
         "OLD_LD_PRELOAD",
         "OLD_PATH",
@@ -193,6 +204,15 @@ mod tests {
         "OLD_GTK_EXE_PREFIX",
         "OLD_GIO_MODULE_DIR",
         "OLD_GIO_EXTRA_MODULES",
+        "OLD_GTK_DATA_PREFIX",
+        "OLD_GTK_IM_MODULE_FILE",
+        "OLD_GDK_PIXBUF_MODULE_FILE",
+        "OLD_GI_TYPELIB_PATH",
+        "OLD_GSETTINGS_SCHEMA_DIR",
+        "OLD_QT_PLUGIN_PATH",
+        "OLD_PYTHONPATH",
+        "OLD_GST_PLUGIN_SYSTEM_PATH",
+        "OLD_GST_PLUGIN_SYSTEM_PATH_1_0",
     ];
 
     fn with_clean_env<T>(set: impl FnOnce(), run: impl FnOnce() -> T) -> T {
@@ -317,6 +337,48 @@ mod tests {
                 assert_eq!(
                     env["PATH"].as_deref(),
                     Some(OsStr::new("/usr/bin:/bin"))
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn removes_runtime_plugin_paths_and_preserves_host_entries() {
+        with_clean_env(
+            || unsafe {
+                std::env::set_var("APPDIR", "/tmp/.mount_owyx");
+                std::env::set_var(
+                    "GST_PLUGIN_SYSTEM_PATH",
+                    "/tmp/.mount_owyx/usr/lib/gstreamer-1.0:",
+                );
+                std::env::set_var(
+                    "GST_PLUGIN_SYSTEM_PATH_1_0",
+                    "/tmp/.mount_owyx/usr/lib/gstreamer-1.0:",
+                );
+                std::env::set_var(
+                    "QT_PLUGIN_PATH",
+                    "/tmp/.mount_owyx/usr/plugins:/usr/lib/qt6/plugins",
+                );
+                std::env::set_var(
+                    "PYTHONPATH",
+                    "/tmp/.mount_owyx/usr/lib/python",
+                );
+                std::env::set_var("OLD_PYTHONPATH", "/opt/python");
+            },
+            || {
+                let mut cmd = std::process::Command::new("xdg-open");
+                scrub_appimage_env(&mut cmd);
+                let env = child_env(&cmd);
+                // Removing a mount-only override restores GStreamer's system plugin search.
+                assert_eq!(env.get("GST_PLUGIN_SYSTEM_PATH"), Some(&None));
+                assert_eq!(env.get("GST_PLUGIN_SYSTEM_PATH_1_0"), Some(&None));
+                assert_eq!(
+                    env["QT_PLUGIN_PATH"].as_deref(),
+                    Some(OsStr::new("/usr/lib/qt6/plugins"))
+                );
+                assert_eq!(
+                    env["PYTHONPATH"].as_deref(),
+                    Some(OsStr::new("/opt/python"))
                 );
             },
         );

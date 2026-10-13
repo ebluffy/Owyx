@@ -118,6 +118,7 @@ import {
 	set_global_synced_option,
 } from '@/helpers/instance'
 import { maxMemoryQueryOptions } from '@/helpers/jre.js'
+import { createModalHolds } from '@/helpers/modal-holds'
 import { get as getCreds, login, removeUser } from '@/helpers/mr_auth.ts'
 import { resolveOwyxAvatarUrl } from '@/helpers/owyx-avatar'
 import {
@@ -432,20 +433,20 @@ providePageContext({
 	openExternalUrl: (url) => void openUrl(url),
 })
 const SCROLL_LOCK_CLASS = 'owyx-modal-open'
-
-provideModalBehavior({
-	noblur: computed(() => !appTheme.advancedRendering),
-	onShow: () => {
+const modalHolds = createModalHolds(
+	() => {
 		take_ads_window_hold()
-		// The sidebar owns its own OverlayScrollbars instance, so hiding
-		// document.body overflow is not enough to hide its track behind an
-		// open modal (issue #171/B2).
 		document.documentElement.classList.add(SCROLL_LOCK_CLASS)
 	},
-	onHide: () => {
+	() => {
 		release_ads_window_hold()
 		document.documentElement.classList.remove(SCROLL_LOCK_CLASS)
 	},
+)
+
+provideModalBehavior({
+	noblur: computed(() => !appTheme.advancedRendering),
+	...modalHolds,
 })
 
 const creationIconEditorModal = ref(null)
@@ -2760,7 +2761,7 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 }
 
 /* When a modal is open the sidebar must not paint its own scroll track over
-   the modal backdrop (issue #171/B2). */
+   the modal backdrop (#173). */
 .owyx-modal-open .app-sidebar-scrollable .os-scrollbar {
 	opacity: 0 !important;
 	visibility: hidden !important;

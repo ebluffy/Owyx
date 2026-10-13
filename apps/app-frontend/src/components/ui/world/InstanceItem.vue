@@ -187,7 +187,7 @@ const overflowOptions = computed((): ButtonMenuOption[] => [
 		id: 'open-folder',
 		label: formatMessage(commonMessages.openFolderButton),
 		icon: FolderOpenIcon,
-		action: () => showInstanceInFolder(props.instance.id),
+		action: () => showInstanceInFolder(props.instance.id).catch(handleError),
 	},
 ])
 
