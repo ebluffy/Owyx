@@ -186,7 +186,7 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import type { Ref } from 'vue'
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 import ModalWrapper from '@/components/ui/modal/ModalWrapper.vue'
 import { useAppEvent } from '@/composables/use-app-event'
@@ -463,21 +463,46 @@ async function logout(id: string) {
 	} else if (accounts.value.length === 0) {
 		// Removing the last Microsoft account must not leave the sidebar dead —
 		// re-seed an Owyx offline profile from the unique login nick when signed in.
-		const nick = siteLoginNick()
-		if (nick && /^[A-Za-z0-9_]{3,16}$/.test(nick)) {
-			try {
-				await login_offline_flow(nick, true)
-				await refreshValues()
-			} catch (e) {
-				console.warn('Could not restore Owyx offline profile after Microsoft logout', e)
-			}
-		}
+		await seedOwyxPlayProfile()
 		emit('change')
 	} else {
 		emit('change')
 	}
 	trackEvent('AccountLogOut')
 }
+
+/**
+ * Seed an offline play profile from the Owyx login nick when signed in to the
+ * site but no Minecraft profile exists yet. Without this, signing in through the
+ * account modal leaves the "Playing as" panel showing "not signed in" until the
+ * user authorizes again from the panel (issue #171/B1).
+ */
+async function seedOwyxPlayProfile(): Promise<boolean> {
+	if (accounts.value.length > 0) return false
+	const nick = siteLoginNick()
+	if (!nick || !/^[A-Za-z0-9_]{3,16}$/.test(nick)) return false
+	try {
+		const loggedIn = await login_offline_flow(nick, true)
+		await refreshValues()
+		if (loggedIn) await setAccount(loggedIn)
+		emit('change')
+		return true
+	} catch (e) {
+		console.warn('Could not seed Owyx offline profile from site session', e)
+		return false
+	}
+}
+
+// The panel is a sibling of the account modal: a successful modal sign-in
+// refreshes the site session in App.vue, and this watch reacts to it. `immediate`
+// covers a session that was already restored before the panel mounted.
+watch(
+	() => owyxSite.isSignedIn.value,
+	async (signedIn) => {
+		if (signedIn) await seedOwyxPlayProfile()
+	},
+	{ immediate: true },
+)
 
 useAppEvent('process', async (e) => {
 	if (e.event === 'launched') {

@@ -668,6 +668,9 @@ async fn install_minecraft_inner(
                 child_cmd.env_remove("socksProxyPort");
                 child_cmd.env_remove("http.proxyHost");
                 child_cmd.env_remove("https.proxyHost");
+                // Processors must not inherit the AppImage mount either.
+                #[cfg(any(target_os = "linux", test))]
+                crate::util::appimage_env::scrub_appimage_env_async(&mut child_cmd);
                 let child = child_cmd
                     .arg("-Djava.net.useSystemProxies=false")
                     .arg("-DsocksProxyHost=")
@@ -1023,6 +1026,12 @@ pub async fn launch_minecraft(
         }
         None => Command::new(&java_version.path),
     };
+
+    // The game JVM must not inherit the AppImage mount: it resolves the
+    // bundled libwayland-client from /tmp/.mount_* and segfaults in the render
+    // thread (issue #171/B6).
+    #[cfg(any(target_os = "linux", test))]
+    crate::util::appimage_env::scrub_appimage_env_async(&mut command);
 
     let env_args = Vec::from(env_args);
 

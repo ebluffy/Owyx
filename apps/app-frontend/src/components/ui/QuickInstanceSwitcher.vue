@@ -283,7 +283,7 @@ function openContextMenu(event, instance) {
 			id: 'open-folder',
 			label: formatMessage(commonMessages.openFolderButton),
 			icon: FolderOpenIcon,
-			action: () => showInstanceInFolder(instance.id),
+			action: () => showInstanceInFolder(instance.id).catch(handleError),
 		},
 	])
 }

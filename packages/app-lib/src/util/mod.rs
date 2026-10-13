@@ -1,4 +1,6 @@
 //! Theseus utility functions
+#[cfg(any(target_os = "linux", test))]
+pub mod appimage_env;
 pub(crate) mod content_hash;
 pub mod fetch;
 pub mod io;

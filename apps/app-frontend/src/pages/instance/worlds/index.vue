@@ -102,7 +102,10 @@
 					"
 					@delete="() => !isManagedServerWorld(world) && promptToRemoveWorld(world)"
 					@desync="() => world.type === 'server' && desyncServerModal?.show(world as ServerWorld)"
-					@open-folder="(world: SingleplayerWorld) => showWorldInFolder(instance.id, world.path)"
+					@open-folder="
+						(world: SingleplayerWorld) =>
+							showWorldInFolder(instance.id, world.path).catch(handleError)
+					"
 				/>
 			</div>
 		</div>
