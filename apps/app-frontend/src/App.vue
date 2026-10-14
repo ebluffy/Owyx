@@ -471,6 +471,7 @@ const {
 	notificationManager,
 	popupNotificationManager,
 	appEvents,
+	modalHolds,
 	(iconPath) =>
 		creationGeneratedIcon.value?.path === iconPath ? creationGeneratedIcon.value.config : null,
 )

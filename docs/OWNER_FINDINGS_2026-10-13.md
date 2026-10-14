@@ -49,6 +49,12 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
   `NewModal`, image viewers and fullscreen consoles. It toggles `owyx-modal-open` on `<html>` and
   takes/releases the ads hold only on the 0→1 / 1→0 transitions. Closing a nested viewer keeps
   the sidebar scrollbar hidden until the last window closes; covered by `modal-holds.test.ts`.
+- **Cloud finding and correction:** the first cloud check on `bad2b10` found that the image-viewer
+  provider still wired its hooks directly to ads IPC, bypassing that counter. `App.vue` now passes
+  the same `modalHolds` instance through `setupProviders` to `setupImageViewerEditorProvider`.
+  `modal-provider-wiring.test.ts` executes both real provider modules with UI/native mocks and
+  covers both close orders plus viewer-only locking and image loading. Rendered UI verification
+  and the cloud recheck of this correction remain separate from these mocked integration tests.
 
 ## B3 · Whole launcher feels laggy (~“10 FPS”)
 
