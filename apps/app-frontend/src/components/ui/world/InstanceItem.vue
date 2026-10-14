@@ -32,7 +32,7 @@ import { useRouter } from 'vue-router'
 import { useAppEvent } from '@/composables/use-app-event'
 import { handleSevereError } from '@/composables/use-error.js'
 import { trackEvent } from '@/helpers/analytics'
-import { getInstanceIconUrl, kill, run } from '@/helpers/instance'
+import { getInstanceIconUrl, kill, run, startingInstances } from '@/helpers/instance'
 import { get_by_instance_id } from '@/helpers/process'
 import type { GameInstance } from '@/helpers/types'
 import { showInstanceInFolder } from '@/helpers/utils'
@@ -102,14 +102,15 @@ const loader = computed(() => {
 	}
 })
 
-const loading = ref(false)
+const localLoading = ref(false)
+const loading = computed(() => localLoading.value || startingInstances.has(props.instance.id))
 const playing = ref(false)
 const installing = computed(() => props.instance.install_stage.includes('installing'))
 
 const play = async (event: MouseEvent) => {
 	event?.stopPropagation()
 	if (playDisabled.value) return
-	loading.value = true
+	localLoading.value = true
 	const instance = props.instance
 	const serverProjectId =
 		instance.link?.type === 'server_project' || instance.link?.type === 'server_project_modpack'
@@ -132,13 +133,13 @@ const play = async (event: MouseEvent) => {
 	} catch (err) {
 		handleSevereError(err, { instanceId: instance.id })
 	} finally {
-		loading.value = false
+		localLoading.value = false
 	}
 }
 
 const stop = async (event: MouseEvent) => {
 	event?.stopPropagation()
-	loading.value = true
+	localLoading.value = true
 	await kill(props.instance.id).catch(handleError)
 	trackEvent('InstanceStop', {
 		loader: props.instance.loader,
@@ -146,7 +147,7 @@ const stop = async (event: MouseEvent) => {
 		source: 'InstanceItem',
 	})
 	emit('stop')
-	loading.value = false
+	localLoading.value = false
 }
 
 useAppEvent('process', async () => {

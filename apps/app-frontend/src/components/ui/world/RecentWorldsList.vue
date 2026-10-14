@@ -25,7 +25,7 @@ import { useAppEvent } from '@/composables/use-app-event'
 import { useAppSettings } from '@/composables/use-app-settings.ts'
 import { handleSevereError } from '@/composables/use-error.js'
 import { trackEvent } from '@/helpers/analytics'
-import { kill, run } from '@/helpers/instance'
+import { kill, run, startingInstances } from '@/helpers/instance'
 import { get_all } from '@/helpers/process'
 import { traceStartupStep } from '@/helpers/startup-debug'
 import { get_game_versions } from '@/helpers/tags'
@@ -348,7 +348,7 @@ async function joinWorld(world: WorldWithInstance, instance?: GameInstance) {
 }
 
 async function playInstance(instance: GameInstance) {
-	if (instance.quarantined) return
+	if (instance.quarantined || startingInstances.has(instance.id)) return
 	await run(instance.id)
 		.catch((err) => handleSevereError(err, { instanceId: instance.id }))
 		.finally(() => {

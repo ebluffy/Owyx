@@ -21,7 +21,7 @@ import {
 	useQuickInstanceLimit,
 } from '@/composables/use-quick-instance-limit.ts'
 import { trackEvent } from '@/helpers/analytics'
-import { getInstanceIconUrl, kill, run } from '@/helpers/instance'
+import { getInstanceIconUrl, kill, run, startingInstances } from '@/helpers/instance'
 import { get_all } from '@/helpers/process'
 import { showInstanceInFolder } from '@/helpers/utils'
 import { instanceListQueryOptions } from '@/pages/instance/query-options'
@@ -231,7 +231,12 @@ async function checkProcesses() {
 }
 
 async function playInstance(instance) {
-	if (instance.quarantined || instance.install_stage !== 'installed') return
+	if (
+		instance.quarantined ||
+		instance.install_stage !== 'installed' ||
+		startingInstances.has(instance.id)
+	)
+		return
 	await run(instance.id)
 		.catch((err) => handleSevereError(err, { instanceId: instance.id }))
 		.finally(() => {
@@ -268,7 +273,10 @@ function openContextMenu(event, instance) {
 					label: formatMessage(commonMessages.playButton),
 					icon: PlayIcon,
 					tone: 'brand',
-					disabled: instance.quarantined || instance.install_stage !== 'installed',
+					disabled:
+						instance.quarantined ||
+						instance.install_stage !== 'installed' ||
+						startingInstances.has(instance.id),
 					tooltip: instance.quarantined ? formatMessage(messages.instanceLocked) : undefined,
 					action: () => playInstance(instance),
 				},

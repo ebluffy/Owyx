@@ -49,6 +49,9 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
   `NewModal`, image viewers and fullscreen consoles. It toggles `owyx-modal-open` on `<html>` and
   takes/releases the ads hold only on the 0→1 / 1→0 transitions. Closing a nested viewer keeps
   the sidebar scrollbar hidden until the last window closes; covered by `modal-holds.test.ts`.
+- **CachyOS follow-up (2026-10-14):** the content-area track also remained visible. The selector
+  now hides OverlayScrollbars tracks throughout the underlying app grid, while teleported modal
+  content keeps its own scrollbars. Rendered verification of this follow-up is pending.
 - **Cloud finding and correction:** the first cloud check on `bad2b10` found that the image-viewer
   provider still wired its hooks directly to ads IPC, bypassing that counter. `App.vue` now passes
   the same `modalHolds` instance through `setupProviders` to `setupImageViewerEditorProvider`.
@@ -65,6 +68,22 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
   - Wayland/WebKitGTK compositing path on KDE; compare against X11 (`GDK_BACKEND=x11`).
   - Whether the sidebar/`OverlayScrollbars` + backdrop-filter blur is the bottleneck.
 - **No code change in this PR** — needs profiling first.
+- **Local profiling (2026-10-14):** the debug AppImage rendered after disabling WebKit DMABUF,
+  but the user still reported sluggish content/screenshots pages. A short CPU sample captured
+  substantial Rust/SQLite work; this does not measure UI FPS or identify the complete cause.
+  The first local artifact also used staging Modrinth API hosts and lacked the Owyx client key.
+  The replacement uses production API hosts; performance requires a fresh comparison.
+
+## Manual-test follow-up · Starting state across navigation
+
+- **Symptom:** starting Minecraft from Home then opening the instance page exposed another Play
+  button. A second click failed with "already running" while the first launch succeeded.
+- **Fix:** `instance.ts` now shares a reactive set of pending launches across Home, library cards
+  and the instance page. Native run requests are coalesced per instance and cleared on success
+  or failure. Quick-switcher and recent-instance actions also guard against pending launches.
+- **Validation:** `instance-launch.test.ts` covers a newly mounted view observing pending state,
+  simultaneous clicks issuing one native request, retry after failure, and independent instances.
+  Frontend types and 52 tests pass. Runtime retest of the replacement artifact is pending.
 
 ## B4 · “Open folder” does not open the folder
 

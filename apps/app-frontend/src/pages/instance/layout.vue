@@ -145,6 +145,7 @@ import {
 	refresh_content_updates,
 	remove,
 	run,
+	startingInstances,
 	sync_content_files,
 } from '@/helpers/instance'
 import { useSharedInstanceErrors } from '@/helpers/shared-instance-errors'
@@ -357,7 +358,8 @@ useRootBreadcrumb({
 	to: () => `/instance/${encodeURIComponent(instanceId.value)}`,
 })
 
-const loading = ref(false)
+const localLoading = ref(false)
+const loading = computed(() => localLoading.value || startingInstances.has(instanceId.value))
 const checkingSharedInstanceLaunch = ref(false)
 const subpagePending = ref(false)
 const stopping = ref(false)
@@ -569,14 +571,14 @@ const options = ref<InstanceType<typeof ContextMenu> | null>(null)
 const launchInstance = async (context: string) => {
 	if (!instance.value || instance.value.quarantined) return
 	const currentInstance = instance.value
-	loading.value = true
+	localLoading.value = true
 	try {
 		await run(currentInstance.id)
 		queryClient.setQueryData(instanceKeys.processes(currentInstance.id), [true])
 	} catch (err) {
 		handleSevereError(err, { instanceId: currentInstance.id })
 	}
-	loading.value = false
+	localLoading.value = false
 
 	if (!instance.value) return
 	trackEvent('InstanceStart', {
@@ -692,12 +694,12 @@ const stopInstance = async (context: string) => {
 
 const handlePlayServer = async () => {
 	if (!instance.value?.link?.project_id || instance.value.quarantined) return
-	loading.value = true
+	localLoading.value = true
 	try {
 		await playServerProject(instance.value.link.project_id)
 	} finally {
 		await refreshPlayState()
-		loading.value = false
+		localLoading.value = false
 	}
 }
 

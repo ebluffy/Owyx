@@ -2761,9 +2761,8 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 	--os-handle-bg-active: var(--color-scrollbar) !important;
 }
 
-/* When a modal is open the sidebar must not paint its own scroll track over
-   the modal backdrop (#173). */
-.owyx-modal-open .app-sidebar-scrollable .os-scrollbar {
+/* Teleported dialogs keep their own scrollbars; hide the underlying app tracks. */
+.owyx-modal-open .app-grid-layout .os-scrollbar {
 	opacity: 0 !important;
 	visibility: hidden !important;
 	pointer-events: none !important;
