@@ -67,12 +67,39 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
 - **Notes / what to check:**
   - Wayland/WebKitGTK compositing path on KDE; compare against X11 (`GDK_BACKEND=x11`).
   - Whether the sidebar/`OverlayScrollbars` + backdrop-filter blur is the bottleneck.
-- **No code change in this PR** — needs profiling first.
+- **General rendering diagnosis remains open.** Device-specific graphics settings below are
+  applied only to the owner's local test artifact, not to shared Windows/Linux startup code.
 - **Local profiling (2026-10-14):** the debug AppImage rendered after disabling WebKit DMABUF,
   but the user still reported sluggish content/screenshots pages. A short CPU sample captured
   substantial Rust/SQLite work; this does not measure UI FPS or identify the complete cause.
   The first local artifact also used staging Modrinth API hosts and lacked the Owyx client key.
   The replacement uses production API hosts; performance requires a fresh comparison.
+- **Follow-up (2026-10-15):** on the owner's NVIDIA RTX 4050 / KDE device, native Wayland with
+  `__NV_DISABLE_EXPLICIT_SYNC=1` rendered successfully and the owner confirmed substantially
+  smoother scrolling. The X11 path without the DMABUF workaround stayed blank. The local
+  Wayland scroll probe recorded 194 frames in 5.026 seconds; this is not a cross-platform FPS
+  guarantee. Earlier CSS experiments were not retained.
+
+## Manual-test follow-up · Playing as refresh and slow launch
+
+- Global site-session refresh already created the offline profile, but the mounted Playing as
+  panel kept its old account list until a process event. It now refreshes the account list after
+  profile synchronization, before potentially slow social-settings/checklist requests. Existing
+  Microsoft selection is preserved. Two tests execute the real App.vue session-refresh function
+  with mocked dependencies and cover existing/new profiles while social settings are pending.
+- Launch timers isolated 103 seconds in content synchronization/validation on the unoptimized
+  debug artifact. Final validation now reuses the existing verified-file SHA-512 cache warmed by
+  synchronization. It still rehashes when identity, size, write time or change time differs; the
+  cache tests cover replacement and edits with restored write time. This reduced the measured
+  preparation to 31.6 seconds before the debug hash optimization.
+- The debug profile now optimizes the `sha2` dependency, avoiding slow unoptimized SHA-512
+  compression when checking large instances. The release profile is unchanged. Launch-phase
+  logs contain phase names and elapsed milliseconds, not credentials or Java arguments.
+- **Measured result:** with both changes on the same `mc` instance, preparation reached Java
+  spawn at 978 ms (content sync at 906 ms, validation at 970 ms), versus 103,325 ms before.
+  This measures launcher preparation, not the time Minecraft itself needs to reach its menu.
+  Local frontend types/tests (57), Rust library tests (51), production frontend/native debug
+  builds and lint passed. Real login retesting remains a device follow-up.
 
 ## Manual-test follow-up · Starting state across navigation
 
@@ -84,6 +111,10 @@ the device (CachyOS + KDE Wayland, launcher **0.12.3**, AppImage).
 - **Validation:** `instance-launch.test.ts` covers a newly mounted view observing pending state,
   simultaneous clicks issuing one native request, retry after failure, and independent instances.
   Frontend types and 52 tests pass. Runtime retest of the replacement artifact is pending.
+- **AR-20:** world/server helpers now use `run.track`, sharing the exact pending map and reactive
+  set with ordinary Play. Three tests execute the real worlds helper and cover server/world-first
+  launch followed by Play and Play followed by server join; each issues one native request.
+  The owner confirmed ordinary Starting state survives navigation. Frontend tests now total 57.
 
 ## B4 · “Open folder” does not open the folder
 
@@ -251,3 +282,6 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-16 | P2 | PR body closes code-fix issues; B3/B5 remain open; B6/B7 device verification pending | ✅ Metadata corrected |
 | AR-17 | P2 | Explicit Owyx sign-in adds a missing offline profile beside Microsoft without switching selection; automatic restore keeps its empty-account guard | ✅ Fixed; regression tests added |
 | AR-18 | P3 | Offline nickname matching ignores case, consistent with the account avatar lookup | ✅ Fixed; `steve` / `Steve` regression test added |
+| AR-19 | P2 | Image-viewer setup receives the shared modal holds through setupProviders | ✅ Fixed; provider-wiring regression tests |
+| AR-20 | P2 | World/server joins share pending state and coalescing with ordinary Play | ✅ Fixed; real-helper regression tests |
+| AR-21 | P3 | PR body describes navigation, modal follow-up and validation by exact commit | ✅ Metadata updated; current CI/review tracked separately |

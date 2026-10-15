@@ -901,6 +901,7 @@ pub async fn launch_minecraft(
     context: &InstanceLaunchContext,
     mut quick_play_type: QuickPlayType,
 ) -> crate::Result<ProcessMetadata> {
+    let launch_started = std::time::Instant::now();
     let instance = &context.instance;
     let content_set = &context.applied_content_set;
 
@@ -1173,6 +1174,11 @@ pub async fn launch_minecraft(
     command.env_remove("_JAVA_OPTIONS");
 
     command.envs(env_args.iter().cloned());
+    tracing::info!(
+        phase = "command_prepared",
+        elapsed_ms = launch_started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
 
     if let Err(error) =
         crate::api::instance::reconcile_synced_packs(&instance.id).await
@@ -1192,6 +1198,11 @@ pub async fn launch_minecraft(
             instance.id
         );
     }
+    tracing::info!(
+        phase = "settings_reconciled",
+        elapsed_ms = launch_started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
 
     crate::api::instance::apply_game_options_launcher_overrides(
         &instance.id,
@@ -1201,12 +1212,22 @@ pub async fn launch_minecraft(
 
     crate::state::instances::commands::sync_content_files(&instance.id, &state)
         .await?;
+    tracing::info!(
+        phase = "content_synced",
+        elapsed_ms = launch_started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
     let _instance_content_lock =
         state.lock_instance_content(&instance.id).await;
     let _store_lock = state.content_store.files_lock.lock().await;
     let _store_lease = state.content_store.lease().await;
     state.content_store.recover(Some(&instance.id)).await?;
     state.content_store.validate_instance(instance).await?;
+    tracing::info!(
+        phase = "content_validated",
+        elapsed_ms = launch_started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
     if crate::state::instance_has_running_process(&instance.id, &state).await? {
         return Err(crate::ErrorKind::LauncherError(format!(
             "Instance {} is already running",
@@ -1248,6 +1269,11 @@ pub async fn launch_minecraft(
 
     // Create Minecraft child by inserting it into the state
     // This also spawns the process and prepares the subsequent processes
+    tracing::info!(
+        phase = "spawning_java",
+        elapsed_ms = launch_started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
     state
         .process_manager
         .insert_new_process(

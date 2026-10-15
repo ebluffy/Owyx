@@ -633,6 +633,7 @@ export const run = createInstanceLauncher(
 		invoke('plugin:instance|instance_run', { instanceId, serverAddress }),
 	startingInstances,
 )
+export const trackInstanceLaunch = run.track
 
 export async function kill(instanceId: string): Promise<void> {
 	return await invoke('plugin:instance|instance_kill', { instanceId })

@@ -1449,20 +1449,7 @@ async function refreshOwyxSiteSession() {
 	const fresh = await fetchOwyxSiteMe(cached.token)
 	owyxSiteSession.value = fresh
 	if (fresh?.token) {
-		try {
-			const { getOwyxSocialSettings } = await import('@/helpers/owyx-friends')
-			const social = await getOwyxSocialSettings()
-			setOwyxSharePresenceEnabled(social.sharePresence)
-		} catch {
-			// Fail closed: unknown privacy → offline, no heartbeat resume.
-			setOwyxSharePresenceEnabled(false)
-		}
-		try {
-			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')
-			await markLoggedIntoOwyxSite()
-		} catch {
-			/* checklist mark is best-effort */
-		}
+		setOwyxSharePresenceEnabled(false)
 		// Sync unique login nickname → offline play profile (display nick is label-only)
 		const nick = fresh.user?.nickname?.trim() ?? ''
 		const nickOk = /^[A-Za-z0-9_]{3,16}$/.test(nick)
@@ -1515,6 +1502,21 @@ async function refreshOwyxSiteSession() {
 			} catch (e) {
 				console.warn('Could not sync Owyx login nickname to play profile', e)
 			}
+		}
+		await accounts.value?.refreshAccounts()
+		try {
+			const { getOwyxSocialSettings } = await import('@/helpers/owyx-friends')
+			const social = await getOwyxSocialSettings()
+			setOwyxSharePresenceEnabled(social.sharePresence)
+		} catch {
+			// Fail closed: unknown privacy → offline, no heartbeat resume.
+			setOwyxSharePresenceEnabled(false)
+		}
+		try {
+			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')
+			await markLoggedIntoOwyxSite()
+		} catch {
+			/* checklist mark is best-effort */
 		}
 	} else {
 		stopOwyxPresenceHeartbeat()

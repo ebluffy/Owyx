@@ -25,6 +25,7 @@ pub async fn run(
     quick_play_type: QuickPlayType,
 ) -> crate::Result<ProcessMetadata> {
     let state = State::get().await?;
+    let started = std::time::Instant::now();
     if crate::state::instances::adapters::sqlite::instance_rows::is_instance_quarantined(
         instance_id,
         &state.pool,
@@ -46,6 +47,11 @@ pub async fn run(
         )
         .await?;
     }
+    info!(
+        phase = "content_migrated",
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
     super::shared::check_shared_instance_availability_before_launch(
         instance_id,
         &state,
@@ -55,6 +61,11 @@ pub async fn run(
     let default_account = Credentials::get_default_credential(&state.pool)
         .await?
         .ok_or_else(|| crate::ErrorKind::NoCredentialsError.as_error())?;
+    info!(
+        phase = "credentials_ready",
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "Minecraft launch preparation"
+    );
 
     run_credentials(instance_id, &default_account, quick_play_type).await
 }

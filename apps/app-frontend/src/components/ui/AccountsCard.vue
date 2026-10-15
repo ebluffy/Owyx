@@ -280,12 +280,18 @@ onUnmounted(() => {
 	if (equippedHeadUrl.value) URL.revokeObjectURL(equippedHeadUrl.value)
 })
 
-async function refreshValues() {
-	defaultUser.value = await get_default_user().catch(handleError)
-	const userList = await users().catch(handleError)
+async function refreshAccounts() {
+	const [defaultId, userList] = await Promise.all([
+		get_default_user().catch(handleError),
+		users().catch(handleError),
+	])
+	defaultUser.value = defaultId
 	accounts.value = Array.isArray(userList) ? [...userList] : []
 	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
+}
 
+async function refreshValues() {
+	await refreshAccounts()
 	try {
 		const skins = await get_available_skins()
 		equippedSkin.value = skins.find((skin) => skin.is_equipped) ?? null
@@ -312,6 +318,7 @@ function setLoginDisabled(value: boolean) {
 }
 
 defineExpose({
+	refreshAccounts,
 	refreshValues,
 	setEquippedSkin,
 	setLoginDisabled,
