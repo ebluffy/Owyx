@@ -42,6 +42,8 @@ Older private Owyx experiments (previous launcher / plugin archive): **https://g
 
 ## Dev
 
+Linux installation, graphics modes, and updates: [Linux guide](docs/LINUX.md).
+
 ```bash
 pnpm install
 pnpm app:dev

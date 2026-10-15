@@ -285,3 +285,22 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-19 | P2 | Image-viewer setup receives the shared modal holds through setupProviders | ✅ Fixed; provider-wiring regression tests |
 | AR-20 | P2 | World/server joins share pending state and coalescing with ordinary Play | ✅ Fixed; real-helper regression tests |
 | AR-21 | P3 | PR body describes navigation, modal follow-up and validation by exact commit | ✅ Metadata updated; current CI/review tracked separately |
+
+## Owner follow-up: Linux graphics and account removal (2026-10-15)
+
+- `apps/app/src/linux_graphics.rs` runs before GTK initialization. Automatic
+  mode selects native Wayland only for NVIDIA/Wayland sessions and preserves
+  user-supplied renderer workarounds. Other automatic-mode setups are unchanged.
+- The graphics policy is compiled into the normal binary, so signed release
+  AppImages and updater payloads contain it without post-signature repacking.
+  `docs/LINUX.md` documents persistent overrides outside the AppImage. The owner
+  confirmed that the normal AppImage automatically loads the interface and
+  scrolls smoothly without the diagnostic wrapper; broader driver coverage
+  remains unverified.
+- Removing an Owyx play profile now signs out the shared site session before
+  refreshing the account list. Removing Microsoft leaves the Owyx session intact.
+  Failed sign-out/removal stops the success path; the final-profile case cannot
+  silently restore the deleted Owyx profile from the previous session.
+- Local frontend types and 62 tests pass, including five account-removal cases;
+  two native graphics-policy tests pass. Current-head CI/Auto-Review and the
+  owner's final AppImage retest remain merge gates. #174 and #176 stay open.

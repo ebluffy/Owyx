@@ -454,7 +454,14 @@ async function saveDisplayNick() {
 }
 
 async function logout(id: string) {
-	await remove_user(id).catch(handleError)
+	const account = accounts.value.find((account) => account.profile.id === id)
+	try {
+		if (isOwyxPlayAccount(account)) await owyxSite.signOut()
+		await remove_user(id)
+	} catch (error) {
+		handleError(error)
+		return
+	}
 	await refreshValues()
 	if (!selectedAccount.value && accounts.value.length > 0) {
 		await setAccount(accounts.value[0])
