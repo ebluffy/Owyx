@@ -105,3 +105,10 @@ Full playbook: [`CI_PLAYBOOK.md`](./CI_PLAYBOOK.md).
 - **Cause:** the new `profile.dev.package.sha2` table followed `sqlx-macros` instead of the formatter's ordering.
 - **Fix:** format with the CI-pinned Tombi 1.4.1; verify parsed TOML remains identical.
 - **Prevention:** run both Tombi lint and format checks after changing Cargo profile tables.
+
+### 2026-10-15 · PR #180 · run `38751601211` · inotify regression test
+
+- **Symptom:** nextest reports 52/53 library tests passed; `scanning_watched_files_does_not_trigger_reconciliation` fails because the first raw batch does not contain `mod.jar`.
+- **Cause:** the test assumed that directory OPEN and file OPEN notifications arrive in the same 50 ms debounce batch. CI scheduling can split them; the filter itself was not failing.
+- **Fix:** consume batches until the target path (or its canonical equivalent) appears, with one three-second deadline for the entire wait. Apply the same wait to writes; allow 200 ms debounce and verify filtered-channel silence only after raw file access was observed.
+- **Prevention:** exercise split batches explicitly and repeat the real watcher test under nextest parallel execution before pushing.
