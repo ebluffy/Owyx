@@ -63,7 +63,54 @@ mod tests {
     use notify::event::{
         CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode,
     };
-    use std::{fs, sync::mpsc, time::Duration};
+    use std::{
+        fs,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    fn wait_for_path(
+        receiver: &mpsc::Receiver<notify_debouncer_mini::DebounceEventResult>,
+        path: &Path,
+    ) {
+        let canonical = path.canonicalize().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .expect("watcher did not report the target path before the deadline");
+            let events = receiver
+                .recv_timeout(remaining)
+                .expect("watcher did not report the target path before the deadline")
+                .expect("watcher reported an error");
+            if events
+                .iter()
+                .any(|event| event.path == path || event.path == canonical)
+            {
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn path_wait_continues_after_an_unrelated_batch() {
+        use notify_debouncer_mini::{DebouncedEvent, DebouncedEventKind};
+        let directory = tempfile::tempdir().unwrap();
+        let file = directory.path().join("mod.jar");
+        fs::write(&file, b"initial").unwrap();
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(vec![DebouncedEvent::new(
+            directory.path().to_path_buf(),
+            DebouncedEventKind::Any,
+        )]))
+        .unwrap();
+        tx.send(Ok(vec![DebouncedEvent::new(
+            file.canonicalize().unwrap(),
+            DebouncedEventKind::Any,
+        )]))
+        .unwrap();
+        wait_for_path(&rx, &file);
+    }
 
     #[test]
     fn reads_are_ignored_but_mutations_are_kept() {
@@ -100,7 +147,7 @@ mod tests {
         fs::write(&file, b"initial").unwrap();
         let (raw_tx, raw_rx) = mpsc::channel();
         let mut unfiltered = notify_debouncer_mini::new_debouncer(
-            Duration::from_millis(50),
+            Duration::from_millis(200),
             raw_tx,
         )
         .unwrap();
@@ -112,7 +159,7 @@ mod tests {
         let mut debouncer =
             notify_debouncer_mini::new_debouncer_opt::<_, ChangeWatcher>(
                 notify_debouncer_mini::Config::default()
-                    .with_timeout(Duration::from_millis(50)),
+                    .with_timeout(Duration::from_millis(200)),
                 tx,
             )
             .unwrap();
@@ -124,18 +171,13 @@ mod tests {
             let _ = fs::read_dir(directory.path()).unwrap().count();
             assert_eq!(fs::read(&file).unwrap(), b"initial");
         }
-        let raw_events = raw_rx
-            .recv_timeout(Duration::from_secs(3))
-            .unwrap()
-            .unwrap();
-        assert!(raw_events.iter().any(|event| event.path == file));
+        wait_for_path(&raw_rx, &file);
         assert!(matches!(
-            rx.recv_timeout(Duration::from_millis(300)),
+            rx.recv_timeout(Duration::from_millis(600)),
             Err(mpsc::RecvTimeoutError::Timeout)
         ));
 
         fs::write(&file, b"modified").unwrap();
-        let events = rx.recv_timeout(Duration::from_secs(3)).unwrap().unwrap();
-        assert!(events.iter().any(|event| event.path == file));
+        wait_for_path(&rx, &file);
     }
 }
