@@ -7,8 +7,10 @@ use crate::state::{
 };
 use crate::worlds::WorldType;
 use dashmap::{DashMap, mapref::entry::Entry};
-use notify::{RecommendedWatcher, RecursiveMode};
-use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
+use notify::RecursiveMode;
+use notify_debouncer_mini::{
+    DebounceEventResult, Debouncer, new_debouncer_opt,
+};
 use std::sync::LazyLock;
 use std::{
     collections::{HashMap, HashSet},
@@ -18,6 +20,13 @@ use std::{
 use tokio::sync::{RwLock, mpsc::channel};
 
 use super::adapters::sqlite::instance_rows;
+
+#[cfg(target_os = "linux")]
+mod change_watcher;
+#[cfg(target_os = "linux")]
+use change_watcher::ChangeWatcher as InstanceWatcher;
+#[cfg(not(target_os = "linux"))]
+use notify::RecommendedWatcher as InstanceWatcher;
 
 /// Resolve a nested instance path under `profiles/` (e.g. `servers/MyPack`) via
 /// longest-prefix match against registered watcher keys.
@@ -68,7 +77,7 @@ fn first_child_under_instance<'a>(
 }
 
 pub struct FileWatcher {
-    watcher: RwLock<Debouncer<RecommendedWatcher>>,
+    watcher: RwLock<Debouncer<InstanceWatcher>>,
     instance_ids: Arc<RwLock<HashMap<String, String>>>,
 }
 
@@ -145,8 +154,9 @@ pub async fn init_watcher() -> crate::Result<FileWatcher> {
     let instance_ids = Arc::new(RwLock::new(HashMap::<String, String>::new()));
     let event_instance_ids = instance_ids.clone();
 
-    let file_watcher = new_debouncer(
-        Duration::from_secs_f32(1.0),
+    let file_watcher = new_debouncer_opt::<_, InstanceWatcher>(
+        notify_debouncer_mini::Config::default()
+            .with_timeout(Duration::from_secs(1)),
         move |res: DebounceEventResult| {
             tx.blocking_send(res).ok();
         },
