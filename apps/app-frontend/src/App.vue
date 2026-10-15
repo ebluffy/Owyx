@@ -1449,7 +1449,6 @@ async function refreshOwyxSiteSession() {
 	const fresh = await fetchOwyxSiteMe(cached.token)
 	owyxSiteSession.value = fresh
 	if (fresh?.token) {
-		setOwyxSharePresenceEnabled(false)
 		// Sync unique login nickname → offline play profile (display nick is label-only)
 		const nick = fresh.user?.nickname?.trim() ?? ''
 		const nickOk = /^[A-Za-z0-9_]{3,16}$/.test(nick)
@@ -1509,8 +1508,7 @@ async function refreshOwyxSiteSession() {
 			const social = await getOwyxSocialSettings()
 			setOwyxSharePresenceEnabled(social.sharePresence)
 		} catch {
-			// Fail closed: unknown privacy → offline, no heartbeat resume.
-			setOwyxSharePresenceEnabled(false)
+			// Retain the confirmed preference; initial/sign-out state is already disabled.
 		}
 		try {
 			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')

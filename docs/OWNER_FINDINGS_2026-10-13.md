@@ -285,6 +285,7 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
 | AR-19 | P2 | Image-viewer setup receives the shared modal holds through setupProviders | ✅ Fixed; provider-wiring regression tests |
 | AR-20 | P2 | World/server joins share pending state and coalescing with ordinary Play | ✅ Fixed; real-helper regression tests |
 | AR-21 | P3 | PR body describes navigation, modal follow-up and validation by exact commit | ✅ Metadata updated; current CI/review tracked separately |
+| AR-22 | P3 | Session refresh sent offline before reloading social settings | ✅ Removed eager reset; confirmed preference survives pending/failed requests, initial sharing stays disabled |
 
 ## Owner follow-up: Linux graphics and account removal (2026-10-15)
 
@@ -301,6 +302,8 @@ B1, B2, B4, B6 and B7 code fixes also land here. B3 / #174 (profiling) and B5 / 
   refreshing the account list. Removing Microsoft leaves the Owyx session intact.
   Failed sign-out/removal stops the success path; the final-profile case cannot
   silently restore the deleted Owyx profile from the previous session.
-- Local frontend types and 62 tests pass, including five account-removal cases;
-  two native graphics-policy tests pass. Current-head CI/Auto-Review and the
-  owner's final AppImage retest remain merge gates. #174 and #176 stay open.
+- Local frontend types and 66 tests pass, including five account-removal cases
+  and presence refresh/privacy regression cases;
+  two native graphics-policy tests passed on the preceding Linux follow-up. The
+  owner confirmed the final AppImage and account-removal/re-login retest in chat.
+  Current-head CI/Auto-Review remain merge gates. #174 and #176 stay open.
