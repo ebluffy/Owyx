@@ -110,7 +110,10 @@ fn in_appimage() -> bool {
 /// Overrides to apply to a child command so it does not inherit the AppImage
 /// mount. Empty outside an AppImage, leaving native builds untouched.
 pub fn appimage_env_overrides() -> Vec<(String, Option<OsString>)> {
-    if !in_appimage() {
+    let system_runtime = cfg!(target_os = "linux")
+        && std::env::var_os("OWYX_SYSTEM_RUNTIME_ACTIVE").as_deref()
+            == Some(OsStr::new("1"));
+    if !in_appimage() && !system_runtime {
         return Vec::new();
     }
     let appdir = std::env::var_os("APPDIR");
@@ -130,6 +133,19 @@ pub fn appimage_env_overrides() -> Vec<(String, Option<OsString>)> {
     }
     for marker in APPIMAGE_MARKER_VARS {
         overrides.push(((*marker).to_string(), None));
+    }
+    if system_runtime {
+        // The host library search path is private to the launcher. Its saved
+        // predecessor distinguishes an unset variable from an explicitly empty one.
+        overrides.push((
+            "LD_LIBRARY_PATH".to_string(),
+            std::env::var_os("OWYX_SYSTEM_RUNTIME_HOST_LD_LIBRARY_PATH"),
+        ));
+        overrides.push(("OWYX_SYSTEM_RUNTIME_ACTIVE".to_string(), None));
+        overrides.push((
+            "OWYX_SYSTEM_RUNTIME_HOST_LD_LIBRARY_PATH".to_string(),
+            None,
+        ));
     }
     overrides
 }
@@ -175,6 +191,8 @@ mod tests {
     static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     const VARS: &[&str] = &[
+        "OWYX_SYSTEM_RUNTIME_ACTIVE",
+        "OWYX_SYSTEM_RUNTIME_HOST_LD_LIBRARY_PATH",
         "APPIMAGE",
         "APPDIR",
         "ARGV0",
@@ -250,6 +268,66 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn system_runtime_restores_children_environment() {
+        for original in
+            [None, Some(""), Some("/opt/cuda/lib:/opt/gamemode/lib")]
+        {
+            with_clean_env(
+                || unsafe {
+                    std::env::set_var("APPIMAGE", "/tmp/owyx.AppImage");
+                    std::env::set_var("OWYX_SYSTEM_RUNTIME_ACTIVE", "1");
+                    std::env::set_var("LD_LIBRARY_PATH", "/usr/lib");
+                    // AppRun may have saved the launcher's forced path on restart.
+                    std::env::set_var("OLD_LD_LIBRARY_PATH", "/usr/lib");
+                    if let Some(original) = original {
+                        std::env::set_var(
+                            "OWYX_SYSTEM_RUNTIME_HOST_LD_LIBRARY_PATH",
+                            original,
+                        );
+                    }
+                },
+                || {
+                    let mut sync = std::process::Command::new("xdg-open");
+                    scrub_appimage_env(&mut sync);
+                    let mut asynchronous = tokio::process::Command::new("java");
+                    scrub_appimage_env_async(&mut asynchronous);
+                    for command in [&sync, asynchronous.as_std()] {
+                        let env = child_env(command);
+                        assert_eq!(
+                            env["LD_LIBRARY_PATH"].as_deref(),
+                            original.map(OsStr::new)
+                        );
+                        assert_eq!(
+                            env.get("OWYX_SYSTEM_RUNTIME_ACTIVE"),
+                            Some(&None)
+                        );
+                        assert_eq!(
+                            env.get("OWYX_SYSTEM_RUNTIME_HOST_LD_LIBRARY_PATH"),
+                            Some(&None)
+                        );
+                    }
+                },
+            );
+        }
+        with_clean_env(
+            || unsafe {
+                std::env::set_var("APPIMAGE", "/tmp/owyx.AppImage");
+                std::env::set_var("OWYX_SYSTEM_RUNTIME_ACTIVE", "1");
+                std::env::set_var("LD_LIBRARY_PATH", "/usr/lib");
+            },
+            || {
+                let mut command = std::process::Command::new("xdg-open");
+                scrub_appimage_env(&mut command);
+                assert_eq!(
+                    child_env(&command).get("LD_LIBRARY_PATH"),
+                    Some(&None)
+                );
+            },
+        );
     }
 
     #[test]

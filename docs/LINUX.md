@@ -30,7 +30,7 @@ try the system runtime:
 OWYX_LINUX_RUNTIME=system ./Owyx.AppImage
 ```
 
-To keep this choice across normal launches and automatic updates:
+To save this choice for subsequent launches:
 
 ```sh
 mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/Owyx"
@@ -38,16 +38,23 @@ printf '%s\n' system > "${XDG_CONFIG_HOME:-$HOME/.config}/Owyx/linux-runtime"
 ```
 
 The runtime file accepts `system` or `bundled`; `OWYX_LINUX_RUNTIME` takes
-precedence. Remove the file or use `OWYX_LINUX_RUNTIME=bundled` to return to
+precedence. Invalid values print a warning and use bundled libraries. Remove
+the file or use `OWYX_LINUX_RUNTIME=bundled` to return to
 the default. Owyx checks that its dependencies resolve outside the AppImage
 before switching; missing or incompatible libraries keep the bundled runtime
-and print a diagnostic to the terminal. A dependency check cannot guarantee
+and print the missing or bundled library paths to the terminal. Dependencies
+beyond WebKit/GTK may also need system packages. A dependency check cannot guarantee
 that a particular GPU driver renders correctly, so retain the bundled override
 as a recovery option. Native packages already use system libraries.
 
-This mode uses the same signed AppImage and preserves its updater path. No
-personal build, cache deletion, or profile reset is needed. It takes effect
-on the next launch. The graphics mode below is a separate setting.
+This setting lives outside the AppImage and takes effect on the next launch.
+Local restart tests confirmed that the runtime choice is reapplied and the
+original AppImage path is retained. A real signed update between versions in
+system mode remains to be tested; update compatibility is not yet verified.
+No personal build, cache deletion, or profile reset is needed. The graphics
+mode below is a separate setting: changing runtime libraries preserves the
+backend choice, including the AppImage hook's X11 default outside the
+NVIDIA/Wayland case.
 
 ## Wayland, NVIDIA, and blank windows
 
