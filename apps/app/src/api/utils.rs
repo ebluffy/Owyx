@@ -711,33 +711,9 @@ pub(crate) fn sanitize_auth_log_error(
     sanitized
 }
 
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 pub(crate) fn scrub_appimage_env(cmd: &mut std::process::Command) {
-    let vars = [
-        ("LD_LIBRARY_PATH", "OLD_LD_LIBRARY_PATH"),
-        ("LD_PRELOAD", "OLD_LD_PRELOAD"),
-        ("GTK_PATH", "OLD_GTK_PATH"),
-        ("GTK_EXE_PREFIX", "OLD_GTK_EXE_PREFIX"),
-        ("GIO_MODULE_DIR", "OLD_GIO_MODULE_DIR"),
-        ("GIO_EXTRA_MODULES", "OLD_GIO_EXTRA_MODULES"),
-    ];
-    let in_appimage = std::env::var_os("APPIMAGE").is_some()
-        || std::env::var_os("APPDIR").is_some()
-        || vars.iter().any(|(_, old)| std::env::var_os(old).is_some());
-    if in_appimage {
-        // AppImage sets APPIMAGE and APPDIR. They must not leak into the
-        // launched process: xdg-open / the browser would inherit the mount
-        // paths and may fail silently (issue #169).
-        cmd.env_remove("APPIMAGE");
-        cmd.env_remove("APPDIR");
-        for (name, old_name) in vars {
-            if let Some(value) = std::env::var_os(old_name) {
-                cmd.env(name, value);
-            } else {
-                cmd.env_remove(name);
-            }
-        }
-    }
+    theseus::scrub_appimage_env(cmd);
 }
 
 #[cfg(target_os = "linux")]
@@ -1177,37 +1153,88 @@ pub async fn should_disable_mouseover() -> bool {
 pub async fn highlight_in_folder<R: Runtime>(
     app: tauri::AppHandle<R>,
     path: PathBuf,
-) {
+) -> Result<()> {
+    let reveal_target = path.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) = app.opener().reveal_item_in_dir(path) {
-            tracing::error!("Failed to highlight file in folder: {}", e);
-        }
-    })
-    .await
-    .ok();
-}
-
-#[tauri::command]
-pub async fn open_path<R: Runtime>(app: tauri::AppHandle<R>, path: PathBuf) {
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Err(e) =
-            app.opener().open_path(path.to_string_lossy(), None::<&str>)
+        // The portal opener can report success without revealing anything on
+        // Linux AppImages (the AppImage mount env leaks into the portal
+        // daemon); the scrubbed xdg-open is tried first (issue #171/B4).
+        #[cfg(target_os = "linux")]
         {
-            tracing::error!("Failed to open path: {}", e);
+            let dir = reveal_target
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_else(|| reveal_target.clone());
+            if launch_linux_xdg_open(&dir.to_string_lossy()).is_ok() {
+                return Ok(());
+            }
         }
+        app.opener().reveal_item_in_dir(reveal_target).map_err(|e| {
+            tracing::error!("Failed to highlight file in folder: {e}");
+            TheseusSerializableError::Theseus(
+                theseus::ErrorKind::OtherError(format!(
+                    "Failed to open folder: {e}"
+                ))
+                .into(),
+            )
+        })
     })
     .await
-    .ok();
+    .map_err(|e| {
+        TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(format!(
+                "Failed to highlight file in folder: {e}"
+            ))
+            .into(),
+        )
+    })?
 }
 
 #[tauri::command]
-pub async fn show_launcher_logs_folder<R: Runtime>(app: tauri::AppHandle<R>) {
+pub async fn open_path<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    path: PathBuf,
+) -> Result<()> {
+    let open_target = path.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "linux")]
+        {
+            if launch_linux_xdg_open(&open_target.to_string_lossy()).is_ok() {
+                return Ok(());
+            }
+        }
+        app.opener()
+            .open_path(open_target.to_string_lossy(), None::<&str>)
+            .map_err(|e| {
+                tracing::error!("Failed to open path: {e}");
+                TheseusSerializableError::Theseus(
+                    theseus::ErrorKind::OtherError(format!(
+                        "Failed to open path: {e}"
+                    ))
+                    .into(),
+                )
+            })
+    })
+    .await
+    .map_err(|e| {
+        TheseusSerializableError::Theseus(
+            theseus::ErrorKind::OtherError(format!("Failed to open path: {e}"))
+                .into(),
+        )
+    })?
+}
+
+#[tauri::command]
+pub async fn show_launcher_logs_folder<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<()> {
     if let Some(d) = DirectoryInfo::global_handle_if_ready() {
         let path = d.launcher_logs_dir().unwrap_or_default();
         // failure to get folder just opens filesystem
         // (ie: if in debug mode only and launcher_logs never created)
-        open_path(app, path).await;
+        return open_path(app, path).await;
     }
+    Ok(())
 }
 
 const OWYX_DIAG_LOG_FILES: usize = 6;
@@ -1319,8 +1346,7 @@ pub async fn show_app_db_backups_folder<R: Runtime>(
 ) -> Result<()> {
     let path = app_db_backup_dir()?;
     tokio::fs::create_dir_all(&path).await?;
-    open_path(app, path).await;
-    Ok(())
+    open_path(app, path).await
 }
 
 // Get opening command
@@ -1440,6 +1466,7 @@ mod owyx_sha256_tests {
 mod owyx_browser_auth_tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     static APPIMAGE_ENV_TEST_LOCK: std::sync::Mutex<()> =
         std::sync::Mutex::new(());
 
@@ -1529,6 +1556,7 @@ mod owyx_browser_auth_tests {
         assert!(sanitized_standalone.contains("[REDACTED_STATE]"));
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_scrub_appimage_env_restores_clean_loader_environment() {
         const VARS: [&str; 15] = [
@@ -1612,6 +1640,7 @@ mod owyx_browser_auth_tests {
         }
     }
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_scrub_appimage_env_noop_outside_appimage() {
         const VARS: [&str; 15] = [

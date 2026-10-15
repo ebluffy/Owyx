@@ -6,8 +6,10 @@
 import type { Labrinth } from '@modrinth/api-client'
 import type { ContentItem, ContentOwner } from '@modrinth/ui'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { reactive } from 'vue'
 
 import type { InstallJobSnapshot, SharedInstanceUpdateDiff } from './install'
+import { createInstanceLauncher } from './instance-launch'
 import { tauriInvokeError } from './tauri-invoke-error'
 import type {
 	CacheBehaviour,
@@ -625,12 +627,13 @@ export async function get_pack_export_candidates(
 
 // Run Minecraft using an instance
 // Returns PID of child
-export async function run(
-	instanceId: string,
-	serverAddress: string | null = null,
-): Promise<unknown> {
-	return await invoke('plugin:instance|instance_run', { instanceId, serverAddress })
-}
+export const startingInstances = reactive(new Set<string>())
+export const run = createInstanceLauncher(
+	(instanceId, serverAddress) =>
+		invoke('plugin:instance|instance_run', { instanceId, serverAddress }),
+	startingInstances,
+)
+export const trackInstanceLaunch = run.track
 
 export async function kill(instanceId: string): Promise<void> {
 	return await invoke('plugin:instance|instance_kill', { instanceId })

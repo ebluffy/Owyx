@@ -314,6 +314,10 @@ tauri-runtime = { git = "https://github.com/tauri-apps/tauri", rev = "7cc68e74ff
 tauri-runtime-wry = { git = "https://github.com/tauri-apps/tauri", rev = "7cc68e74ff6981f5c50a52a67d56c5eb2d227188" }
 tauri-utils = { git = "https://github.com/tauri-apps/tauri", rev = "7cc68e74ff6981f5c50a52a67d56c5eb2d227188" }
 
+# Unoptimized SHA-512 makes checking large instances dominate debug launch time.
+[profile.dev.package.sha2]
+opt-level = 3
+
 [profile.dev.package.sqlx-macros]
 opt-level = 3
 

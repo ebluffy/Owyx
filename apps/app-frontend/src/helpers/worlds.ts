@@ -4,7 +4,7 @@ import { invoke } from '@tauri-apps/api/core'
 import dayjs from 'dayjs'
 
 import type { InstancePayload } from '@/generated/app-events/InstancePayload'
-import { get_full_path } from '@/helpers/instance'
+import { get_full_path, trackInstanceLaunch } from '@/helpers/instance'
 import { openPath } from '@/helpers/utils'
 
 type BaseWorld = {
@@ -210,11 +210,15 @@ export async function start_join_singleplayer_world(
 	instanceId: string,
 	world: string,
 ): Promise<unknown> {
-	return await invoke('plugin:worlds|start_join_singleplayer_world', { instanceId, world })
+	return await trackInstanceLaunch(instanceId, () =>
+		invoke('plugin:worlds|start_join_singleplayer_world', { instanceId, world }),
+	)
 }
 
 export async function start_join_server(instanceId: string, address: string): Promise<unknown> {
-	return await invoke('plugin:worlds|start_join_server', { instanceId, address })
+	return await trackInstanceLaunch(instanceId, () =>
+		invoke('plugin:worlds|start_join_server', { instanceId, address }),
+	)
 }
 
 export async function showWorldInFolder(instanceId: string, worldPath: string) {

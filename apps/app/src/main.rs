@@ -13,6 +13,9 @@ use theseus::prelude::*;
 
 mod api;
 
+#[cfg(target_os = "linux")]
+mod linux_graphics;
+
 #[cfg(target_os = "macos")]
 mod macos;
 
@@ -126,6 +129,10 @@ async fn set_restart_after_pending_update(
 // if Tauri app is called with arguments, then those arguments will be treated as commands
 // ie: deep links or filepaths for .mrpacks
 fn main() {
+    // GTK reads these variables during initialization, before creating a window.
+    #[cfg(target_os = "linux")]
+    linux_graphics::configure();
+
     #[cfg(feature = "export-app-events")]
     theseus::export_app_event_bindings(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))

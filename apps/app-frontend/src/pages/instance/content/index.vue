@@ -1504,7 +1504,7 @@ function getOverflowOptions(item: ContentItem): ButtonMenuOption[] {
 		id: 'show-file',
 		label: formatMessage(commonMessages.showFileButton),
 		icon: FolderOpenIcon,
-		action: () => highlightModInInstance(instance.value.id, item.file_path),
+		action: () => highlightModInInstance(instance.value.id, item.file_path).catch(handleError),
 	})
 
 	if (item.project?.slug) {

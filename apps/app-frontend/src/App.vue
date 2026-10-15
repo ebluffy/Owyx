@@ -118,6 +118,7 @@ import {
 	set_global_synced_option,
 } from '@/helpers/instance'
 import { maxMemoryQueryOptions } from '@/helpers/jre.js'
+import { createModalHolds } from '@/helpers/modal-holds'
 import { get as getCreds, login, removeUser } from '@/helpers/mr_auth.ts'
 import { resolveOwyxAvatarUrl } from '@/helpers/owyx-avatar'
 import {
@@ -431,10 +432,21 @@ providePageContext({
 	},
 	openExternalUrl: (url) => void openUrl(url),
 })
+const SCROLL_LOCK_CLASS = 'owyx-modal-open'
+const modalHolds = createModalHolds(
+	() => {
+		take_ads_window_hold()
+		document.documentElement.classList.add(SCROLL_LOCK_CLASS)
+	},
+	() => {
+		release_ads_window_hold()
+		document.documentElement.classList.remove(SCROLL_LOCK_CLASS)
+	},
+)
+
 provideModalBehavior({
 	noblur: computed(() => !appTheme.advancedRendering),
-	onShow: () => take_ads_window_hold(),
-	onHide: () => release_ads_window_hold(),
+	...modalHolds,
 })
 
 const creationIconEditorModal = ref(null)
@@ -459,6 +471,7 @@ const {
 	notificationManager,
 	popupNotificationManager,
 	appEvents,
+	modalHolds,
 	(iconPath) =>
 		creationGeneratedIcon.value?.path === iconPath ? creationGeneratedIcon.value.config : null,
 )
@@ -1436,20 +1449,6 @@ async function refreshOwyxSiteSession() {
 	const fresh = await fetchOwyxSiteMe(cached.token)
 	owyxSiteSession.value = fresh
 	if (fresh?.token) {
-		try {
-			const { getOwyxSocialSettings } = await import('@/helpers/owyx-friends')
-			const social = await getOwyxSocialSettings()
-			setOwyxSharePresenceEnabled(social.sharePresence)
-		} catch {
-			// Fail closed: unknown privacy → offline, no heartbeat resume.
-			setOwyxSharePresenceEnabled(false)
-		}
-		try {
-			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')
-			await markLoggedIntoOwyxSite()
-		} catch {
-			/* checklist mark is best-effort */
-		}
 		// Sync unique login nickname → offline play profile (display nick is label-only)
 		const nick = fresh.user?.nickname?.trim() ?? ''
 		const nickOk = /^[A-Za-z0-9_]{3,16}$/.test(nick)
@@ -1502,6 +1501,20 @@ async function refreshOwyxSiteSession() {
 			} catch (e) {
 				console.warn('Could not sync Owyx login nickname to play profile', e)
 			}
+		}
+		await accounts.value?.refreshAccounts()
+		try {
+			const { getOwyxSocialSettings } = await import('@/helpers/owyx-friends')
+			const social = await getOwyxSocialSettings()
+			setOwyxSharePresenceEnabled(social.sharePresence)
+		} catch {
+			// Retain the confirmed preference; initial/sign-out state is already disabled.
+		}
+		try {
+			const { markLoggedIntoOwyxSite } = await import('@/helpers/onboarding-checklist')
+			await markLoggedIntoOwyxSite()
+		} catch {
+			/* checklist mark is best-effort */
 		}
 	} else {
 		stopOwyxPresenceHeartbeat()
@@ -2746,6 +2759,13 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 	--os-handle-bg: var(--color-scrollbar) !important;
 	--os-handle-bg-hover: var(--color-scrollbar) !important;
 	--os-handle-bg-active: var(--color-scrollbar) !important;
+}
+
+/* Teleported dialogs keep their own scrollbars; hide the underlying app tracks. */
+.owyx-modal-open .app-grid-layout .os-scrollbar {
+	opacity: 0 !important;
+	visibility: hidden !important;
+	pointer-events: none !important;
 }
 
 .app-grid-statusbar {

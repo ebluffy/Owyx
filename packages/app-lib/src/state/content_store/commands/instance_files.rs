@@ -102,8 +102,9 @@ impl ContentStore {
             let content = self
                 .file_content_with_binding(&file, binding.clone())
                 .await?;
-            let file_status =
-                self.check_instance_file(instance, &file, &binding).await?;
+            let file_status = self
+                .check_instance_file_cached(instance, &file, &binding)
+                .await?;
             if file_status == InstanceFileStatus::Missing {
                 // A file removed outside the launcher is already reflected by the
                 // instance sync; do not block launch on a stale content-store row.

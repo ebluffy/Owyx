@@ -28,6 +28,10 @@ pub use event::{
 };
 pub use logger::start_logger;
 pub use state::State;
+#[cfg(any(target_os = "linux", test))]
+pub use util::appimage_env::{
+    appimage_env_overrides, scrub_appimage_env, scrub_appimage_env_async,
+};
 pub use util::fetch::DownloadReason;
 
 pub fn launcher_user_agent() -> String {

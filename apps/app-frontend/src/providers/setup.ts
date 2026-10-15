@@ -1,6 +1,7 @@
 import type { AbstractModrinthClient } from '@modrinth/api-client'
 import type { AbstractPopupNotificationManager, AbstractWebNotificationManager } from '@modrinth/ui'
 
+import type { createModalHolds } from '@/helpers/modal-holds'
 import type { InstanceIconConfig } from '@/helpers/types'
 
 import type { AppEvents } from './app-events'
@@ -18,13 +19,14 @@ export function setupProviders(
 	notificationManager: AbstractWebNotificationManager,
 	_popupNotificationManager: AbstractPopupNotificationManager,
 	appEvents: AppEvents,
+	modalHolds: ReturnType<typeof createModalHolds>,
 	getGeneratedIconConfig?: (iconPath: string) => InstanceIconConfig | null,
 ) {
 	setupUserCountryProvider(client)
 	const tags = setupTagsProvider(notificationManager)
 	setupFileDropProvider()
 	setupFilePickerProvider()
-	setupImageViewerEditorProvider()
+	setupImageViewerEditorProvider(modalHolds)
 	setupInstanceImportProvider(notificationManager)
 	const onboardingChecklist = setupOnboardingChecklistProvider(appEvents)
 

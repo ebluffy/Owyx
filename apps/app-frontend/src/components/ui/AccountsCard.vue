@@ -186,7 +186,7 @@ import {
 	useVIntl,
 } from '@modrinth/ui'
 import type { Ref } from 'vue'
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 import ModalWrapper from '@/components/ui/modal/ModalWrapper.vue'
 import { useAppEvent } from '@/composables/use-app-event'
@@ -201,6 +201,7 @@ import {
 	users,
 } from '@/helpers/auth'
 import { resolveOwyxAvatarUrl } from '@/helpers/owyx-avatar'
+import { createOwyxPlayProfileSeeder } from '@/helpers/owyx-play-profile'
 import { updateOwyxDisplayNickname } from '@/helpers/owyx-site-auth'
 import { getPlayerHeadUrl } from '@/helpers/rendering/player-head'
 import type { Skin } from '@/helpers/skins'
@@ -279,12 +280,15 @@ onUnmounted(() => {
 	if (equippedHeadUrl.value) URL.revokeObjectURL(equippedHeadUrl.value)
 })
 
-async function refreshValues() {
+async function refreshAccounts() {
 	defaultUser.value = await get_default_user().catch(handleError)
 	const userList = await users().catch(handleError)
 	accounts.value = Array.isArray(userList) ? [...userList] : []
 	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
+}
 
+async function refreshValues() {
+	await refreshAccounts()
 	try {
 		const skins = await get_available_skins()
 		equippedSkin.value = skins.find((skin) => skin.is_equipped) ?? null
@@ -311,6 +315,7 @@ function setLoginDisabled(value: boolean) {
 }
 
 defineExpose({
+	refreshAccounts,
 	refreshValues,
 	setEquippedSkin,
 	setLoginDisabled,
@@ -406,14 +411,7 @@ async function signInOwyxSite() {
 			handleError(new Error(formatMessage(messages.owyxNickTooLong)))
 			return
 		}
-		const makeActive = accounts.value.length === 0
-		const loggedIn = await login_offline_flow(nick, makeActive).catch(handleSevereError)
-		if (loggedIn && makeActive) {
-			await setAccount(loggedIn)
-		} else {
-			await refreshValues()
-			emit('change')
-		}
+		await seedOwyxPlayProfile(true)
 		trackEvent('AccountLogInOwyxSite')
 	} catch (e) {
 		handleError(e)
@@ -456,28 +454,50 @@ async function saveDisplayNick() {
 }
 
 async function logout(id: string) {
-	await remove_user(id).catch(handleError)
+	const account = accounts.value.find((account) => account.profile.id === id)
+	try {
+		if (isOwyxPlayAccount(account)) await owyxSite.signOut()
+		await remove_user(id)
+	} catch (error) {
+		handleError(error)
+		return
+	}
 	await refreshValues()
 	if (!selectedAccount.value && accounts.value.length > 0) {
 		await setAccount(accounts.value[0])
 	} else if (accounts.value.length === 0) {
 		// Removing the last Microsoft account must not leave the sidebar dead —
 		// re-seed an Owyx offline profile from the unique login nick when signed in.
-		const nick = siteLoginNick()
-		if (nick && /^[A-Za-z0-9_]{3,16}$/.test(nick)) {
-			try {
-				await login_offline_flow(nick, true)
-				await refreshValues()
-			} catch (e) {
-				console.warn('Could not restore Owyx offline profile after Microsoft logout', e)
-			}
-		}
+		await seedOwyxPlayProfile()
 		emit('change')
 	} else {
 		emit('change')
 	}
 	trackEvent('AccountLogOut')
 }
+
+const seedOwyxPlayProfile = createOwyxPlayProfileSeeder<MinecraftCredential>({
+	accounts: () => accounts.value,
+	nickname: siteLoginNick,
+	login: login_offline_flow,
+	activate: setAccount,
+	added: async () => {
+		await refreshValues()
+		emit('change')
+	},
+	onError: handleError,
+})
+
+// The panel is a sibling of the account modal: a successful modal sign-in
+// refreshes the site session in App.vue, and this watch reacts to it. `immediate`
+// covers a session that was already restored before the panel mounted.
+watch(
+	() => owyxSite.isSignedIn.value,
+	async (signedIn) => {
+		if (signedIn) await seedOwyxPlayProfile()
+	},
+	{ immediate: true },
+)
 
 useAppEvent('process', async (e) => {
 	if (e.event === 'launched') {
