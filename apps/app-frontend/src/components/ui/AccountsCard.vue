@@ -281,11 +281,8 @@ onUnmounted(() => {
 })
 
 async function refreshAccounts() {
-	const [defaultId, userList] = await Promise.all([
-		get_default_user().catch(handleError),
-		users().catch(handleError),
-	])
-	defaultUser.value = defaultId
+	defaultUser.value = await get_default_user().catch(handleError)
+	const userList = await users().catch(handleError)
 	accounts.value = Array.isArray(userList) ? [...userList] : []
 	accounts.value.sort((a, b) => (a.profile?.name ?? '').localeCompare(b.profile?.name ?? ''))
 }
