@@ -55,7 +55,7 @@ fn has_nvidia_driver() -> bool {
     })
 }
 
-// Called first in main, before GTK or any application threads are started.
+// Called before GTK or any application threads are started.
 pub fn configure() {
     let config = dirs::config_dir().and_then(|dir| {
         fs::read_to_string(dir.join("Owyx/linux-graphics")).ok()
@@ -77,7 +77,7 @@ pub fn configure() {
         // Keep user-supplied renderer workarounds; GDK_BACKEND may instead have
         // been supplied by the bundled GTK hook, so our selected mode wins.
         if key == "GDK_BACKEND" || env::var_os(key).is_none() {
-            // SAFETY: configure is the first operation in the single-threaded main.
+            // SAFETY: main has not initialized GTK or application threads yet.
             unsafe { env::set_var(key, value) };
         }
     }

@@ -15,6 +15,40 @@ builds on Ubuntu 22.04; this does not guarantee compatibility with every Linux
 distribution or graphics driver. Test published release artifacts on the target
 system before recommending them broadly.
 
+## System WebKit/GTK on rolling distributions
+
+The AppImage bundles WebKit/GTK for compatibility with older distributions.
+On CachyOS/KDE with NVIDIA, the same 0.12.5 executable scrolled a catalog at
+about 30 FPS with bundled libraries and 60 FPS with system libraries. This is
+one measured setup, not a guarantee for other drivers or distributions.
+
+If native Wayland still stutters, install your distribution's WebKitGTK 4.1
+and GTK 3 runtime packages (on Arch/CachyOS: `webkit2gtk-4.1` and `gtk3`), then
+try the system runtime:
+
+```sh
+OWYX_LINUX_RUNTIME=system ./Owyx.AppImage
+```
+
+To keep this choice across normal launches and automatic updates:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/Owyx"
+printf '%s\n' system > "${XDG_CONFIG_HOME:-$HOME/.config}/Owyx/linux-runtime"
+```
+
+The runtime file accepts `system` or `bundled`; `OWYX_LINUX_RUNTIME` takes
+precedence. Remove the file or use `OWYX_LINUX_RUNTIME=bundled` to return to
+the default. Owyx checks that its dependencies resolve outside the AppImage
+before switching; missing or incompatible libraries keep the bundled runtime
+and print a diagnostic to the terminal. A dependency check cannot guarantee
+that a particular GPU driver renders correctly, so retain the bundled override
+as a recovery option. Native packages already use system libraries.
+
+This mode uses the same signed AppImage and preserves its updater path. No
+personal build, cache deletion, or profile reset is needed. It takes effect
+on the next launch. The graphics mode below is a separate setting.
+
 ## Wayland, NVIDIA, and blank windows
 
 Owyx chooses native Wayland when a Wayland session and an NVIDIA driver/device
